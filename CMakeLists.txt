@@ -16,7 +16,7 @@ foreach(eval_src ${eval_sources})
     get_filename_component(eval_name ${eval_src} NAME_WE)  # filename without extension
 
     add_executable(${eval_name} ${eval_src})
-    target_link_libraries(${eval_name} GTSAM::gtsam CppUnitLite)
+    target_link_libraries(${eval_name} GTSAM::gtsam CppUnitLite::CppUnitLite)
 
     # Register with CTest
     add_test(NAME ${eval_name} COMMAND ${eval_name})

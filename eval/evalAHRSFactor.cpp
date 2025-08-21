@@ -63,7 +63,7 @@ TEST(AHRSFactor, Accelerating) {
 
 /* ************************************************************************* */
 TEST(AHRSFactor, EurocDataEasy) {
-  const string data_path = ".\\data\\euroc\\euroc_MH01.csv";
+  const string data_path = "./data/euroc/euroc_MH01.csv";
 
   const DiscreteScenario scenario = DiscreteScenario::FromCSV(data_path);
 
@@ -78,7 +78,7 @@ TEST(AHRSFactor, EurocDataEasy) {
 
 /* ************************************************************************* */
 TEST(AHRSFactor, EurocDataHard) {
-  const string data_path = ".\\data\\euroc\\euroc_V202.csv";
+  const string data_path = "./data/euroc/euroc_V202.csv";
 
   const DiscreteScenario scenario = DiscreteScenario::FromCSV(data_path);
 
