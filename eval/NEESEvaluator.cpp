@@ -124,10 +124,16 @@ void NEESEvaluator::printNeesStatistics(const std::vector<double>& nees_results,
 }
 
 NEESEvaluator::GTData NEESEvaluator::loadEurocData(const std::string& filename) {
-    GTData data;
     std::ifstream file(filename);
+    if (!file.is_open()) {
+        throw std::runtime_error("Could not open file: " + filename);
+    }
+
+    GTData data;
     std::string line;
-    std::getline(file, line);  // Skip header
+    if (!std::getline(file, line)) {
+        throw std::runtime_error("Empty file: " + filename);
+    }
 
     double t0 = 0;
     bool first = true;

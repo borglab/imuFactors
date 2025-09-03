@@ -34,19 +34,15 @@ using namespace gtsam;
 
 /* ************************************************************************* */
 TEST(ImuFactor, NEES) {
-    NEESEvaluator evaluator;
-    vector<double> preint_times = {0.1, 0.2, 0.5, 1.0};
-    
-    const string data_path = "../eval/data/euroc/euroc_V202.csv";
-    
-    ifstream test_file(data_path);
-    if (!test_file.is_open()) {
-        cerr << "Error: Cannot find test data file at: " << data_path << endl;
-        return;
+    try {
+        NEESEvaluator evaluator;
+        vector<double> preint_times = {0.1, 0.2, 0.5, 1.0};
+        const string data_path = "../eval/data/euroc/euroc_V202.csv";
+        
+        evaluator.evaluateNEES(data_path, preint_times, 3.0);  // alpha = 3
+    } catch (const exception& e) {
+        FAIL(e.what());
     }
-    test_file.close();
-    
-    evaluator.evaluateNEES(data_path, preint_times, 3.0);  // alpha = 3
 }
 
 /* ************************************************************************* */
