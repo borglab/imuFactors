@@ -73,14 +73,5 @@ private:
     std::vector<StateMeasurement> states_;
     std::vector<ImuMeasurement> imuData_;
     const double gravity_ = 9.81;
-
-    void validateFile(std::ifstream& file, const std::string& filename) const;
-    std::vector<double> parseLine(const std::string& line) const;
-    NavState parseNavState(const std::vector<double>& row) const;
-    imuBias::ConstantBias parseBias(const std::vector<double>& row) const;
-    ImuMeasurement parseImuData(double timestamp, const std::vector<double>& row) const;
-    StateMeasurement parseStateMeasurement(double timestamp, const std::vector<double>& row) const;
-    void loadData(std::ifstream& file);
 };
-
 } // namespace gtsam

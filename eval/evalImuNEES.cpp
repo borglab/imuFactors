@@ -42,7 +42,9 @@ TEST(ImuFactor, NEES) {
         // Test multiple preintegration intervals
         vector<double> intervals = {0.1, 0.2, 0.5, 1.0};
         for (double interval : intervals) {
-            evaluator.run(interval, 3.0);  // alpha = 3
+            auto results = evaluator.run(interval, 3.0);  // alpha = 3
+            NEESEvaluator::printNeesStatistics(results);
+            EXPECT(!results.neesValues.empty());
         }
     } catch (const exception& e) {
         FAIL(e.what());

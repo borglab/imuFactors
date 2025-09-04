@@ -19,7 +19,8 @@
 
 namespace gtsam {
 
-NEESEvaluator::NoiseParams NEESEvaluator::computeNoiseParams(double alpha) {
+NEESEvaluator::NoiseParams NEESEvaluator::computeNoiseParams(double alpha) const {
+    // Dataset-dependent noise parameters - could be extended to analyze actual dataset statistics
     return {
         alpha * 1.6968e-4,  // sigmaGyro
         alpha * 2.0000e-3,  // sigmaAcc
@@ -29,7 +30,7 @@ NEESEvaluator::NoiseParams NEESEvaluator::computeNoiseParams(double alpha) {
 }
 
 void NEESEvaluator::setImuCovariances(const std::shared_ptr<PreintegrationCombinedParams>& params, 
-                                     const NoiseParams& noise) {
+                                     const NoiseParams& noise) const {
     params->setGyroscopeCovariance(Matrix3::Identity() * pow(noise.sigmaGyro, 2));
     params->setAccelerometerCovariance(Matrix3::Identity() * pow(noise.sigmaAcc, 2));
     params->setIntegrationCovariance(Matrix3::Zero());
@@ -37,7 +38,7 @@ void NEESEvaluator::setImuCovariances(const std::shared_ptr<PreintegrationCombin
     params->setBiasOmegaCovariance(Matrix3::Identity() * pow(noise.sigmaGyroBias, 2));
 }
 
-std::shared_ptr<PreintegrationCombinedParams> NEESEvaluator::configureImuParams(double alpha) {
+std::shared_ptr<PreintegrationCombinedParams> NEESEvaluator::configureImuParams(double alpha) const {
     auto params = PreintegrationCombinedParams::MakeSharedD(dataset_.getGravity());
     params->n_gravity = Vector3(0, 0, -dataset_.getGravity());
     setImuCovariances(params, computeNoiseParams(alpha));
@@ -47,14 +48,14 @@ std::shared_ptr<PreintegrationCombinedParams> NEESEvaluator::configureImuParams(
 Vector NEESEvaluator::computeError(const NavState& predicted, 
                                  const NavState& actual,
                                  const imuBias::ConstantBias& biasPred,
-                                 const imuBias::ConstantBias& biasActual) {
+                                 const imuBias::ConstantBias& biasActual) const {
     Vector15 error;
     error << predicted.localCoordinates(actual),
              biasActual.vector() - biasPred.vector();
     return error;
 }
 
-std::optional<double> NEESEvaluator::computeNEES(const Vector& error, const Matrix& covMatrix) {
+std::optional<double> NEESEvaluator::computeNEES(const Vector& error, const Matrix& covMatrix) const {
     try {
         return (error.transpose() * covMatrix.inverse() * error)(0,0) / 15.0;
     } catch (...) {
@@ -62,17 +63,16 @@ std::optional<double> NEESEvaluator::computeNEES(const Vector& error, const Matr
     }
 }
 
-bool NEESEvaluator::isValidWindow(const Dataset& data, int startIdx, int endIdx) {
-    return endIdx <= data.getStates().size() && endIdx <= data.getImuData().size();
+bool NEESEvaluator::isValidWindow(int startIdx, int endIdx) const {
+    return endIdx <= dataset_.getStates().size() && endIdx <= dataset_.getImuData().size();
 }
 
-std::optional<double> NEESEvaluator::calculateWindowNEES(const Dataset& data, 
-                                                       const std::shared_ptr<PreintegrationCombinedParams>& params,
-                                                       int startIdx, int endIdx, double dt) {
-    if (!isValidWindow(data, startIdx, endIdx)) return std::nullopt;
+std::optional<double> NEESEvaluator::calculateWindowNEES(const std::shared_ptr<PreintegrationCombinedParams>& params,
+                                                       int startIdx, int endIdx, double dt) const {
+    if (!isValidWindow(startIdx, endIdx)) return std::nullopt;
     
-    const auto& states = data.getStates();
-    const auto& imuData = data.getImuData();
+    const auto& states = dataset_.getStates();
+    const auto& imuData = dataset_.getImuData();
     
     PreintegratedCombinedMeasurements pim(params, states[startIdx].bias);
     
@@ -86,31 +86,28 @@ std::optional<double> NEESEvaluator::calculateWindowNEES(const Dataset& data,
     return computeNEES(error, pim.preintMeasCov());
 }
 
-std::vector<double> NEESEvaluator::processTimeWindow(const Dataset& data,
-                                                   const std::shared_ptr<PreintegrationCombinedParams>& params,
-                                                   int windowCount, int windowSize, double dt) {
+std::vector<double> NEESEvaluator::processTimeWindow(const std::shared_ptr<PreintegrationCombinedParams>& params,
+                                                   int windowCount, int windowSize, double dt) const {
     std::vector<double> neesResults;
     for (int m = 0; m < windowCount; m++) {
-        auto nees = calculateWindowNEES(data, params, m*windowSize, 
-                                      std::min((m+1)*windowSize, (int)data.getStates().size()), dt);
+        auto nees = calculateWindowNEES(params, m*windowSize, 
+                                      std::min((m+1)*windowSize, (int)dataset_.getStates().size()), dt);
         if (nees) neesResults.push_back(*nees);
     }
     return neesResults;
 }
 
-void NEESEvaluator::processTimeWindow(const Dataset& data,
-                                    const std::shared_ptr<PreintegrationCombinedParams>& params,
-                                    double preintTime, double dt) {
-    std::cout << "\nAnalyzing with preintegration time: " << preintTime << " s\n";
-    const auto& states = data.getStates();
+NEESEvaluator::NEESResults NEESEvaluator::processTimeWindow(const std::shared_ptr<PreintegrationCombinedParams>& params,
+                                                          double preintTime, double dt) const {
+    const auto& states = dataset_.getStates();
     double totalTime = states.back().timestamp - states.front().timestamp;
     int windowCount = static_cast<int>(totalTime / preintTime);
     int windowSize = static_cast<int>(states.size() / windowCount);
-    auto results = processTimeWindow(data, params, windowCount, windowSize, dt);
-    printNeesStatistics(results, preintTime);
+    auto neesValues = processTimeWindow(params, windowCount, windowSize, dt);
+    return computeStatistics(neesValues, preintTime);
 }
 
-void NEESEvaluator::printNeesStatistics(const std::vector<double>& neesResults, double preintTime) {
+NEESEvaluator::NEESResults NEESEvaluator::computeStatistics(const std::vector<double>& neesResults, double preintTime) {
     if (neesResults.empty()) {
         throw std::runtime_error("No valid NEES results for preintegration time " + 
                                std::to_string(preintTime));
@@ -123,15 +120,20 @@ void NEESEvaluator::printNeesStatistics(const std::vector<double>& neesResults, 
     double median = sortedResults[sortedResults.size()/2];
     double variance = (neesVector.array() - mean).square().mean();
 
-    std::cout << "ANEES (15-DOF):    mean | median | variance\n"
-              << "--------------------------------------------\n"
-              << "Results:   " << mean << " | " << median << " | " << variance << "\n";
+    return {neesResults, mean, median, variance, preintTime};
 }
 
-void NEESEvaluator::run(double interval, double alpha) {
+void NEESEvaluator::printNeesStatistics(const NEESResults& results) {
+    std::cout << "\nAnalyzing with preintegration time: " << results.preintTime << " s\n";
+    std::cout << "ANEES (15-DOF):    mean | median | variance\n"
+              << "--------------------------------------------\n"
+              << "Results:   " << results.mean << " | " << results.median << " | " << results.variance << "\n";
+}
+
+NEESEvaluator::NEESResults NEESEvaluator::run(double interval, double alpha) const {
     auto params = configureImuParams(alpha);
     double dt = dataset_.getStates()[1].timestamp - dataset_.getStates()[0].timestamp;
-    processTimeWindow(dataset_, params, interval, dt);
+    return processTimeWindow(params, interval, dt);
 }
 
 } // namespace gtsam
