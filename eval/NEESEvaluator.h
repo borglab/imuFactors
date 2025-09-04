@@ -1,20 +1,10 @@
-#pragma once
-
-#include <gtsam/navigation/ImuFactor.h>
-#include <gtsam/navigation/CombinedImuFactor.h>
-#include <gtsam/navigation/PreintegrationCombinedParams.h>
-#include <optional>
-#include <vector>
-
 /* ----------------------------------------------------------------------------
-
  * GTSAM Copyright 2010, Georgia Tech Research Corporation,
  * Atlanta, Georgia 30332-0415
  * All Rights Reserved
  * Authors: Frank Dellaert, et al. (see THANKS for the full author list)
-
+ *
  * See LICENSE for the license information
-
  * -------------------------------------------------------------------------- */
 
 /**
@@ -23,73 +13,63 @@
  * @author  Alec Kain
  */
 
-namespace gtsam {
+#pragma once
 
-/**
- * @brief Evaluator for Normalized Estimation Error Squared (NEES) metrics
- * 
- * This class evaluates the NEES metric for IMU preintegration over different time windows.
- * It uses the EuRoC MAV dataset for ground truth and IMU measurements.
- * 
- * The NEES metric helps assess the consistency of the estimator by comparing
- * the predicted state with ground truth, normalized by the estimator's covariance.
- */
+#include "Dataset.h"
+#include <gtsam/navigation/PreintegrationCombinedParams.h>
+#include <gtsam/navigation/CombinedImuFactor.h>
+#include <optional>
+#include <vector>
+
+namespace gtsam {
 
 class NEESEvaluator {
 public:
+    /**
+     * @brief Parameters for IMU noise characteristics
+     */
     struct NoiseParams {
-        double sigma_gyro;
-        double sigma_acc;
-        double sigma_gyro_bias;
-        double sigma_acc_bias;
+        double sigmaGyro;      ///< Gyroscope noise standard deviation
+        double sigmaAcc;       ///< Accelerometer noise standard deviation
+        double sigmaGyroBias;  ///< Gyroscope bias random walk standard deviation
+        double sigmaAccBias;   ///< Accelerometer bias random walk standard deviation
     };
 
-    struct GTData {
-        std::vector<NavState> nav_states;
-        std::vector<imuBias::ConstantBias> biases;
-        std::vector<Vector3> measured_omegas;
-        std::vector<Vector3> measured_accs;
-        std::vector<double> timestamps;
-    };
-
-    void evaluateNEES(const std::string& filename, 
-                     const std::vector<double>& preint_times,
-                     double alpha = 3.0);
+    explicit NEESEvaluator(const Dataset& dataset) : dataset_(dataset) {}
+    void run(double interval, double alpha = 3.0);
 
 private:
-    const double kGravity = 9.81;
+    const Dataset& dataset_;
 
     NoiseParams computeNoiseParams(double alpha);
+    
     void setImuCovariances(const std::shared_ptr<PreintegrationCombinedParams>& params, 
                           const NoiseParams& noise);
+                          
     std::shared_ptr<PreintegrationCombinedParams> configureImuParams(double alpha);
-    void integrateWindow(PreintegratedCombinedMeasurements& pim,
-                        const GTData& data,
-                        int start_idx, int end_idx, double dt);
+    
     Vector computeError(const NavState& predicted, 
                        const NavState& actual,
-                       const imuBias::ConstantBias& bias_pred,
-                       const imuBias::ConstantBias& bias_actual);
-    std::optional<double> computeNEES(const Vector& error, const Matrix& P);
-    std::optional<double> calculateWindowNEES(const GTData& data, 
+                       const imuBias::ConstantBias& biasPred,
+                       const imuBias::ConstantBias& biasActual);
+                       
+    std::optional<double> computeNEES(const Vector& error, const Matrix& covMatrix);
+    
+    std::optional<double> calculateWindowNEES(const Dataset& data, 
                                             const std::shared_ptr<PreintegrationCombinedParams>& params,
-                                            int start_idx, int end_idx, double dt);
-    bool isValidWindow(const GTData& data, int start_idx, int end_idx);
-    std::optional<double> processWindow(PreintegratedCombinedMeasurements& pim,
-                                      const GTData& data,
-                                      int start_idx, int end_idx, double dt);
-    std::vector<double> processTimeWindow(const GTData& data,
+                                            int startIdx, int endIdx, double dt);
+                                            
+    bool isValidWindow(const Dataset& data, int startIdx, int endIdx);
+    
+    std::vector<double> processTimeWindow(const Dataset& data,
                                         const std::shared_ptr<PreintegrationCombinedParams>& params,
-                                        int M, int N, double dt);
-    void printNeesStatistics(const std::vector<double>& nees_results, double preint_time);
-    GTData loadEurocData(const std::string& filename);
-    void validateData(const GTData& data);
-    void processAllTimeWindows(const GTData& data, 
-                             const std::vector<double>& preint_times,
-                             double alpha);
-    void processTimeWindow(const GTData& data,
+                                        int windowCount, int windowSize, double dt);
+                                        
+    void processTimeWindow(const Dataset& data,
                           const std::shared_ptr<PreintegrationCombinedParams>& params,
-                          double preint_time, double dt);
+                          double preintTime, double dt);
+                          
+    void printNeesStatistics(const std::vector<double>& neesResults, double preintTime);
 };
 
 } // namespace gtsam

@@ -35,11 +35,15 @@ using namespace gtsam;
 /* ************************************************************************* */
 TEST(ImuFactor, NEES) {
     try {
-        NEESEvaluator evaluator;
-        vector<double> preint_times = {0.1, 0.2, 0.5, 1.0};
-        const string data_path = "../eval/data/euroc/euroc_V202.csv";
+        const string dataPath = "../eval/data/euroc/euroc_V202.csv";
+        auto dataset = Dataset(dataPath);
+        auto evaluator = NEESEvaluator(dataset);
         
-        evaluator.evaluateNEES(data_path, preint_times, 3.0);  // alpha = 3
+        // Test multiple preintegration intervals
+        vector<double> intervals = {0.1, 0.2, 0.5, 1.0};
+        for (double interval : intervals) {
+            evaluator.run(interval, 3.0);  // alpha = 3
+        }
     } catch (const exception& e) {
         FAIL(e.what());
     }
