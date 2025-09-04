@@ -36,6 +36,12 @@ public:
     };
 
     explicit NEESEvaluator(const Dataset& dataset) : dataset_(dataset) {}
+	
+	/**
+	 * Calculate NEES by chopping up dataset in small intervals.
+	 * @param intervalLength length of interval (seconds)
+	 * @param alpha "fudge" factor for noise parameters
+	 */
     void run(double interval, double alpha = 3.0);
 
 private:
