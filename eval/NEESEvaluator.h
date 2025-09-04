@@ -59,13 +59,7 @@ public:
 private:
     const Dataset& dataset_;
 
-    // Dataset-dependent noise parameters computation
-    NoiseParams computeNoiseParams(double alpha) const;
-    
-    void setImuCovariances(const std::shared_ptr<PreintegrationCombinedParams>& params, 
-                          const NoiseParams& noise) const;
-                          
-    std::shared_ptr<PreintegrationCombinedParams> configureImuParams(double alpha) const;
+    bool isValidWindow(int startIdx, int endIdx) const;
     
     Vector computeError(const NavState& predicted, 
                        const NavState& actual,
@@ -74,18 +68,23 @@ private:
                        
     std::optional<double> computeNEES(const Vector& error, const Matrix& covMatrix) const;
     
+    static NEESResults computeStatistics(const std::vector<double>& neesResults, double preintTime);
+    
+    NoiseParams computeNoiseParams(double alpha) const;
+    
+    void setImuCovariances(const std::shared_ptr<PreintegrationCombinedParams>& params, 
+                          const NoiseParams& noise) const;
+                          
+    std::shared_ptr<PreintegrationCombinedParams> configureImuParams(double alpha) const;
+    
     std::optional<double> calculateWindowNEES(const std::shared_ptr<PreintegrationCombinedParams>& params,
                                             int startIdx, int endIdx, double dt) const;
-                                            
-    bool isValidWindow(int startIdx, int endIdx) const;
     
     std::vector<double> processTimeWindow(const std::shared_ptr<PreintegrationCombinedParams>& params,
                                         int windowCount, int windowSize, double dt) const;
                                         
     NEESResults processTimeWindow(const std::shared_ptr<PreintegrationCombinedParams>& params,
                                 double preintTime, double dt) const;
-                          
-    static NEESResults computeStatistics(const std::vector<double>& neesResults, double preintTime);
 };
 
 } // namespace gtsam

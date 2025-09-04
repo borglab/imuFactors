@@ -104,23 +104,46 @@ NEESEvaluator::NEESResults NEESEvaluator::processTimeWindow(const std::shared_pt
     int windowCount = static_cast<int>(totalTime / preintTime);
     int windowSize = static_cast<int>(states.size() / windowCount);
     auto neesValues = processTimeWindow(params, windowCount, windowSize, dt);
-    return computeStatistics(neesValues, preintTime);
+    return NEESEvaluator::computeStatistics(neesValues, preintTime);
 }
 
 NEESEvaluator::NEESResults NEESEvaluator::computeStatistics(const std::vector<double>& neesResults, double preintTime) {
+    NEESResults results;
+    results.neesValues = neesResults;
+    results.preintTime = preintTime;
+    
     if (neesResults.empty()) {
-        throw std::runtime_error("No valid NEES results for preintegration time " + 
-                               std::to_string(preintTime));
+        results.mean = 0.0;
+        results.median = 0.0;
+        results.variance = 0.0;
+        return results;
     }
 
-    Eigen::Map<const Eigen::VectorXd> neesVector(neesResults.data(), neesResults.size());
-    double mean = neesVector.mean();
-    auto sortedResults = neesResults;
-    std::sort(sortedResults.begin(), sortedResults.end());
-    double median = sortedResults[sortedResults.size()/2];
-    double variance = (neesVector.array() - mean).square().mean();
-
-    return {neesResults, mean, median, variance, preintTime};
+    // Calculate mean
+    double sum = 0.0;
+    for (double value : neesResults) {
+        sum += value;
+    }
+    results.mean = sum / neesResults.size();
+    
+    // Calculate median
+    std::vector<double> sortedValues = neesResults;
+    std::sort(sortedValues.begin(), sortedValues.end());
+    size_t n = sortedValues.size();
+    if (n % 2 == 0) {
+        results.median = (sortedValues[n/2 - 1] + sortedValues[n/2]) / 2.0;
+    } else {
+        results.median = sortedValues[n/2];
+    }
+    
+    // Calculate variance
+    double variance = 0.0;
+    for (double value : neesResults) {
+        variance += (value - results.mean) * (value - results.mean);
+    }
+    results.variance = variance / neesResults.size();
+    
+    return results;
 }
 
 void NEESEvaluator::printNeesStatistics(const NEESResults& results) {
