@@ -16,8 +16,39 @@
 #include "Dataset.h"
 #include <fstream>
 #include <sstream>
+#include <cmath>
 
 namespace gtsam {
+
+// Helper functions ordered "up" - used functions defined before calling functions
+
+Dataset::NoiseParams Dataset::computeNoiseParams(double alpha) const {
+    // Dataset-dependent noise parameters - could be extended to analyze actual dataset statistics
+    return {
+        alpha * 1.6968e-4,  // sigmaGyro
+        alpha * 2.0000e-3,  // sigmaAcc
+        alpha * 1.9393e-5,  // sigmaGyroBias
+        alpha * 3.0000e-3   // sigmaAccBias
+    };
+}
+
+void Dataset::setImuCovariances(const std::shared_ptr<PreintegrationCombinedParams>& params, 
+                               const NoiseParams& noise) const {
+    params->setGyroscopeCovariance(Matrix3::Identity() * std::pow(noise.sigmaGyro, 2));
+    params->setAccelerometerCovariance(Matrix3::Identity() * std::pow(noise.sigmaAcc, 2));
+    params->setIntegrationCovariance(Matrix3::Zero());
+    params->setBiasAccCovariance(Matrix3::Identity() * std::pow(noise.sigmaAccBias, 2));
+    params->setBiasOmegaCovariance(Matrix3::Identity() * std::pow(noise.sigmaGyroBias, 2));
+}
+
+std::shared_ptr<PreintegrationCombinedParams> Dataset::configureImuParams(double alpha) const {
+    auto params = PreintegrationCombinedParams::MakeSharedD(getGravity());
+    params->n_gravity = Vector3(0, 0, -getGravity());
+    setImuCovariances(params, computeNoiseParams(alpha));
+    return params;
+}
+
+// Main constructor implementation
 
 Dataset::Dataset(const std::string& filename) {
     std::ifstream file(filename);

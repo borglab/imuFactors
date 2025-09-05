@@ -26,16 +26,6 @@ namespace gtsam {
 class NEESEvaluator {
 public:
     /**
-     * @brief Parameters for IMU noise characteristics
-     */
-    struct NoiseParams {
-        double sigmaGyro;      ///< Gyroscope noise standard deviation
-        double sigmaAcc;       ///< Accelerometer noise standard deviation
-        double sigmaGyroBias;  ///< Gyroscope bias random walk standard deviation
-        double sigmaAccBias;   ///< Accelerometer bias random walk standard deviation
-    };
-
-    /**
      * @brief NEES evaluation results
      */
     struct NEESResults {
@@ -59,6 +49,8 @@ public:
 private:
     const Dataset& dataset_;
 
+    // Helper functions ordered "up" - used functions defined before calling functions
+    
     bool isValidWindow(int startIdx, int endIdx) const;
     
     Vector computeError(const NavState& predicted, 
@@ -68,15 +60,6 @@ private:
                        
     std::optional<double> computeNEES(const Vector& error, const Matrix& covMatrix) const;
     
-    static NEESResults computeStatistics(const std::vector<double>& neesResults, double preintTime);
-    
-    NoiseParams computeNoiseParams(double alpha) const;
-    
-    void setImuCovariances(const std::shared_ptr<PreintegrationCombinedParams>& params, 
-                          const NoiseParams& noise) const;
-                          
-    std::shared_ptr<PreintegrationCombinedParams> configureImuParams(double alpha) const;
-    
     std::optional<double> calculateWindowNEES(const std::shared_ptr<PreintegrationCombinedParams>& params,
                                             int startIdx, int endIdx, double dt) const;
     
@@ -85,6 +68,13 @@ private:
                                         
     NEESResults processTimeWindow(const std::shared_ptr<PreintegrationCombinedParams>& params,
                                 double preintTime, double dt) const;
+    
+    // Statistics computation helper functions
+    static double computeMean(const std::vector<double>& values);
+    static double computeMedian(const std::vector<double>& values);
+    static double computeVariance(const std::vector<double>& values, double mean);
+    
+    static NEESResults computeStatistics(const std::vector<double>& neesResults, double preintTime);
 };
 
 } // namespace gtsam

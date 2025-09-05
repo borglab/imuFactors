@@ -19,30 +19,10 @@
 
 namespace gtsam {
 
-NEESEvaluator::NoiseParams NEESEvaluator::computeNoiseParams(double alpha) const {
-    // Dataset-dependent noise parameters - could be extended to analyze actual dataset statistics
-    return {
-        alpha * 1.6968e-4,  // sigmaGyro
-        alpha * 2.0000e-3,  // sigmaAcc
-        alpha * 1.9393e-5,  // sigmaGyroBias
-        alpha * 3.0000e-3   // sigmaAccBias
-    };
-}
+// Helper functions ordered "up" - used functions defined before calling functions
 
-void NEESEvaluator::setImuCovariances(const std::shared_ptr<PreintegrationCombinedParams>& params, 
-                                     const NoiseParams& noise) const {
-    params->setGyroscopeCovariance(Matrix3::Identity() * pow(noise.sigmaGyro, 2));
-    params->setAccelerometerCovariance(Matrix3::Identity() * pow(noise.sigmaAcc, 2));
-    params->setIntegrationCovariance(Matrix3::Zero());
-    params->setBiasAccCovariance(Matrix3::Identity() * pow(noise.sigmaAccBias, 2));
-    params->setBiasOmegaCovariance(Matrix3::Identity() * pow(noise.sigmaGyroBias, 2));
-}
-
-std::shared_ptr<PreintegrationCombinedParams> NEESEvaluator::configureImuParams(double alpha) const {
-    auto params = PreintegrationCombinedParams::MakeSharedD(dataset_.getGravity());
-    params->n_gravity = Vector3(0, 0, -dataset_.getGravity());
-    setImuCovariances(params, computeNoiseParams(alpha));
-    return params;
+bool NEESEvaluator::isValidWindow(int startIdx, int endIdx) const {
+    return endIdx <= dataset_.getStates().size() && endIdx <= dataset_.getImuData().size();
 }
 
 Vector NEESEvaluator::computeError(const NavState& predicted, 
@@ -61,10 +41,6 @@ std::optional<double> NEESEvaluator::computeNEES(const Vector& error, const Matr
     } catch (...) {
         return std::nullopt;
     }
-}
-
-bool NEESEvaluator::isValidWindow(int startIdx, int endIdx) const {
-    return endIdx <= dataset_.getStates().size() && endIdx <= dataset_.getImuData().size();
 }
 
 std::optional<double> NEESEvaluator::calculateWindowNEES(const std::shared_ptr<PreintegrationCombinedParams>& params,
@@ -107,6 +83,42 @@ NEESEvaluator::NEESResults NEESEvaluator::processTimeWindow(const std::shared_pt
     return NEESEvaluator::computeStatistics(neesValues, preintTime);
 }
 
+// Statistics computation helper functions
+
+double NEESEvaluator::computeMean(const std::vector<double>& values) {
+    if (values.empty()) return 0.0;
+    
+    double sum = 0.0;
+    for (double value : values) {
+        sum += value;
+    }
+    return sum / values.size();
+}
+
+double NEESEvaluator::computeMedian(const std::vector<double>& values) {
+    if (values.empty()) return 0.0;
+    
+    std::vector<double> sortedValues = values;
+    std::sort(sortedValues.begin(), sortedValues.end());
+    size_t n = sortedValues.size();
+    
+    if (n % 2 == 0) {
+        return (sortedValues[n/2 - 1] + sortedValues[n/2]) / 2.0;
+    } else {
+        return sortedValues[n/2];
+    }
+}
+
+double NEESEvaluator::computeVariance(const std::vector<double>& values, double mean) {
+    if (values.empty()) return 0.0;
+    
+    double variance = 0.0;
+    for (double value : values) {
+        variance += (value - mean) * (value - mean);
+    }
+    return variance / values.size();
+}
+
 NEESEvaluator::NEESResults NEESEvaluator::computeStatistics(const std::vector<double>& neesResults, double preintTime) {
     NEESResults results;
     results.neesValues = neesResults;
@@ -119,29 +131,10 @@ NEESEvaluator::NEESResults NEESEvaluator::computeStatistics(const std::vector<do
         return results;
     }
 
-    // Calculate mean
-    double sum = 0.0;
-    for (double value : neesResults) {
-        sum += value;
-    }
-    results.mean = sum / neesResults.size();
-    
-    // Calculate median
-    std::vector<double> sortedValues = neesResults;
-    std::sort(sortedValues.begin(), sortedValues.end());
-    size_t n = sortedValues.size();
-    if (n % 2 == 0) {
-        results.median = (sortedValues[n/2 - 1] + sortedValues[n/2]) / 2.0;
-    } else {
-        results.median = sortedValues[n/2];
-    }
-    
-    // Calculate variance
-    double variance = 0.0;
-    for (double value : neesResults) {
-        variance += (value - results.mean) * (value - results.mean);
-    }
-    results.variance = variance / neesResults.size();
+    // Use helper functions to compute statistics
+    results.mean = computeMean(neesResults);
+    results.median = computeMedian(neesResults);
+    results.variance = computeVariance(neesResults, results.mean);
     
     return results;
 }
@@ -154,7 +147,8 @@ void NEESEvaluator::printNeesStatistics(const NEESResults& results) {
 }
 
 NEESEvaluator::NEESResults NEESEvaluator::run(double interval, double alpha) const {
-    auto params = configureImuParams(alpha);
+    // Get configured IMU parameters from the dataset
+    auto params = dataset_.configureImuParams(alpha);
     double dt = dataset_.getStates()[1].timestamp - dataset_.getStates()[0].timestamp;
     return processTimeWindow(params, interval, dt);
 }
