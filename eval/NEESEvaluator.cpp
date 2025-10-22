@@ -30,7 +30,7 @@ Vector NEESEvaluator::computeError(const NavState& predicted,
                                  const imuBias::ConstantBias& biasPred,
                                  const imuBias::ConstantBias& biasActual) const {
     Vector15 error;
-    error << predicted.localCoordinates(actual),
+    error << predicted.logmap(actual),
              biasActual.vector() - biasPred.vector();
     return error;
 }

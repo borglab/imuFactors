@@ -84,9 +84,11 @@ public:
     /**
      * @brief Configure IMU preintegration parameters for this dataset
      * @param alpha Scaling factor for noise parameters (default: 3.0)
+     * @param customParams Optional custom parameters to use as base
      * @return Configured preintegration parameters
      */
-    std::shared_ptr<PreintegrationCombinedParams> configureImuParams(double alpha = 3.0) const;
+    std::shared_ptr<PreintegrationCombinedParams> configureImuParams(double alpha = 3.0, 
+        const std::shared_ptr<PreintegrationCombinedParams>& customParams = nullptr) const;
 
 private:
     std::vector<StateMeasurement> states_;

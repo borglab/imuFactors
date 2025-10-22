@@ -23,6 +23,7 @@
 
 namespace gtsam {
 
+/// NEES evaluation for IMU preintegration
 class NEESEvaluator {
 public:
     /**
@@ -36,20 +37,23 @@ public:
         double preintTime;
     };
 
-    // Evaluates NEES values given a dataset (Dataset)
+    /// Evaluates NEES values given a dataset (Dataset)
     explicit NEESEvaluator(const Dataset& dataset) : dataset_(dataset) {}
 
-    // Method for running the evaluator with parameters for interval (double) and alpha size (double)
-    // Returns NEES results instead of printing
+    /// Method for running the evaluator with parameters for interval (double) and alpha size (double)
+    /// Returns NEES results instead of printing
     NEESResults run(double interval, double alpha = 3.0) const; 
 
-    // Static method for printing NEES results
+    /// Static method for printing NEES results
     static void printNeesStatistics(const NEESResults& results);
+    
+    /// Compute statistics from NEES values (made public for EKF evaluator)
+    static NEESResults computeStatistics(const std::vector<double>& neesResults, double preintTime);
 
 private:
     const Dataset& dataset_;
 
-    // Helper functions ordered "up" - used functions defined before calling functions
+    /// Helper functions ordered "up" - used functions defined before calling functions
     
     bool isValidWindow(int startIdx, int endIdx) const;
     
@@ -57,7 +61,7 @@ private:
                        const NavState& actual,
                        const imuBias::ConstantBias& biasPred,
                        const imuBias::ConstantBias& biasActual) const;
-                       
+    
     std::optional<double> computeNEES(const Vector& error, const Matrix& covMatrix) const;
     
     std::optional<double> calculateWindowNEES(const std::shared_ptr<PreintegrationCombinedParams>& params,
@@ -69,12 +73,10 @@ private:
     NEESResults processTimeWindow(const std::shared_ptr<PreintegrationCombinedParams>& params,
                                 double preintTime, double dt) const;
     
-    // Statistics computation helper functions
+    /// Statistics computation helper functions
     static double computeMean(const std::vector<double>& values);
     static double computeMedian(const std::vector<double>& values);
     static double computeVariance(const std::vector<double>& values, double mean);
-    
-    static NEESResults computeStatistics(const std::vector<double>& neesResults, double preintTime);
 };
 
 } // namespace gtsam
