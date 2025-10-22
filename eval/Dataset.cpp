@@ -41,9 +41,17 @@ void Dataset::setImuCovariances(const std::shared_ptr<PreintegrationCombinedPara
     params->setBiasOmegaCovariance(Matrix3::Identity() * std::pow(noise.sigmaGyroBias, 2));
 }
 
-std::shared_ptr<PreintegrationCombinedParams> Dataset::configureImuParams(double alpha) const {
-    auto params = PreintegrationCombinedParams::MakeSharedD(getGravity());
-    params->n_gravity = Vector3(0, 0, -getGravity());
+std::shared_ptr<PreintegrationCombinedParams> Dataset::configureImuParams(double alpha, 
+    const std::shared_ptr<PreintegrationCombinedParams>& customParams) const {
+    
+    std::shared_ptr<PreintegrationCombinedParams> params;
+    if (customParams) {
+        params = customParams;
+    } else {
+        params = PreintegrationCombinedParams::MakeSharedD(getGravity());
+        params->n_gravity = Vector3(0, 0, -getGravity());
+    }
+    
     setImuCovariances(params, computeNoiseParams(alpha));
     return params;
 }
