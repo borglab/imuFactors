@@ -9,52 +9,61 @@
 
 /**
  * @file   TrajectoryValidator.h
- * @brief  Trajectory validation and CSV export utilities
+ * @brief  Trajectory validation utilities for EKF evaluation
  * @author Alec Kain
  */
 
 #pragma once
 
-#include <gtsam/geometry/Pose3.h>
-#include <gtsam/navigation/NavState.h>
 #include <gtsam/base/Vector.h>
 #include <gtsam/base/Matrix.h>
+#include <gtsam/geometry/Point3.h>
 #include <vector>
 #include <string>
 
 namespace gtsam {
 
-/// Trajectory validation utilities
+/// Trajectory validation and export utilities
 class TrajectoryValidator {
- public:
-  /// Trajectory point with timestamp and covariance
-  struct TrajectoryPoint {
-    double timestamp;
-    Vector3 position;
-    Vector3 velocity;
-    Vector3 rpy;  // Roll-Pitch-Yaw in degrees
-    Matrix9 covariance;  // Full 9x9 covariance matrix
-  };
+public:
+    /// Data structure for trajectory point with covariance
+    struct TrajectoryPoint {
+        double timestamp;           ///< Time in seconds
+        Point3 position;            ///< Position in meters
+        Vector3 velocity;           ///< Velocity in m/s
+        Vector3 rpy;                ///< Roll-pitch-yaw in degrees
+        Matrix9 covariance;         ///< 9x9 covariance matrix (rotation, position, velocity)
 
-  /// Export trajectory data to CSV with full covariance
-  static void exportToCSV(
-      const std::string& filename,
-      const std::vector<TrajectoryPoint>& groundTruth,
-      const std::vector<TrajectoryPoint>& predicted,
-      const std::vector<Vector9>& errors);
+        /// Default constructor
+        TrajectoryPoint()
+            : timestamp(0.0),
+              position(Point3::Zero()),
+              velocity(Vector3::Zero()),
+              rpy(Vector3::Zero()),
+              covariance(Matrix9::Zero()) {}
+    };
 
-  /// Export raw trajectories without pre-computed errors
-  static void exportRawTrajectories(
-      const std::string& filename,
-      const std::vector<TrajectoryPoint>& groundTruth,
-      const std::vector<TrajectoryPoint>& predicted);
+    /// Extract standard deviations from covariance matrix diagonal
+    static Vector9 extractStdDev(const Matrix9& covariance);
 
-  /// Print error statistics
-  static void printErrorStatistics(const std::vector<Vector9>& errors);
+    /**
+     * Export trajectory data to CSV file
+     * @param filename Output CSV filename
+     * @param groundTruthTrajectory Ground truth trajectory points
+     * @param predictedTrajectory Predicted trajectory points with covariance
+     * @param errorTrajectory Error vectors (9D: rotation, position, velocity)
+     */
+    static void exportToCSV(
+        const std::string& filename,
+        const std::vector<TrajectoryPoint>& groundTruthTrajectory,
+        const std::vector<TrajectoryPoint>& predictedTrajectory,
+        const std::vector<Vector9>& errorTrajectory);
 
- private:
-  /// Extract diagonal standard deviations from covariance
-  static Vector9 extractStdDev(const Matrix9& covariance);
+    /**
+     * Print RMS error statistics to console
+     * @param errors Vector of 9D error vectors (rotation, velocity, position)
+     */
+    static void printErrorStatistics(const std::vector<Vector9>& errors);
 };
 
-}  // namespace gtsam
+} // namespace gtsam

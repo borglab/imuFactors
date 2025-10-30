@@ -98,18 +98,20 @@ private:
         std::vector<TrajectoryValidator::TrajectoryPoint>& predictedTrajectory,
         std::vector<Vector9>& errorTrajectory) const;
 
-    /// Export trajectory results with dataset name
+    /// Export trajectory results with dataset name and preintegration time
     void exportTrajectoryResults(
         const std::vector<TrajectoryValidator::TrajectoryPoint>& groundTruthTrajectory,
         const std::vector<TrajectoryValidator::TrajectoryPoint>& predictedTrajectory,
         const std::vector<Vector9>& errorTrajectory,
         const std::string& filterName,
-        const std::string& datasetName) const;
+        const std::string& datasetName,
+        const std::string& preintegrationTime) const;
 
-    /// Export NEES values with dataset name
+    /// Export NEES values with dataset name and preintegration time
     void exportNEESValues(
         const std::string& filterName,
         const std::string& datasetName,
+        const std::string& preintegrationTime,
         const std::vector<TrajectoryValidator::TrajectoryPoint>& trajectory,
         const std::vector<double>& neesValues) const;
 

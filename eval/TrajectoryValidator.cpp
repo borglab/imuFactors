@@ -31,9 +31,9 @@ Vector9 TrajectoryValidator::extractStdDev(const Matrix9& covariance) {
 
 void TrajectoryValidator::exportToCSV(
     const std::string& filename,
-    const std::vector<TrajectoryPoint>& groundTruth,
-    const std::vector<TrajectoryPoint>& predicted,
-    const std::vector<Vector9>& errors) {
+    const std::vector<TrajectoryPoint>& groundTruthTrajectory,
+    const std::vector<TrajectoryPoint>& predictedTrajectory,
+    const std::vector<Vector9>& errorTrajectory) {
     
     std::ofstream file(filename);
     if (!file.is_open()) {
@@ -41,58 +41,82 @@ void TrajectoryValidator::exportToCSV(
         return;
     }
     
-    // Write header
-    file << "timestamp,"
-         << "gt_x,gt_y,gt_z,gt_vx,gt_vy,gt_vz,gt_roll,gt_pitch,gt_yaw,"
-         << "pred_x,pred_y,pred_z,pred_vx,pred_vy,pred_vz,pred_roll,pred_pitch,pred_yaw,"
-         << "err_rot_x,err_rot_y,err_rot_z,err_vel_x,err_vel_y,err_vel_z,err_pos_x,err_pos_y,err_pos_z,"
-         << "rot_std_x,rot_std_y,rot_std_z,vel_std_x,vel_std_y,vel_std_z,pos_std_x,pos_std_y,pos_std_z";
+    std::cout << "Writing CSV: GT=" << groundTruthTrajectory.size() 
+              << ", Pred=" << predictedTrajectory.size() 
+              << ", Error=" << errorTrajectory.size() << std::endl;
     
-    // Add all 81 covariance elements
-    for (int i = 0; i < 9; ++i) {
-        for (int j = 0; j < 9; ++j) {
+    // Write header
+    file << "timestamp,gt_x,gt_y,gt_z,gt_vx,gt_vy,gt_vz,gt_roll,gt_pitch,gt_yaw,"
+         << "pred_x,pred_y,pred_z,pred_vx,pred_vy,pred_vz,pred_roll,pred_pitch,pred_yaw,"
+         << "err_rot_x,err_rot_y,err_rot_z,err_vel_x,err_vel_y,err_vel_z,err_pos_x,err_pos_y,err_pos_z";
+    
+    // Add covariance std columns
+    file << ",rot_std_x,rot_std_y,rot_std_z,vel_std_x,vel_std_y,vel_std_z,pos_std_x,pos_std_y,pos_std_z";
+    
+    // Add full covariance matrix
+    for (int i = 0; i < 9; i++) {
+        for (int j = 0; j < 9; j++) {
             file << ",cov_" << i << "_" << j;
         }
     }
     file << "\n";
     
-    // Write data with high precision
-    file << std::scientific << std::setprecision(10);
+    file << std::fixed << std::setprecision(6);
     
-    for (size_t i = 0; i < groundTruth.size(); ++i) {
-        const auto& gt = groundTruth[i];
-        const auto& pred = predicted[i];
-        const auto& error = errors[i];
+    /// Write all rows - use ground truth size as reference (complete trajectory)
+    /// Predictions and errors will be empty/zeros where not computed
+    const size_t totalRows = groundTruthTrajectory.size();
+    
+    for (size_t i = 0; i < totalRows; ++i) {
+        const auto& gt = groundTruthTrajectory[i];
         
-        Vector9 stdDev = extractStdDev(pred.covariance);
-        
-        // Basic data
-        file << gt.timestamp << ",";
-        
-        // Ground truth
-        file << gt.position.x() << "," << gt.position.y() << "," << gt.position.z() << ","
+        /// Ground truth (always available)
+        file << gt.timestamp << ","
+             << gt.position.x() << "," << gt.position.y() << "," << gt.position.z() << ","
              << gt.velocity.x() << "," << gt.velocity.y() << "," << gt.velocity.z() << ","
-             << gt.rpy.x() << "," << gt.rpy.y() << "," << gt.rpy.z() << ",";
+             << gt.rpy.x() << "," << gt.rpy.y() << "," << gt.rpy.z();
         
-        // Predicted
-        file << pred.position.x() << "," << pred.position.y() << "," << pred.position.z() << ","
-             << pred.velocity.x() << "," << pred.velocity.y() << "," << pred.velocity.z() << ","
-             << pred.rpy.x() << "," << pred.rpy.y() << "," << pred.rpy.z() << ",";
+        /// Prediction (if available at this index)
+        if (i < predictedTrajectory.size()) {
+            const auto& pred = predictedTrajectory[i];
+            file << "," << pred.position.x() << "," << pred.position.y() << "," << pred.position.z() << ","
+                 << pred.velocity.x() << "," << pred.velocity.y() << "," << pred.velocity.z() << ","
+                 << pred.rpy.x() << "," << pred.rpy.y() << "," << pred.rpy.z();
+        } else {
+            // No prediction for this point (outside window)
+            file << ",,,,,,,,,";
+        }
         
-        // Errors
-        file << error(0) << "," << error(1) << "," << error(2) << ","
-             << error(3) << "," << error(4) << "," << error(5) << ","
-             << error(6) << "," << error(7) << "," << error(8) << ",";
+        /// Error (if available at this index)
+        if (i < errorTrajectory.size()) {
+            const Vector9& error = errorTrajectory[i];
+            // Error vector: [rotation(3), position(3), velocity(3)]
+            file << "," << error(0) << "," << error(1) << "," << error(2) << ","
+                 << error(6) << "," << error(7) << "," << error(8) << ","
+                 << error(3) << "," << error(4) << "," << error(5);
+        } else {
+            // No error for this point
+            file << ",,,,,,,,,";
+        }
         
-        // Standard deviations
-        file << stdDev(0) << "," << stdDev(1) << "," << stdDev(2) << ","
-             << stdDev(3) << "," << stdDev(4) << "," << stdDev(5) << ","
-             << stdDev(6) << "," << stdDev(7) << "," << stdDev(8);
-        
-        // Full 9x9 covariance matrix
-        for (int row = 0; row < 9; ++row) {
-            for (int col = 0; col < 9; ++col) {
-                file << "," << pred.covariance(row, col);
+        /// Standard deviations and covariance (if prediction available)
+        if (i < predictedTrajectory.size() && predictedTrajectory[i].covariance.size() > 0) {
+            const auto& pred = predictedTrajectory[i];
+            file << "," << std::sqrt(pred.covariance(0,0)) << "," << std::sqrt(pred.covariance(1,1)) << "," << std::sqrt(pred.covariance(2,2))
+                 << "," << std::sqrt(pred.covariance(6,6)) << "," << std::sqrt(pred.covariance(7,7)) << "," << std::sqrt(pred.covariance(8,8))
+                 << "," << std::sqrt(pred.covariance(3,3)) << "," << std::sqrt(pred.covariance(4,4)) << "," << std::sqrt(pred.covariance(5,5));
+            
+            // Full covariance
+            for (int row = 0; row < 9; row++) {
+                for (int col = 0; col < 9; col++) {
+                    file << "," << pred.covariance(row, col);
+                }
+            }
+        } else {
+            // No covariance data
+            file << ",0,0,0,0,0,0,0,0,0";
+            for (int row = 0; row < 81; row++) {
+                file << ",0";
             }
         }
         
