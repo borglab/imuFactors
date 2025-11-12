@@ -218,7 +218,7 @@ def plot_time_series_velocity(filter_name, dataset_name, fignum=3):
     Plot velocity (vx, vy, vz) time series at 200 Hz for all preintegration times
     """
     fig, axes = plt.subplots(3, 1, figsize=(18, 12))
-    fig.suptitle(f' Veocity Time Series @ 200Hz - {filter_name.upper()} - {dataset_name}', 
+    fig.suptitle(f' Velocity Time Series @ 200Hz - {filter_name.upper()} - {dataset_name}', 
                  fontsize=16, fontweight='bold')
     
     preint_configs = {
@@ -465,7 +465,7 @@ def plot_frequency_spectrum(filterName, datasetName, figureNumber=5):
         
         ax.set_xlabel('Frequency (Hz)', fontsize=10, fontweight='bold')
         ax.set_ylabel('Magnitude (log scale)', fontsize=10, fontweight='bold')
-        ax.set_title(f' Veocity {["X", "Y", "Z"][i]} Spectrum', fontsize=11, fontweight='bold')
+        ax.set_title(f' Velocity {["X", "Y", "Z"][i]} Spectrum', fontsize=11, fontweight='bold')
         ax.grid(True, alpha=0.25, linestyle='--', which='both')
         ax.set_xlim([0, samplingRate])
         ax.legend(fontsize=7, loc='upper right')
@@ -605,7 +605,7 @@ def plot_high_frequency_zoom(filterName, datasetName, figureNumber=6):
         
         ax.set_xlabel('Frequency (Hz)', fontsize=10, fontweight='bold')
         ax.set_ylabel('Magnitude', fontsize=10, fontweight='bold')
-        ax.set_title(f' Veocity {["X", "Y", "Z"][i]} (40-200 Hz)', fontsize=11, fontweight='bold')
+        ax.set_title(f' Velocity {["X", "Y", "Z"][i]} (40-200 Hz)', fontsize=11, fontweight='bold')
         ax.grid(True, alpha=0.25, linestyle='--')
         ax.legend(fontsize=8)
         ax.set_facecolor('#F5F5F5')
