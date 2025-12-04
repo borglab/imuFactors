@@ -58,14 +58,14 @@ static DatasetResults evaluateDataset(const string& datasetPath, const string& d
     DatasetResults results;
     
     // Evaluate Gal3ImuEKF - use public API with dataset name
-    results.gal3_0_2s = evaluator.runGal3ImuEKF(0.2, 3.0, datasetName);
-    results.gal3_0_5s = evaluator.runGal3ImuEKF(0.5, 3.0, datasetName);
-    results.gal3_1_0s = evaluator.runGal3ImuEKF(1.0, 3.0, datasetName);
+    results.gal3_0_2s = evaluator.runGal3ImuEKF(0.2, 3, datasetName);
+    results.gal3_0_5s = evaluator.runGal3ImuEKF(0.5, 3, datasetName);
+    results.gal3_1_0s = evaluator.runGal3ImuEKF(1.0, 3, datasetName);
     
     // Evaluate NavStateImuEKF - use public API with dataset name
-    results.navstate_0_2s = evaluator.runNavStateImuEKF(0.2, 3.0, datasetName);
-    results.navstate_0_5s = evaluator.runNavStateImuEKF(0.5, 3.0, datasetName);
-    results.navstate_1_0s = evaluator.runNavStateImuEKF(1.0, 3.0, datasetName);
+    results.navstate_0_2s = evaluator.runNavStateImuEKF(0.2, 3, datasetName);
+    results.navstate_0_5s = evaluator.runNavStateImuEKF(0.5, 3, datasetName);
+    results.navstate_1_0s = evaluator.runNavStateImuEKF(1.0, 3, datasetName);
     
     return results;
 }

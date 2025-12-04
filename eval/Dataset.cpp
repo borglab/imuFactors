@@ -20,15 +20,21 @@
 
 namespace gtsam {
 
-// Helper functions ordered "up" - used functions defined before calling functions
-
+/// Single-parameter version: uniform scaling
 Dataset::NoiseParams Dataset::computeNoiseParams(double alpha) const {
-    // Dataset-dependent noise parameters - could be extended to analyze actual dataset statistics
     return {
         alpha * 1.6968e-4,  // sigmaGyro
         alpha * 2.0000e-3,  // sigmaAcc
-        alpha * 1.9393e-5,  // sigmaGyroBias
-        alpha * 3.0000e-3   // sigmaAccBias
+
+    };
+}
+
+/// Two-parameter version: separate gyro and accel scaling
+Dataset::NoiseParams Dataset::computeNoiseParams(double alphaGyro, double alphaAcc) const {
+    return {
+        alphaGyro * 1.6968e-4,  // sigmaGyro (scaled independently)
+        alphaAcc  * 2.0000e-3,  // sigmaAcc  (scaled independently)
+
     };
 }
 
@@ -41,18 +47,18 @@ void Dataset::setImuCovariances(const std::shared_ptr<PreintegrationCombinedPara
     params->setBiasOmegaCovariance(Matrix3::Identity() * std::pow(noise.sigmaGyroBias, 2));
 }
 
-std::shared_ptr<PreintegrationCombinedParams> Dataset::configureImuParams(double alpha, 
-    const std::shared_ptr<PreintegrationCombinedParams>& customParams) const {
-    
-    std::shared_ptr<PreintegrationCombinedParams> params;
-    if (customParams) {
-        params = customParams;
-    } else {
-        params = PreintegrationCombinedParams::MakeSharedD(getGravity());
-        params->n_gravity = Vector3(0, 0, -getGravity());
-    }
-    
+std::shared_ptr<PreintegrationCombinedParams> Dataset::configureImuParams(double alpha) const {
+    auto params = PreintegrationCombinedParams::MakeSharedD(getGravity());
+    params->n_gravity = Vector3(0, 0, -getGravity());
     setImuCovariances(params, computeNoiseParams(alpha));
+    return params;
+}
+
+std::shared_ptr<PreintegrationCombinedParams> Dataset::configureImuParams(
+    double alphaGyro, double alphaAcc) const {
+    auto params = PreintegrationCombinedParams::MakeSharedD(getGravity());
+    params->n_gravity = Vector3(0, 0, -getGravity());
+    setImuCovariances(params, computeNoiseParams(alphaGyro, alphaAcc));
     return params;
 }
 

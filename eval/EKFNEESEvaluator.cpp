@@ -14,6 +14,7 @@
  */
 
 #include "EKFNEESEvaluator.h"
+#include "TrajectoryValidator.h"  
 #include <iostream>
 #include <iomanip>
 #include <fstream>
@@ -35,9 +36,18 @@ NEESEvaluator::NEESResults EKFNEESEvaluator::runGal3ImuEKF(double interval, doub
     return processTimeWindowWithGal3EKF(params, interval, dt, "default");
 }
 
-NEESEvaluator::NEESResults EKFNEESEvaluator::runGal3ImuEKF(double interval, double alpha, 
-                                                           const std::string& datasetName) const {
+/// NEW: 3-parameter version with alpha and dataset name
+NEESEvaluator::NEESResults EKFNEESEvaluator::runGal3ImuEKF(
+    double interval, double alpha, const std::string& datasetName) const {
     auto params = dataset_.configureImuParams(alpha);
+    double dt = computeTimestep();
+    return processTimeWindowWithGal3EKF(params, interval, dt, datasetName);
+}
+
+NEESEvaluator::NEESResults EKFNEESEvaluator::runGal3ImuEKF(
+    double interval, 
+    const std::shared_ptr<PreintegrationCombinedParams>& params,
+    const std::string& datasetName) const {
     double dt = computeTimestep();
     return processTimeWindowWithGal3EKF(params, interval, dt, datasetName);
 }
@@ -48,9 +58,18 @@ NEESEvaluator::NEESResults EKFNEESEvaluator::runNavStateImuEKF(double interval, 
     return processTimeWindowWithNavStateEKF(params, interval, dt, "default");
 }
 
-NEESEvaluator::NEESResults EKFNEESEvaluator::runNavStateImuEKF(double interval, double alpha,
-                                                                const std::string& datasetName) const {
+/// NEW: 3-parameter version with alpha and dataset name
+NEESEvaluator::NEESResults EKFNEESEvaluator::runNavStateImuEKF(
+    double interval, double alpha, const std::string& datasetName) const {
     auto params = dataset_.configureImuParams(alpha);
+    double dt = computeTimestep();
+    return processTimeWindowWithNavStateEKF(params, interval, dt, datasetName);
+}
+
+NEESEvaluator::NEESResults EKFNEESEvaluator::runNavStateImuEKF(
+    double interval,
+    const std::shared_ptr<PreintegrationCombinedParams>& params,
+    const std::string& datasetName) const {
     double dt = computeTimestep();
     return processTimeWindowWithNavStateEKF(params, interval, dt, datasetName);
 }
@@ -158,11 +177,9 @@ void EKFNEESEvaluator::exportTrajectoryResults(
         return;
     }
     
-    // CSV header with acceleration columns
+    /// CSV header WITHOUT acceleration columns
     file << "timestamp,gt_x,gt_y,gt_z,gt_vx,gt_vy,gt_vz,gt_roll,gt_pitch,gt_yaw,"
-         << "gt_ax,gt_ay,gt_az,"  // Add acceleration columns
          << "pred_x,pred_y,pred_z,pred_vx,pred_vy,pred_vz,pred_roll,pred_pitch,pred_yaw,"
-         << "pred_ax,pred_ay,pred_az,"  // Add predicted acceleration columns
          << "err_x,err_y,err_z,err_vx,err_vy,err_vz,err_roll,err_pitch,err_yaw\n";
     
     for (size_t i = 0; i < groundTruthTrajectory.size(); i++) {
@@ -170,35 +187,19 @@ void EKFNEESEvaluator::exportTrajectoryResults(
         const auto& pred = predictedTrajectory[i];
         const auto& err = errorTrajectory[i];
         
-        // Get acceleration from IMU data at this timestamp
-        Vector3 gt_accel = Vector3::Zero();
-        Vector3 pred_accel = Vector3::Zero();
-        
-        // Find corresponding IMU measurement
-        const auto& imuData = dataset_.getImuData();
-        for (size_t j = 0; j < imuData.size(); j++) {
-            if (std::abs(imuData[j].timestamp - gt.timestamp) < 0.001) {  // 1ms tolerance
-                gt_accel = imuData[j].acc;
-                pred_accel = imuData[j].acc;  // For now, use same (can compute predicted later)
-                break;
-            }
-        }
-        
-        // Ground truth
+        /// Ground truth (position, velocity, orientation)
         file << std::fixed << std::setprecision(6)
              << gt.timestamp << ","
              << gt.position.x() << "," << gt.position.y() << "," << gt.position.z() << ","
              << gt.velocity.x() << "," << gt.velocity.y() << "," << gt.velocity.z() << ","
-             << gt.rpy.x() << "," << gt.rpy.y() << "," << gt.rpy.z() << ","
-             << gt_accel.x() << "," << gt_accel.y() << "," << gt_accel.z() << ",";
+             << gt.rpy.x() << "," << gt.rpy.y() << "," << gt.rpy.z() << ",";
         
-        // Prediction
+        /// Prediction (position, velocity, orientation)
         file << pred.position.x() << "," << pred.position.y() << "," << pred.position.z() << ","
              << pred.velocity.x() << "," << pred.velocity.y() << "," << pred.velocity.z() << ","
-             << pred.rpy.x() << "," << pred.rpy.y() << "," << pred.rpy.z() << ","
-             << pred_accel.x() << "," << pred_accel.y() << "," << pred_accel.z() << ",";
+             << pred.rpy.x() << "," << pred.rpy.y() << "," << pred.rpy.z() << ",";
         
-        // Error (9D)
+        /// Error (9D: position, velocity, orientation)
         file << err[0] << "," << err[1] << "," << err[2] << ","  // position error
              << err[3] << "," << err[4] << "," << err[5] << ","  // velocity error
              << err[6] << "," << err[7] << "," << err[8] << "\n";  // orientation error
