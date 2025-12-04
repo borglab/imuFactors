@@ -37,7 +37,7 @@ Vector NEESEvaluator::computeError(const NavState& predicted,
 
 std::optional<double> NEESEvaluator::computeNEES(const Vector& error, const Matrix& covMatrix) const {
     try {
-        return (error.transpose() * covMatrix.inverse() * error)(0,0) / 15.0;
+        return (error.transpose() * covMatrix.inverse() * error)(0,0) / 9.0;
     } catch (...) {
         return std::nullopt;
     }
