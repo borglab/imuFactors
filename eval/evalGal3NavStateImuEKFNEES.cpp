@@ -65,7 +65,7 @@ static DatasetResults evaluateDataset(const string& datasetPath, const string& d
     // Evaluate NavStateImuEKF - use public API with dataset name
     results.navstate_0_2s = evaluator.runNavStateImuEKF(0.2, 3, datasetName);
     results.navstate_0_5s = evaluator.runNavStateImuEKF(0.5, 3, datasetName);
-    results.navstate_1_0s = evaluator.runNavStateImuEKF(1.0, 3, datasetName);
+    results.navstate_1_0s = evaluator.runNavStateImuEKF(1.0, 3.0, datasetName);
     
     return results;
 }
