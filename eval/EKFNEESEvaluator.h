@@ -17,7 +17,7 @@
 
 #include "NEESEvaluator.h"
 #include "Dataset.h"
-#include "TrajectoryValidator.h"  // ← ADD THIS
+#include "TrajectoryValidator.h"
 #include <gtsam/navigation/Gal3ImuEKF.h>
 #include <gtsam/navigation/NavStateImuEKF.h>
 
