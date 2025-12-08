@@ -121,7 +121,6 @@ private:
     
     Matrix9 extractNavigationCovariance(const Gal3ImuEKF& ekf) const;
     
-    /// ← ADD THESE MISSING DECLARATIONS ↓
     
     /// Create ground truth trajectory point from NavState
     TrajectoryValidator::TrajectoryPoint createGroundTruthPoint(
