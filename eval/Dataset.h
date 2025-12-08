@@ -50,9 +50,7 @@ public:
      */
     struct NoiseParams {
         double sigmaGyro;      ///< Gyroscope noise standard deviation
-        double sigmaAcc;       ///< Accelerometer noise standard deviation
-        double sigmaGyroBias;  ///< Gyroscope bias random walk standard deviation
-        double sigmaAccBias;   ///< Accelerometer bias random walk standard deviation
+        double sigmaAcc;       ///< Accelerometer noise standard deviation   
     };
 
     /**

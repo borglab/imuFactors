@@ -25,7 +25,6 @@ Dataset::NoiseParams Dataset::computeNoiseParams(double alpha) const {
     return {
         alpha * 1.6968e-4,  // sigmaGyro
         alpha * 2.0000e-3,  // sigmaAcc
-
     };
 }
 
@@ -34,7 +33,6 @@ Dataset::NoiseParams Dataset::computeNoiseParams(double alphaGyro, double alphaA
     return {
         alphaGyro * 1.6968e-4,  // sigmaGyro (scaled independently)
         alphaAcc  * 2.0000e-3,  // sigmaAcc  (scaled independently)
-
     };
 }
 
@@ -43,8 +41,6 @@ void Dataset::setImuCovariances(const std::shared_ptr<PreintegrationCombinedPara
     params->setGyroscopeCovariance(Matrix3::Identity() * std::pow(noise.sigmaGyro, 2));
     params->setAccelerometerCovariance(Matrix3::Identity() * std::pow(noise.sigmaAcc, 2));
     params->setIntegrationCovariance(Matrix3::Zero());
-    params->setBiasAccCovariance(Matrix3::Identity() * std::pow(noise.sigmaAccBias, 2));
-    params->setBiasOmegaCovariance(Matrix3::Identity() * std::pow(noise.sigmaGyroBias, 2));
 }
 
 std::shared_ptr<PreintegrationCombinedParams> Dataset::configureImuParams(double alpha) const {

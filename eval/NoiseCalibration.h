@@ -8,10 +8,12 @@
  * -------------------------------------------------------------------------- */
 
 /**
- * @file   evalNoiseCalibration_Vroom.cpp
- * @brief  Coarse Grid Search for Vroom Datasets Only
+ * @file   NoiseCalibration.h
+ * @brief  Common utilities for noise calibration across dataset subsets
  * @author Alec Kain
  */
+
+#pragma once
 
 #include "EKFNEESEvaluator.h"
 #include "Dataset.h"
@@ -23,10 +25,9 @@
 #include <algorithm>
 #include <map>
 #include <filesystem>
+#include <functional>
 
-using namespace gtsam;
-using namespace std;
-namespace fs = std::filesystem;
+namespace gtsam {
 
 /// Results for a single (alphaGyro, alphaAcc) combination
 struct NoiseTrialResult {
@@ -46,7 +47,7 @@ struct NoiseCalibrationStudy {
 };
 
 /// Compute deviation metrics for a trial
-void computeMetrics(NoiseTrialResult& result) {
+inline void computeMetrics(NoiseTrialResult& result) {
     double sum = 0.0;
     double sumDev = 0.0;
     for (const auto& [name, nees] : result.datasetNees) {
@@ -57,23 +58,51 @@ void computeMetrics(NoiseTrialResult& result) {
     result.sumDeviations = sumDev;
 }
 
-/// Discover Vroom datasets only
-std::vector<std::pair<std::string, std::string>> discoverVroomDatasets(const std::string& dataDir) {
+/// Dataset filter predicate type
+using DatasetFilter = std::function<bool(const std::string&)>;
+
+/// Predefined dataset filters
+namespace DatasetFilters {
+    /// Filter for Machine Hall datasets (MH-series)
+    inline bool machineHall(const std::string& name) {
+        return name.find("MH") == 0;
+    }
+    
+    /// Filter for Vicon Room datasets (V-series)
+    inline bool viconRoom(const std::string& name) {
+        return name.find("V") == 0;
+    }
+    
+    /// Filter that accepts all datasets
+    inline bool all(const std::string&) {
+        return true;
+    }
+}
+
+/// Discover datasets matching a filter predicate
+inline std::vector<std::pair<std::string, std::string>> discoverFilteredDatasets(
+    const std::string& dataDirectory, 
+    DatasetFilter filter) {
+    
+    namespace fs = std::filesystem;
     std::vector<std::pair<std::string, std::string>> datasets;
     
-    if (!fs::exists(dataDir)) {
-        std::cerr << "❌ Data directory not found: " << dataDir << std::endl;
+    if (!fs::exists(dataDirectory)) {
+        std::cerr << "❌ Data directory not found: " << dataDirectory << std::endl;
         return datasets;
     }
     
-    for (const auto& entry : fs::directory_iterator(dataDir)) {
+    for (const auto& entry : fs::directory_iterator(dataDirectory)) {
         if (entry.is_regular_file() && entry.path().extension() == ".csv") {
             std::string filename = entry.path().filename().string();
-            // Only include V-series datasets
-            if (filename.find("euroc_V") == 0) {
+            if (filename.find("euroc_") == 0) {
                 std::string name = filename.substr(6);
                 name = name.substr(0, name.find(".csv"));
-                datasets.push_back({name, entry.path().string()});
+                
+                // Apply filter
+                if (filter(name)) {
+                    datasets.push_back({name, entry.path().string()});
+                }
             }
         }
     }
@@ -82,9 +111,12 @@ std::vector<std::pair<std::string, std::string>> discoverVroomDatasets(const std
     return datasets;
 }
 
-/// Run coarse 2D grid search
-NoiseCalibrationStudy runVroomCalibration(
-    const std::vector<std::pair<std::string, std::string>>& datasets) {
+/// Run calibration with custom dataset filter and study name
+inline NoiseCalibrationStudy runFilteredCalibration(
+    const std::vector<std::pair<std::string, std::string>>& datasets,
+    const std::string& studyName) {
+    
+    using namespace std;
     
     NoiseCalibrationStudy study;
     for (const auto& [name, path] : datasets) {
@@ -92,13 +124,13 @@ NoiseCalibrationStudy runVroomCalibration(
     }
     
     cout << "\n" << string(100, '=') << "\n";
-    cout << "VROOM DATASET NOISE CALIBRATION (0.2s NEES)\n";
+    cout << studyName << " NOISE CALIBRATION (0.2s NEES)\n";
     cout << "Datasets: ";
     for (const auto& name : study.datasetNames) cout << name << " ";
     cout << "\n" << string(100, '=') << "\n";
     
-    std::vector<double> alphaGyroRange = {0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 13.0, 15.0, 20.0};
-    std::vector<double> alphaAccRange  = {0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 13.0, 15.0, 20.0};
+    std::vector<double> alphaGyroRange = {0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 13.0};
+    std::vector<double> alphaAccRange  = {0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 13.0};
     
     cout << "\nGyro alphas: ";
     for (double a : alphaGyroRange) cout << a << " ";
@@ -158,7 +190,7 @@ NoiseCalibrationStudy runVroomCalibration(
 }
 
 /// Export results to CSV
-void exportResults(const NoiseCalibrationStudy& study, const std::string& filename) {
+inline void exportCalibrationResults(const NoiseCalibrationStudy& study, const std::string& filename) {
     std::ofstream file(filename);
     
     if (!file.is_open()) {
@@ -181,13 +213,15 @@ void exportResults(const NoiseCalibrationStudy& study, const std::string& filena
     }
     
     file.close();
-    cout << "✓ Exported results to " << filename << "\n";
+    std::cout << "✓ Exported results to " << filename << "\n";
 }
 
 /// Print summary
-void printSummary(const NoiseCalibrationStudy& study) {
+inline void printCalibrationSummary(const NoiseCalibrationStudy& study, const std::string& datasetType) {
+    using namespace std;
+    
     cout << "\n" << string(100, '=') << "\n";
-    cout << "VROOM DATASETS: OPTIMAL NOISE PARAMETERS\n";
+    cout << datasetType << " DATASETS: OPTIMAL NOISE PARAMETERS\n";
     cout << string(100, '=') << "\n\n";
     
     cout << "Result\t\tαGyro\tαAcc";
@@ -218,7 +252,7 @@ void printSummary(const NoiseCalibrationStudy& study) {
     
     cout << string(100, '=') << "\n";
     
-    cout << "\n📊 RECOMMENDED PARAMETERS (VROOM):\n";
+    cout << "\n📊 RECOMMENDED PARAMETERS (" << datasetType << "):\n";
     cout << "   αGyro = " << study.bestResult.alphaGyro << "\n";
     cout << "   αAcc  = " << study.bestResult.alphaAcc << "\n";
     cout << "   Mean NEES across " << study.datasetNames.size() << " datasets: " 
@@ -230,43 +264,4 @@ void printSummary(const NoiseCalibrationStudy& study) {
     cout << "   Mean NEES: " << study.worstResult.meanNees << "\n";
 }
 
-/// Main program
-int main(int argc, char* argv[]) {
-    try {
-        cout << "\n";
-        cout << "╔════════════════════════════════════════════════════════════════╗\n";
-        cout << "║  VROOM DATASET NOISE CALIBRATION                               ║\n";
-        cout << "║  Goal: Minimize |NEES_0.2s - 1| across V-series datasets     ║\n";
-        cout << "╚════════════════════════════════════════════════════════════════╝\n";
-        
-        const std::string dataDir = "../eval/data/euroc/";
-        
-        auto datasets = discoverVroomDatasets(dataDir);
-        
-        if (datasets.empty()) {
-            std::cerr << "❌ No Vroom datasets found in " << dataDir << std::endl;
-            return 1;
-        }
-        
-        cout << "\n✓ Found " << datasets.size() << " Vroom datasets:\n";
-        for (const auto& [name, path] : datasets) {
-            cout << "  • " << name << " (" << path << ")\n";
-        }
-        
-        // Run calibration
-        NoiseCalibrationStudy study = runVroomCalibration(datasets);
-        exportResults(study, "noise_calibration_vroom.csv");
-        
-        // Print summary
-        printSummary(study);
-        
-        cout << "\n✅ Vroom calibration complete!\n";
-        cout << "📊 Check noise_calibration_vroom.csv for detailed results\n";
-        
-        return 0;
-        
-    } catch (const std::exception& e) {
-        std::cerr << "❌ Error: " << e.what() << std::endl;
-        return 1;
-    }
-}
+}  // namespace gtsam
