@@ -50,9 +50,7 @@ public:
      */
     struct NoiseParams {
         double sigmaGyro;      ///< Gyroscope noise standard deviation
-        double sigmaAcc;       ///< Accelerometer noise standard deviation
-        double sigmaGyroBias;  ///< Gyroscope bias random walk standard deviation
-        double sigmaAccBias;   ///< Accelerometer bias random walk standard deviation
+        double sigmaAcc;       ///< Accelerometer noise standard deviation   
     };
 
     /**
@@ -83,30 +81,39 @@ public:
 
     /**
      * @brief Configure IMU preintegration parameters for this dataset
-     * @param alpha Scaling factor for noise parameters (default: 3.0)
-     * @param customParams Optional custom parameters to use as base
+     * @param alphaGyro Scaling factor for gyro noise parameters
+     * @param alphaAcc Scaling factor for accel noise parameters
      * @return Configured preintegration parameters
      */
-    std::shared_ptr<PreintegrationCombinedParams> configureImuParams(double alpha = 3.0, 
-        const std::shared_ptr<PreintegrationCombinedParams>& customParams = nullptr) const;
+    std::shared_ptr<PreintegrationCombinedParams> configureImuParams(
+        double alphaGyro, double alphaAcc) const;
+
+    /**
+     * @brief Configure IMU preintegration parameters for this dataset
+     * @param alpha Scaling factor for noise parameters (default: 3.0)
+     * @return Configured preintegration parameters
+     */
+    std::shared_ptr<PreintegrationCombinedParams> configureImuParams(double alpha = 3.0) const;
 
 private:
     std::vector<StateMeasurement> states_;
     std::vector<ImuMeasurement> imuData_;
     const double gravity_ = 9.81;
     
-    /**
-     * @brief Compute noise parameters based on dataset characteristics
-     * @param alpha Scaling factor for noise parameters
-     * @return Noise parameters structure
-     */
+    /// Compute noise parameters with uniform scaling
+    /// @param alpha Scaling factor applied to all noise parameters
+    /// @return Noise parameters structure
     NoiseParams computeNoiseParams(double alpha) const;
-
-    /**
-     * @brief Set IMU covariances in preintegration parameters
-     * @param params Preintegration parameters to modify
-     * @param noise Noise parameters to apply
-     */
+    
+    /// Compute noise parameters with separate gyro and accel scaling
+    /// @param alphaGyro Scaling factor for gyroscope noise
+    /// @param alphaAcc Scaling factor for accelerometer noise
+    /// @return Noise parameters structure
+    NoiseParams computeNoiseParams(double alphaGyro, double alphaAcc) const;
+    
+    /// Set IMU covariances in preintegration parameters
+    /// @param params Preintegration parameters to modify
+    /// @param noise Noise parameters to apply
     void setImuCovariances(const std::shared_ptr<PreintegrationCombinedParams>& params, 
                           const NoiseParams& noise) const;
 };
