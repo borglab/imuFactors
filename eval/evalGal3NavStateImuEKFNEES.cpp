@@ -85,7 +85,6 @@ int main(int argc, char* argv[]) {
                      mh01Results.navstate_0_2s, mh01Results.navstate_0_5s, mh01Results.navstate_1_0s);
         
         cout << string(70, '-') << "\n";
-        
         // Evaluate V202 dataset
         const string v202Path = "../eval/data/euroc/euroc_V202.csv";
         DatasetResults v202Results = evaluateDataset(v202Path, "V202");
