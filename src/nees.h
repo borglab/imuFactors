@@ -60,6 +60,12 @@ double computeMedian(const std::vector<double>& values);
 double computeVariance(const std::vector<double>& values, double meanValue);
 
 /**
+ * Percentile over values using nearest-rank interpolation over sorted values.
+ * Percentile is clamped to [0, 100] and returns 0.0 for empty input.
+ */
+double computePercentile(const std::vector<double>& values, double percentile);
+
+/**
  * @brief Convert a roll-pitch-yaw vector from radians to degrees.
  * @param rpyRadians RPY angles in radians
  * @return RPY angles in degrees

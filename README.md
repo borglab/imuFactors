@@ -105,6 +105,7 @@ cd build
 ./evalGal3NavStateImuEKFNEES
 ./evalNoiseCalibration [dataset_type] [search_mode]
 ./evalExportTrajectories [options]
+./evalSimpleQuadratureNeesAnalysis [data_directory]
 ```
 
 Examples:
@@ -115,4 +116,22 @@ cd build
 ./evalNoiseCalibration all both
 ./evalExportTrajectories --dataset-type vicon
 ./evalExportTrajectories --best-gyro 13.0 --best-acc 9.4 --worst-gyro 0.5 --worst-acc 0.5
+
+### Quadrature NEES Analysis App
+
+To compare reduced NEES for Quadrature, Manifold, and Tangent IMU preintegration methods, use:
+
+```bash
+cd build
+./evalSimpleQuadratureNeesAnalysis [data_directory]
+```
+
+If `[data_directory]` is omitted, it defaults to `../data/euroc/`.
+
+Example:
+
+```bash
+cd build
+./evalSimpleQuadratureNeesAnalysis ../data/euroc/
+```
 ```

@@ -69,6 +69,17 @@ double computeVariance(const std::vector<double>& values, double meanValue) {
   return accum / values.size();
 }
 
+double computePercentile(const std::vector<double>& values, double percentile) {
+  if (values.empty()) return 0.0;
+
+  std::vector<double> sorted = values;
+  std::sort(sorted.begin(), sorted.end());
+  const double boundedPercentile = std::clamp(percentile, 0.0, 100.0) / 100.0;
+  const size_t index =
+      static_cast<size_t>(std::floor(boundedPercentile * static_cast<double>(sorted.size() - 1)));
+  return sorted[index];
+}
+
 Vector3 radiansToDegrees(const Vector3& rpyRadians) { return rpyRadians * kRadToDeg; }
 
 }  // namespace gtsam
