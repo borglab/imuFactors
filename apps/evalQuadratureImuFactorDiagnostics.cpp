@@ -8,7 +8,7 @@
  * -------------------------------------------------------------------------- */
 
 /**
- * @file   evalQuadratureImuFactorNeesAnalysis.cpp
+ * @file   evalQuadratureImuFactorDiagnostics.cpp
  * @brief  Minimal NEES and error analysis for Quadrature, Manifold, and Tangent IMU preintegration
  */
 

@@ -8,7 +8,7 @@
  * -------------------------------------------------------------------------- */
 
 /**
- * @file   evalSimpleQuadratureNeesAnalysis.cpp
+ * @file   evalReducedNeesWithPriorCovariance.cpp
  * @brief  Compare reduced NEES for Quadrature, Manifold, and Tangent IMU preintegration
  */
 

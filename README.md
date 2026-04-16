@@ -21,8 +21,8 @@ imuFactors/
 │   ├── evalGal3NavStateImuEKFNEES.cpp
 │   ├── evalNoiseCalibration.cpp
 │   ├── evalExportTrajectories.cpp
-│   ├── evalSimpleQuadratureNeesAnalysis.cpp
-│   └── evalQuadratureImuFactorNeesAnalysis.cpp
+│   ├── evalReducedNeesWithPriorCovariance.cpp
+│   └── evalQuadratureImuFactorDiagnostics.cpp
 ├── tests/
 │   ├── CMakeLists.txt
 │   ├── testImuNEES.cpp
@@ -109,8 +109,8 @@ cd build
 ./evalGal3NavStateImuEKFNEES
 ./evalNoiseCalibration [dataset_type] [search_mode]
 ./evalExportTrajectories [options]
-./evalSimpleQuadratureNeesAnalysis [options]
-./evalQuadratureImuFactorNeesAnalysis [options]
+./evalReducedNeesWithPriorCovariance [options]
+./evalQuadratureImuFactorDiagnostics [options]
 ```
 
 Examples:
@@ -121,8 +121,8 @@ cd build
 ./evalNoiseCalibration all both
 ./evalExportTrajectories --dataset-type vicon
 ./evalExportTrajectories --best-gyro 13.0 --best-acc 9.4 --worst-gyro 0.5 --worst-acc 0.5
-./evalSimpleQuadratureNeesAnalysis --dataset MH01 --max-intervals 1
-./evalQuadratureImuFactorNeesAnalysis --dataset MH01 --max-intervals 1
+./evalReducedNeesWithPriorCovariance --dataset MH01 --max-intervals 1
+./evalQuadratureImuFactorDiagnostics --dataset MH01 --max-intervals 1
 ```
 
 ### Quadrature Analysis Apps
@@ -135,5 +135,6 @@ Both quadrature analysis apps accept the same dataset-selection flags:
 --max-intervals <count> # use only the first N default intervals
 ```
 
-Use `evalSimpleQuadratureNeesAnalysis` for the reduced-NEES comparison table and
-`evalQuadratureImuFactorNeesAnalysis` for the fuller NEES/error summary tables.
+Use `evalReducedNeesWithPriorCovariance` for the reduced-NEES comparison table with
+initial state/bias covariance folded into the comparison, and
+`evalQuadratureImuFactorDiagnostics` for the fuller NEES/error summary tables.

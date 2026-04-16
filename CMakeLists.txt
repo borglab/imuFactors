@@ -49,16 +49,16 @@ target_link_libraries(imuFactorsEval PUBLIC
 add_executable(evalGal3NavStateImuEKFNEES apps/evalGal3NavStateImuEKFNEES.cpp)
 add_executable(evalNoiseCalibration apps/evalNoiseCalibration.cpp)
 add_executable(evalExportTrajectories apps/evalExportTrajectories.cpp)
-add_executable(evalSimpleQuadratureNeesAnalysis apps/evalSimpleQuadratureNeesAnalysis.cpp)
-add_executable(evalQuadratureImuFactorNeesAnalysis apps/evalQuadratureImuFactorNeesAnalysis.cpp)
+add_executable(evalReducedNeesWithPriorCovariance apps/evalReducedNeesWithPriorCovariance.cpp)
+add_executable(evalQuadratureImuFactorDiagnostics apps/evalQuadratureImuFactorDiagnostics.cpp)
 
 # Link dependencies
 foreach(app_target
     evalGal3NavStateImuEKFNEES
     evalNoiseCalibration
     evalExportTrajectories
-    evalSimpleQuadratureNeesAnalysis
-    evalQuadratureImuFactorNeesAnalysis)
+    evalReducedNeesWithPriorCovariance
+    evalQuadratureImuFactorDiagnostics)
 
     target_link_libraries(${app_target}
         imuFactorsEval
