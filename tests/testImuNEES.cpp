@@ -10,7 +10,7 @@
  * -------------------------------------------------------------------------- */
 
 /**
- * @file   evalImuNEES.cpp
+ * @file   testImuNEES.cpp
  * @brief  Evaluations for NEES
  * @author Alec Kain
  */
