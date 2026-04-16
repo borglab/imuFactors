@@ -14,6 +14,7 @@
  */
 
 #include "NEESEvaluator.h"
+#include "NEESResults.h"
 #include "nees.h"
 #include <iostream>
 
@@ -69,17 +70,17 @@ std::vector<double> NEESEvaluator::processTimeWindow(const std::shared_ptr<Prein
     return neesResults;
 }
 
-NEESEvaluator::NEESResults NEESEvaluator::processTimeWindow(const std::shared_ptr<PreintegrationCombinedParams>& params,
-                                                          double preintTime, double dt) const {
+NEESResults NEESEvaluator::processTimeWindow(const std::shared_ptr<PreintegrationCombinedParams>& params,
+                                             double preintTime, double dt) const {
     const auto& states = dataset_.getStates();
     double totalTime = states.back().timestamp - states.front().timestamp;
     int windowCount = static_cast<int>(totalTime / preintTime);
     int windowSize = static_cast<int>(states.size() / windowCount);
     auto neesValues = processTimeWindow(params, windowCount, windowSize, dt);
-    return NEESEvaluator::computeStatistics(neesValues, preintTime);
+    return computeStatistics(neesValues, preintTime);
 }
 
-NEESEvaluator::NEESResults NEESEvaluator::computeStatistics(const std::vector<double>& neesResults, double preintTime) {
+NEESResults NEESEvaluator::computeStatistics(const std::vector<double>& neesResults, double preintTime) {
     NEESResults results;
     results.neesValues = neesResults;
     results.preintTime = preintTime;
@@ -106,7 +107,7 @@ void NEESEvaluator::printNeesStatistics(const NEESResults& results) {
               << "Results:   " << results.mean << " | " << results.median << " | " << results.variance << "\n";
 }
 
-NEESEvaluator::NEESResults NEESEvaluator::run(double interval, double alpha) const {
+NEESResults NEESEvaluator::run(double interval, double alpha) const {
     // Get configured IMU parameters from the dataset
     auto params = dataset_.configureImuParams(alpha);
     double dt = dataset_.getStates()[1].timestamp - dataset_.getStates()[0].timestamp;

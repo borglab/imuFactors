@@ -22,12 +22,12 @@ using namespace std;
 
 /// NEES results for all intervals
 struct DatasetResults {
-    NEESEvaluator::NEESResults gal3_0_2s;
-    NEESEvaluator::NEESResults gal3_0_5s;
-    NEESEvaluator::NEESResults gal3_1_0s;
-    NEESEvaluator::NEESResults navstate_0_2s;
-    NEESEvaluator::NEESResults navstate_0_5s;
-    NEESEvaluator::NEESResults navstate_1_0s;
+    NEESResults gal3_0_2s;
+    NEESResults gal3_0_5s;
+    NEESResults gal3_1_0s;
+    NEESResults navstate_0_2s;
+    NEESResults navstate_0_5s;
+    NEESResults navstate_1_0s;
 };
 
 /// Print table header
@@ -40,9 +40,9 @@ static void printTableHeader() {
 /// Print NEES results row
 static void printTableRow(const string& datasetName,
                          const string& methodName,
-                         const NEESEvaluator::NEESResults& result_0_2s,
-                         const NEESEvaluator::NEESResults& result_0_5s,
-                         const NEESEvaluator::NEESResults& result_1_0s) {
+                         const NEESResults& result_0_2s,
+                         const NEESResults& result_0_5s,
+                         const NEESResults& result_1_0s) {
     cout << datasetName << "\t" << methodName << ":\t"
          << fixed << setprecision(3)
          << result_0_2s.median << "\t"

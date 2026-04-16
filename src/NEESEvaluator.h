@@ -16,6 +16,7 @@
 #pragma once
 
 #include "Dataset.h"
+#include "NEESResults.h"
 #include <gtsam/navigation/PreintegrationCombinedParams.h>
 #include <gtsam/navigation/CombinedImuFactor.h>
 #include <optional>
@@ -26,27 +27,18 @@ namespace gtsam {
 /// NEES evaluation for IMU preintegration
 class NEESEvaluator {
 public:
-    /**
-     * @brief NEES evaluation results
-     */
-    struct NEESResults {
-        std::vector<double> neesValues;
-        double mean;
-        double median;
-        double variance;
-        double preintTime;
-    };
+
 
     /// Evaluates NEES values given a dataset (Dataset)
     explicit NEESEvaluator(const Dataset& dataset) : dataset_(dataset) {}
 
     /// Method for running the evaluator with parameters for interval (double) and alpha size (double)
     /// Returns NEES results instead of printing
-    NEESResults run(double interval, double alpha = 3.0) const; 
+    NEESResults run(double interval, double alpha = 3.0) const;
 
     /// Static method for printing NEES results
     static void printNeesStatistics(const NEESResults& results);
-    
+
     /// Compute statistics from NEES values (made public for EKF evaluator)
     static NEESResults computeStatistics(const std::vector<double>& neesResults, double preintTime);
 
@@ -71,7 +63,7 @@ private:
                                         int windowCount, int windowSize, double dt) const;
                                         
     NEESResults processTimeWindow(const std::shared_ptr<PreintegrationCombinedParams>& params,
-                                double preintTime, double dt) const;
+                                  double preintTime, double dt) const;
 };
 
 } // namespace gtsam
