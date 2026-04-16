@@ -10,6 +10,7 @@ imuFactors/
 ├── LICENSE
 ├── README.md
 ├── src/
+│   ├── AppUtils.h
 │   ├── Dataset.h / Dataset.cpp
 │   ├── NEESEvaluator.h / NEESEvaluator.cpp
 │   ├── EKFNEESEvaluator.h / EKFNEESEvaluator.cpp
@@ -19,7 +20,9 @@ imuFactors/
 ├── apps/
 │   ├── evalGal3NavStateImuEKFNEES.cpp
 │   ├── evalNoiseCalibration.cpp
-│   └── evalExportTrajectories.cpp
+│   ├── evalExportTrajectories.cpp
+│   ├── evalReducedNeesWithPriorCovariance.cpp
+│   └── evalQuadratureImuFactorDiagnostics.cpp
 ├── tests/
 │   ├── CMakeLists.txt
 │   ├── testImuNEES.cpp
@@ -41,7 +44,8 @@ imuFactors/
 - `src/EKFNEESEvaluator.*`: Compares `Gal3ImuEKF` and `NavStateImuEKF`, computes windowed NEES, and exports trajectory/NEES CSV files.
 - `src/TrajectoryValidator.*`: CSV export helpers and RMS error summaries for 9D navigation error vectors.
 - `src/NoiseCalibration.h`: Header-only calibration utilities for dataset discovery and alpha-grid search.
-- `src/math.*`: Shared, documented equations for NEES and descriptive statistics.
+- `src/AppUtils.h`: Shared CLI parsing and dataset/interval selection helpers for dataset-driven apps.
+- `src/nees.*`: Shared, documented equations for NEES and descriptive statistics.
 
 ## Build
 
@@ -105,6 +109,8 @@ cd build
 ./evalGal3NavStateImuEKFNEES
 ./evalNoiseCalibration [dataset_type] [search_mode]
 ./evalExportTrajectories [options]
+./evalReducedNeesWithPriorCovariance [options]
+./evalQuadratureImuFactorDiagnostics [options]
 ```
 
 Examples:
@@ -115,4 +121,20 @@ cd build
 ./evalNoiseCalibration all both
 ./evalExportTrajectories --dataset-type vicon
 ./evalExportTrajectories --best-gyro 13.0 --best-acc 9.4 --worst-gyro 0.5 --worst-acc 0.5
+./evalReducedNeesWithPriorCovariance --dataset MH01 --max-intervals 1
+./evalQuadratureImuFactorDiagnostics --dataset MH01 --max-intervals 1
 ```
+
+### Quadrature Analysis Apps
+
+Both quadrature analysis apps accept the same dataset-selection flags:
+
+```bash
+--data-dir <path>       # dataset directory, default ../data/euroc/
+--dataset <name>        # restrict to one dataset, e.g. MH01 or euroc_MH01.csv
+--max-intervals <count> # use only the first N default intervals
+```
+
+Use `evalReducedNeesWithPriorCovariance` for the reduced-NEES comparison table with
+initial state/bias covariance folded into the comparison, and
+`evalQuadratureImuFactorDiagnostics` for the fuller NEES/error summary tables.
