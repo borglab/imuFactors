@@ -20,6 +20,8 @@
 
 namespace gtsam {
 
+class Window;
+
 /**
  * @brief Container and loader for EuRoC MAV dataset
  *
@@ -52,22 +54,6 @@ class Dataset {
   struct NoiseParams {
     double sigmaGyro;  ///< Gyroscope noise standard deviation
     double sigmaAcc;   ///< Accelerometer noise standard deviation
-  };
-
-  /**
-   * @brief Index range for one complete fixed-step integration window
-   *
-   * The IMU integration range is [startIndex, endIndex), and the terminal
-   * state for the window is states[endIndex].
-   */
-  struct Window {
-    size_t startIndex;  ///< Initial state and bias index
-    size_t endIndex;    ///< Terminal state index
-    double startTime;   ///< Window start time in seconds
-    double endTime;     ///< Window end time in seconds
-
-    /// Number of integration steps in this window
-    size_t stepCount() const { return endIndex - startIndex; }
   };
 
   /**

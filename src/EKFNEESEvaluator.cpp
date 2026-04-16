@@ -14,15 +14,52 @@
  */
 
 #include "EKFNEESEvaluator.h"
-#include "TrajectoryValidator.h"  
+#include "TrajectoryValidator.h"
+#include "Window.h"
 #include "nees.h"
-#include <iostream>
-#include <iomanip>
+
 #include <fstream>
+#include <iomanip>
+#include <iostream>
 
 using namespace std;
 
 namespace gtsam {
+
+namespace {
+
+template <typename PredictFunction>
+void propagateWindowMeasurements(
+    const Window& window,
+    const imuBias::ConstantBias& windowBias,
+    PredictFunction&& predictFunction) {
+  window.forEachImuMeasurement([&](const Dataset::ImuMeasurement& measurement) {
+    const Vector3 omega = measurement.omega - windowBias.gyroscope();
+    const Vector3 acceleration = measurement.acc - windowBias.accelerometer();
+    predictFunction(omega, acceleration);
+  });
+}
+
+void fillWindowPrediction(
+    const Window& window,
+    const std::vector<Dataset::StateMeasurement>& states,
+    const TrajectoryValidator::TrajectoryPoint& predictedPoint,
+    const Vector9& error,
+    std::vector<TrajectoryValidator::TrajectoryPoint>& predictedTrajectory,
+    std::vector<Vector9>& errorTrajectory) {
+  for (size_t sampleIndex = window.startIndex(); sampleIndex <= window.endIndex();
+       ++sampleIndex) {
+    predictedTrajectory[sampleIndex] = predictedPoint;
+    predictedTrajectory[sampleIndex].timestamp = states[sampleIndex].timestamp;
+    errorTrajectory[sampleIndex] = error;
+  }
+}
+
+std::string preintegrationTimeLabel(double preintegrationTime) {
+  return std::to_string(static_cast<int>(preintegrationTime * 10)) + "s";
+}
+
+}  // namespace
 
 EKFNEESEvaluator::EKFNEESEvaluator(const Dataset& dataset) : dataset_(dataset) {}
 
@@ -243,11 +280,10 @@ NEESResults EKFNEESEvaluator::processTimeWindowWithGal3EKF(
     vector<Vector9> errorTrajectory;
     
     const auto& states = dataset_.getStates();
-    const auto& imuData = dataset_.getImuData();
     const int stepsPerWindow = static_cast<int>(dataset_.stepsForInterval(preintegrationTime));
     const auto windows = dataset_.completeWindows(static_cast<size_t>(stepsPerWindow));
     const int numCompleteWindows = static_cast<int>(windows.size());
-    const size_t actualEndIndex = windows.empty() ? 0 : windows.back().endIndex;
+    const size_t actualEndIndex = windows.empty() ? 0 : windows.back().endIndex();
     
     /// Store COMPLETE ground truth trajectory (all points)
     std::cout << "Storing complete ground truth: " << states.size() << " points" << std::endl;
@@ -268,34 +304,28 @@ NEESResults EKFNEESEvaluator::processTimeWindowWithGal3EKF(
     /// Process each COMPLETE window
     for (size_t windowIdx = 0; windowIdx < windows.size(); ++windowIdx) {
         const auto& window = windows[windowIdx];
-        const size_t windowStart = window.startIndex;
-        const size_t windowEnd = window.endIndex;
         
         /// RESET: Initialize new EKF at window start
-        Gal3ImuEKF ekf = initializeGal3EKF(states[windowStart].navState, params);
-        const imuBias::ConstantBias windowBias = states[windowStart].bias;
-        
-        /// Integrate through this window
-        for (size_t k = windowStart; k < windowEnd; k++) {
-            Vector3 omega = imuData[k].omega - windowBias.gyroscope();
-            Vector3 acceleration = imuData[k].acc - windowBias.accelerometer();
-            
+        Gal3ImuEKF ekf = initializeGal3EKF(window.initialState(), params);
+        const imuBias::ConstantBias& windowBias = window.initialBias();
+
+        propagateWindowMeasurements(window, windowBias, [&](const Vector3& omega,
+                                                            const Vector3& acceleration) {
             ekf.predict(omega, acceleration, dt);
-        }
+        });
         
         /// Get end-of-window prediction
         const Gal3 predictedGal3 = ekf.state();
-        const NavState& groundTruthNavState = states[windowEnd].navState;
+        const NavState& groundTruthNavState = window.terminalState();
         const Gal3 groundTruthGal3 = convertToGal3(groundTruthNavState, predictedGal3.time());
         const Vector9 navigationError = computeGal3Error(predictedGal3, groundTruthGal3);
         const Matrix9 navigationCovariance = extractNavigationCovariance(ekf);
         
         /// FILL THE ENTIRE WINDOW with this prediction (piecewise constant)
-        for (size_t k = windowStart; k <= windowEnd; k++) {
-            predictedTrajectory[k] = createPredictedPointFromGal3(
-                predictedGal3, navigationCovariance, states[k].timestamp);
-            errorTrajectory[k] = navigationError;
-        }
+        fillWindowPrediction(
+            window, states,
+            createPredictedPointFromGal3(predictedGal3, navigationCovariance, window.endTime()),
+            navigationError, predictedTrajectory, errorTrajectory);
         
         /// Compute NEES (only once per window)
         auto nees = computeNEES(navigationError, navigationCovariance);
@@ -308,7 +338,7 @@ NEESResults EKFNEESEvaluator::processTimeWindowWithGal3EKF(
         }
     }
     
-    std::string timeStr = std::to_string(static_cast<int>(preintegrationTime * 10)) + "s";
+    std::string timeStr = preintegrationTimeLabel(preintegrationTime);
     
     std::cout << "Exporting: GT=" << groundTruthTrajectory.size() << std::endl;
     
@@ -333,11 +363,10 @@ NEESResults EKFNEESEvaluator::processTimeWindowWithNavStateEKF(
     vector<Vector9> errorTrajectory;
     
     const auto& states = dataset_.getStates();
-    const auto& imuData = dataset_.getImuData();
     const int stepsPerWindow = static_cast<int>(dataset_.stepsForInterval(preintegrationTime));
     const auto windows = dataset_.completeWindows(static_cast<size_t>(stepsPerWindow));
     const int numCompleteWindows = static_cast<int>(windows.size());
-    const size_t actualEndIndex = windows.empty() ? 0 : windows.back().endIndex;
+    const size_t actualEndIndex = windows.empty() ? 0 : windows.back().endIndex();
     
     /// Store complete ground truth
     for (size_t i = 0; i < states.size(); i++) {
@@ -355,29 +384,24 @@ NEESResults EKFNEESEvaluator::processTimeWindowWithNavStateEKF(
     errorTrajectory.resize(states.size());
     
     for (const auto& window : windows) {
-        const size_t windowStart = window.startIndex;
-        const size_t windowEnd = window.endIndex;
-        
-        NavStateImuEKF ekf = initializeNavStateEKF(states[windowStart].navState, params);
-        const imuBias::ConstantBias windowBias = states[windowStart].bias;
-        
-        for (size_t k = windowStart; k < windowEnd; k++) {
-            Vector3 omega = imuData[k].omega - windowBias.gyroscope();
-            Vector3 acceleration = imuData[k].acc - windowBias.accelerometer();
+        NavStateImuEKF ekf = initializeNavStateEKF(window.initialState(), params);
+        const imuBias::ConstantBias& windowBias = window.initialBias();
+
+        propagateWindowMeasurements(window, windowBias, [&](const Vector3& omega,
+                                                            const Vector3& acceleration) {
             ekf.predict(omega, acceleration, dt);
-        }
+        });
         
         const NavState predicted = ekf.state();
-        const NavState& groundTruth = states[windowEnd].navState;
+        const NavState& groundTruth = window.terminalState();
         const Vector9 error = groundTruth.logmap(predicted);
         const Matrix9 navigationCovariance = ekf.covariance();
         
         /// Fill entire window with constant prediction
-        for (size_t k = windowStart; k <= windowEnd; k++) {
-            predictedTrajectory[k] = createPredictedPointFromNavState(
-                predicted, navigationCovariance, states[k].timestamp);
-            errorTrajectory[k] = error;
-        }
+        fillWindowPrediction(
+            window, states,
+            createPredictedPointFromNavState(predicted, navigationCovariance, window.endTime()),
+            error, predictedTrajectory, errorTrajectory);
         
         auto nees = computeNEES(error, navigationCovariance);
         if (nees) {
@@ -385,7 +409,7 @@ NEESResults EKFNEESEvaluator::processTimeWindowWithNavStateEKF(
         }
     }
     
-    std::string timeStr = std::to_string(static_cast<int>(preintegrationTime * 10)) + "s";
+    std::string timeStr = preintegrationTimeLabel(preintegrationTime);
     
     exportTrajectoryResults(groundTruthTrajectory, predictedTrajectory, errorTrajectory,
                           "navstate", datasetName, timeStr);

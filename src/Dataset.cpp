@@ -14,6 +14,7 @@
  */
 
 #include "Dataset.h"
+#include "Window.h"
 
 #include <algorithm>
 #include <cmath>
@@ -70,8 +71,7 @@ size_t Dataset::stepsForInterval(double intervalSeconds) const {
       1, static_cast<size_t>(std::llround(intervalSeconds / timestep())));
 }
 
-std::vector<Dataset::Window> Dataset::completeWindows(
-    size_t stepsPerWindow) const {
+std::vector<Window> Dataset::completeWindows(size_t stepsPerWindow) const {
   if (stepsPerWindow == 0) {
     throw std::runtime_error("stepsPerWindow must be positive.");
   }
@@ -81,17 +81,12 @@ std::vector<Dataset::Window> Dataset::completeWindows(
   for (size_t startIndex = 0; startIndex + stepsPerWindow < sampleCount;
        startIndex += stepsPerWindow) {
     const size_t endIndex = startIndex + stepsPerWindow;
-    windows.push_back({
-        startIndex,
-        endIndex,
-        states_[startIndex].timestamp,
-        states_[endIndex].timestamp,
-    });
+    windows.emplace_back(*this, startIndex, endIndex);
   }
   return windows;
 }
 
-std::vector<Dataset::Window> Dataset::completeWindowsForInterval(
+std::vector<Window> Dataset::completeWindowsForInterval(
     double intervalSeconds) const {
   return completeWindows(stepsForInterval(intervalSeconds));
 }

@@ -16,6 +16,7 @@
 #include "NEESEvaluator.h"
 #include "NEESResults.h"
 #include "nees.h"
+
 #include <iostream>
 
 namespace gtsam {
@@ -36,23 +37,13 @@ std::optional<double> NEESEvaluator::computeNEES(const Vector& error, const Matr
 
 std::optional<double> NEESEvaluator::calculateWindowNEES(
     const std::shared_ptr<PreintegrationCombinedParams>& params,
-    const Dataset::Window& window, double dt) const {
-  const auto& states = dataset_.getStates();
-  const auto& imuData = dataset_.getImuData();
+    const Window& window) const {
+  PreintegratedCombinedMeasurements pim(params, window.initialBias());
+  window.integrateMeasurements(pim);
 
-  PreintegratedCombinedMeasurements pim(params, states[window.startIndex].bias);
-
-  for (size_t sampleIndex = window.startIndex; sampleIndex < window.endIndex;
-       ++sampleIndex) {
-    const auto& measurement = imuData[sampleIndex];
-    pim.integrateMeasurement(measurement.acc, measurement.omega, dt);
-  }
-
-  const auto predicted = pim.predict(states[window.startIndex].navState,
-                                     states[window.startIndex].bias);
-  const auto error = computeError(predicted, states[window.endIndex].navState,
-                                  states[window.startIndex].bias,
-                                  states[window.endIndex].bias);
+  const auto predicted = pim.predict(window.initialState(), window.initialBias());
+  const auto error = computeError(predicted, window.terminalState(),
+                                  window.initialBias(), window.terminalBias());
   return computeNEES(error, pim.preintMeasCov());
 }
 
@@ -78,13 +69,12 @@ NEESResults NEESEvaluator::computeStatistics(const std::vector<double>& neesResu
 
 NEESResults NEESEvaluator::run(double interval, double alpha) const {
   auto params = dataset_.configureImuParams(alpha);
-  const double dt = dataset_.timestep();
   const auto windows = dataset_.completeWindowsForInterval(interval);
 
   std::vector<double> neesResults;
   neesResults.reserve(windows.size());
   for (const auto& window : windows) {
-    auto nees = calculateWindowNEES(params, window, dt);
+    auto nees = calculateWindowNEES(params, window);
     if (nees) {
       neesResults.push_back(*nees);
     }

@@ -15,6 +15,7 @@
 #include "AppUtils.h"
 #include "Dataset.h"
 #include "NoiseCalibration.h"
+#include "Window.h"
 #include "nees.h"
 
 #include <gtsam/base/Vector.h>
@@ -92,70 +93,104 @@ MethodSummary summarizeReducedNees(const vector<double>& reducedNeesValues) {
   return summary;
 }
 
-MethodSummary runQuadratureReducedNees(
-    const Dataset& dataset,
-    double timestep,
-    const vector<Dataset::Window>& windows,
+PIMQuadrature buildQuadraturePreintegrated(
+    const Window& window,
+    const shared_ptr<PreintegrationParams>& params,
+    size_t quadratureOrder,
+    const imuBias::ConstantBias& bias) {
+  PIMQuadrature preintegrated(params, bias, quadratureOrder);
+  window.integrateMeasurements(preintegrated);
+  preintegrated.endPreintegration(preintegrated.deltaTij());
+  return preintegrated;
+}
+
+template <class PIMType>
+PIMType buildStandardPreintegrated(
+    const Window& window,
+    const shared_ptr<PreintegrationParams>& params,
+    const imuBias::ConstantBias& bias) {
+  PIMType preintegrated(params, bias);
+  window.integrateMeasurements(preintegrated);
+  return preintegrated;
+}
+
+Vector9 computeQuadratureDeltaForBias(
+    const Window& window,
+    const shared_ptr<PreintegrationParams>& params,
+    size_t quadratureOrder,
+    const imuBias::ConstantBias& bias) {
+  const auto preintegrated = buildQuadraturePreintegrated(window, params, quadratureOrder, bias);
+
+  Vector9 delta;
+  delta << preintegrated.deltaRij().logmap(Rot3()), preintegrated.deltaPij(),
+      preintegrated.deltaVij();
+  return delta;
+}
+
+optional<double> computeQuadratureReducedNeesForWindow(
+    const Window& window,
+    const shared_ptr<PreintegrationParams>& params,
     size_t quadratureOrder) {
-  const auto& imuMeasurements = dataset.getImuData();
-  const auto& states = dataset.getStates();
+  const imuBias::ConstantBias& initialBias = window.initialBias();
+  auto preintegrated =
+      buildQuadraturePreintegrated(window, params, quadratureOrder, initialBias);
+
+  constexpr double kBiasPerturbation = 1e-5;
+  Matrix96 biasJacobian;
+  const Vector6 biasVector = initialBias.vector();
+  for (int column = 0; column < 6; ++column) {
+    Vector6 plusBias = biasVector;
+    Vector6 minusBias = biasVector;
+    plusBias(column) += kBiasPerturbation;
+    minusBias(column) -= kBiasPerturbation;
+
+    const Vector9 deltaPlus = computeQuadratureDeltaForBias(
+        window, params, quadratureOrder,
+        imuBias::ConstantBias(plusBias.head<3>(), plusBias.tail<3>()));
+    const Vector9 deltaMinus = computeQuadratureDeltaForBias(
+        window, params, quadratureOrder,
+        imuBias::ConstantBias(minusBias.head<3>(), minusBias.tail<3>()));
+    biasJacobian.col(column) = (deltaPlus - deltaMinus) / (2.0 * kBiasPerturbation);
+  }
+
+  preintegrated.setInitialCovariance(
+      initialNavCovariance() + biasJacobian * initialBiasCovariance() * biasJacobian.transpose());
+
+  QuadratureImuFactor factor(X(1), V(1), X(2), V(2), B(1), preintegrated);
+  const Vector9 error = factor.evaluateError(
+      window.initialState().pose(), window.initialState().velocity(),
+      window.terminalState().pose(), window.terminalState().velocity(), initialBias);
+  return computeReducedNees(error, preintegrated.preintMeasCov());
+}
+
+template <class PIMType>
+optional<double> computeStandardReducedNeesForWindow(
+    const Window& window, const shared_ptr<PreintegrationParams>& params) {
+  const imuBias::ConstantBias& initialBias = window.initialBias();
+  auto preintegrated = buildStandardPreintegrated<PIMType>(window, params, initialBias);
+
+  Matrix96 biasJacobian;
+  preintegrated.biasCorrectedDelta(initialBias, biasJacobian);
+  const Matrix9 totalCovariance =
+      preintegrated.preintMeasCov() + initialNavCovariance() +
+      biasJacobian * initialBiasCovariance() * biasJacobian.transpose();
+  preintegrated.setPreintMeasCov(totalCovariance);
+
+  ImuFactor2T<PIMType> factor(X(1), X(2), B(1), preintegrated);
+  const Vector9 error =
+      factor.evaluateError(window.initialState(), window.terminalState(), initialBias);
+  return computeReducedNees(error, preintegrated.preintMeasCov());
+}
+
+MethodSummary runQuadratureReducedNees(
+    const vector<Window>& windows, size_t quadratureOrder) {
 
   vector<double> reducedNeesValues;
   const auto params = createPreintegrationParams();
 
   for (const auto& window : windows) {
-    const size_t startIndex = window.startIndex;
-    const size_t endIndex = window.endIndex;
-    const imuBias::ConstantBias initialBias = states[startIndex].bias;
-
-    auto buildDeltaForBias = [&](const imuBias::ConstantBias& bias) {
-      PIMQuadrature preintegrated(params, bias, quadratureOrder);
-      for (size_t sampleIndex = startIndex; sampleIndex < endIndex; ++sampleIndex) {
-        preintegrated.integrateMeasurement(
-            imuMeasurements[sampleIndex].acc, imuMeasurements[sampleIndex].omega, timestep);
-      }
-      preintegrated.endPreintegration(preintegrated.deltaTij());
-
-      Vector9 delta;
-      delta << preintegrated.deltaRij().logmap(Rot3()),
-          preintegrated.deltaPij(),
-          preintegrated.deltaVij();
-      return delta;
-    };
-
-    PIMQuadrature preintegrated(params, initialBias, quadratureOrder);
-    for (size_t sampleIndex = startIndex; sampleIndex < endIndex; ++sampleIndex) {
-      preintegrated.integrateMeasurement(
-          imuMeasurements[sampleIndex].acc, imuMeasurements[sampleIndex].omega, timestep);
-    }
-    preintegrated.endPreintegration(preintegrated.deltaTij());
-
-    constexpr double kBiasPerturbation = 1e-5;
-    Matrix96 biasJacobian;
-    const Vector6 biasVector = initialBias.vector();
-    for (int column = 0; column < 6; ++column) {
-      Vector6 plusBias = biasVector;
-      Vector6 minusBias = biasVector;
-      plusBias(column) += kBiasPerturbation;
-      minusBias(column) -= kBiasPerturbation;
-
-      const Vector9 deltaPlus =
-          buildDeltaForBias(imuBias::ConstantBias(plusBias.head<3>(), plusBias.tail<3>()));
-      const Vector9 deltaMinus =
-          buildDeltaForBias(imuBias::ConstantBias(minusBias.head<3>(), minusBias.tail<3>()));
-      biasJacobian.col(column) = (deltaPlus - deltaMinus) / (2.0 * kBiasPerturbation);
-    }
-
-    preintegrated.setInitialCovariance(
-        initialNavCovariance() + biasJacobian * initialBiasCovariance() * biasJacobian.transpose());
-
-    const NavState& stateI = states[startIndex].navState;
-    const NavState& stateJ = states[endIndex].navState;
-    QuadratureImuFactor factor(X(1), V(1), X(2), V(2), B(1), preintegrated);
-    const Vector9 error = factor.evaluateError(
-        stateI.pose(), stateI.velocity(), stateJ.pose(), stateJ.velocity(), initialBias);
-
-    const auto reducedNees = computeReducedNees(error, preintegrated.preintMeasCov());
+    const auto reducedNees =
+        computeQuadratureReducedNeesForWindow(window, params, quadratureOrder);
     if (reducedNees) {
       reducedNeesValues.push_back(*reducedNees);
     }
@@ -165,40 +200,12 @@ MethodSummary runQuadratureReducedNees(
 }
 
 template <class PIMType>
-MethodSummary runStandardReducedNees(
-    const Dataset& dataset,
-    double timestep,
-    const vector<Dataset::Window>& windows) {
-  const auto& imuMeasurements = dataset.getImuData();
-  const auto& states = dataset.getStates();
-
+MethodSummary runStandardReducedNees(const vector<Window>& windows) {
   vector<double> reducedNeesValues;
   const auto params = createPreintegrationParams();
 
   for (const auto& window : windows) {
-    const size_t startIndex = window.startIndex;
-    const size_t endIndex = window.endIndex;
-    const imuBias::ConstantBias initialBias = states[startIndex].bias;
-
-    PIMType preintegrated(params, initialBias);
-    for (size_t sampleIndex = startIndex; sampleIndex < endIndex; ++sampleIndex) {
-      preintegrated.integrateMeasurement(
-          imuMeasurements[sampleIndex].acc, imuMeasurements[sampleIndex].omega, timestep);
-    }
-
-    Matrix96 biasJacobian;
-    preintegrated.biasCorrectedDelta(initialBias, biasJacobian);
-    const Matrix9 totalCovariance =
-        preintegrated.preintMeasCov() + initialNavCovariance() +
-        biasJacobian * initialBiasCovariance() * biasJacobian.transpose();
-    preintegrated.setPreintMeasCov(totalCovariance);
-
-    const NavState& stateI = states[startIndex].navState;
-    const NavState& stateJ = states[endIndex].navState;
-    ImuFactor2T<PIMType> factor(X(1), X(2), B(1), preintegrated);
-    const Vector9 error = factor.evaluateError(stateI, stateJ, initialBias);
-
-    const auto reducedNees = computeReducedNees(error, preintegrated.preintMeasCov());
+    const auto reducedNees = computeStandardReducedNeesForWindow<PIMType>(window, params);
     if (reducedNees) {
       reducedNeesValues.push_back(*reducedNees);
     }
@@ -238,8 +245,6 @@ int main(int argc, char* argv[]) {
       if (states.size() < 2) {
         continue;
       }
-      const double timestep = dataset.timestep();
-
       for (double intervalSeconds : intervals) {
         const size_t windowSize = dataset.stepsForInterval(intervalSeconds);
         const auto windows = dataset.completeWindows(windowSize);
@@ -247,11 +252,9 @@ int main(int argc, char* argv[]) {
             3, static_cast<size_t>(floor(sqrt(static_cast<double>(windowSize)))));
 
         const MethodSummary quadrature =
-            runQuadratureReducedNees(dataset, timestep, windows, quadratureOrder);
-        const MethodSummary manifold =
-            runStandardReducedNees<PIMManifold>(dataset, timestep, windows);
-        const MethodSummary tangent =
-            runStandardReducedNees<PIMTangent>(dataset, timestep, windows);
+            runQuadratureReducedNees(windows, quadratureOrder);
+        const MethodSummary manifold = runStandardReducedNees<PIMManifold>(windows);
+        const MethodSummary tangent = runStandardReducedNees<PIMTangent>(windows);
 
         cout << "| " << datasetName << " | " << fixed << setprecision(1) << intervalSeconds << " | "
              << windowSize << " | " << quadratureOrder << " | " << setprecision(3)

@@ -15,6 +15,7 @@
 #include "AppUtils.h"
 #include "Dataset.h"
 #include "NoiseCalibration.h"
+#include "Window.h"
 #include "nees.h"
 
 #include <gtsam/base/Vector.h>
@@ -68,6 +69,16 @@ struct MethodSummary {
   size_t nodeCount = 0;
 };
 
+struct MethodSample {
+  double reducedNees = 0.0;
+  double rotErrorNorm = 0.0;
+  double rotPredSigma = 0.0;
+  double posErrorNorm = 0.0;
+  double posPredSigma = 0.0;
+  double velErrorNorm = 0.0;
+  double velPredSigma = 0.0;
+};
+
 struct Row {
   string dataset;
   double interval = 0.0;
@@ -113,13 +124,77 @@ NeesStats summarizeNees(const vector<double>& reducedNeesValues) {
 
 double summarizeMedian(const vector<double>& values) { return computeMedian(values); }
 
-MethodSummary runQuadratureNees(
-    const Dataset& dataset,
-    double timestep,
-    const vector<Dataset::Window>& windows,
+MethodSample makeMethodSample(const Vector9& error, const Matrix9& covariance, double reducedNees) {
+  MethodSample sample;
+  sample.reducedNees = reducedNees;
+  sample.rotErrorNorm = error.head<3>().norm();
+  sample.rotPredSigma = covarianceBlockSigma(covariance, 0);
+  sample.posErrorNorm = error.segment<3>(3).norm();
+  sample.posPredSigma = covarianceBlockSigma(covariance, 3);
+  sample.velErrorNorm = error.tail<3>().norm();
+  sample.velPredSigma = covarianceBlockSigma(covariance, 6);
+  return sample;
+}
+
+void appendMethodSample(
+    const MethodSample& sample,
+    vector<double>& reducedNeesValues,
+    vector<double>& rotErrorNorms,
+    vector<double>& rotPredSigmas,
+    vector<double>& posErrorNorms,
+    vector<double>& posPredSigmas,
+    vector<double>& velErrorNorms,
+    vector<double>& velPredSigmas) {
+  reducedNeesValues.push_back(sample.reducedNees);
+  rotErrorNorms.push_back(sample.rotErrorNorm);
+  rotPredSigmas.push_back(sample.rotPredSigma);
+  posErrorNorms.push_back(sample.posErrorNorm);
+  posPredSigmas.push_back(sample.posPredSigma);
+  velErrorNorms.push_back(sample.velErrorNorm);
+  velPredSigmas.push_back(sample.velPredSigma);
+}
+
+optional<MethodSample> analyzeQuadratureWindow(
+    const Window& window,
+    const shared_ptr<PreintegrationParams>& params,
     size_t quadratureNodes) {
-  const auto& imuMeasurements = dataset.getImuData();
-  const auto& states = dataset.getStates();
+  PIMQuadrature preintegrated(params, window.initialBias(), quadratureNodes);
+  window.integrateMeasurements(preintegrated);
+  preintegrated.endPreintegration(preintegrated.deltaTij());
+
+  const Matrix9 covariance = preintegrated.preintMeasCov();
+  QuadratureImuFactor factor(X(1), V(1), X(2), V(2), B(1), preintegrated);
+  const Vector9 error = factor.evaluateError(
+      window.initialState().pose(), window.initialState().velocity(),
+      window.terminalState().pose(), window.terminalState().velocity(),
+      window.initialBias());
+
+  const auto reducedNees = computeReducedNees(error, covariance);
+  if (!reducedNees) {
+    return nullopt;
+  }
+  return makeMethodSample(error, covariance, *reducedNees);
+}
+
+template <class PIMType>
+optional<MethodSample> analyzeStandardWindow(
+    const Window& window, const shared_ptr<PreintegrationParams>& params) {
+  PIMType preintegrated(params, window.initialBias());
+  window.integrateMeasurements(preintegrated);
+
+  ImuFactor2T<PIMType> factor(X(1), X(2), B(1), preintegrated);
+  const Vector9 error =
+      factor.evaluateError(window.initialState(), window.terminalState(), window.initialBias());
+  const Matrix9 covariance = preintegrated.preintMeasCov();
+
+  const auto reducedNees = computeReducedNees(error, covariance);
+  if (!reducedNees) {
+    return nullopt;
+  }
+  return makeMethodSample(error, covariance, *reducedNees);
+}
+
+MethodSummary runQuadratureNees(const vector<Window>& windows, size_t quadratureNodes) {
 
   MethodSummary summary;
   summary.nodeCount = quadratureNodes;
@@ -133,36 +208,12 @@ MethodSummary runQuadratureNees(
   const auto params = createPreintegrationParams();
 
   for (const auto& window : windows) {
-    const size_t startIndex = window.startIndex;
-    const size_t endIndex = window.endIndex;
-
-    const NavState& stateI = states[startIndex].navState;
-    const NavState& stateJ = states[endIndex].navState;
-    const imuBias::ConstantBias initialBias = states[startIndex].bias;
-
-    PIMQuadrature preintegrated(params, initialBias, quadratureNodes);
-    for (size_t sampleIndex = startIndex; sampleIndex < endIndex; ++sampleIndex) {
-      preintegrated.integrateMeasurement(
-          imuMeasurements[sampleIndex].acc, imuMeasurements[sampleIndex].omega, timestep);
-    }
-    preintegrated.endPreintegration(preintegrated.deltaTij());
-
-    const Matrix9 covariance = preintegrated.preintMeasCov();
-    QuadratureImuFactor factor(X(1), V(1), X(2), V(2), B(1), preintegrated);
-    const Vector9 error = factor.evaluateError(
-        stateI.pose(), stateI.velocity(), stateJ.pose(), stateJ.velocity(), initialBias);
-
-    const auto reducedNees = computeReducedNees(error, covariance);
-    if (!reducedNees) {
+    const auto sample = analyzeQuadratureWindow(window, params, quadratureNodes);
+    if (!sample) {
       continue;
     }
-    reducedNeesValues.push_back(*reducedNees);
-    rotErrorNorms.push_back(error.head<3>().norm());
-    rotPredSigmas.push_back(covarianceBlockSigma(covariance, 0));
-    posErrorNorms.push_back(error.segment<3>(3).norm());
-    posPredSigmas.push_back(covarianceBlockSigma(covariance, 3));
-    velErrorNorms.push_back(error.tail<3>().norm());
-    velPredSigmas.push_back(covarianceBlockSigma(covariance, 6));
+    appendMethodSample(*sample, reducedNeesValues, rotErrorNorms, rotPredSigmas,
+                       posErrorNorms, posPredSigmas, velErrorNorms, velPredSigmas);
   }
 
   summary.nees = summarizeNees(reducedNeesValues);
@@ -177,13 +228,7 @@ MethodSummary runQuadratureNees(
 }
 
 template <class PIMType>
-MethodSummary runStandardNees(
-    const Dataset& dataset,
-    double timestep,
-    const vector<Dataset::Window>& windows) {
-  const auto& imuMeasurements = dataset.getImuData();
-  const auto& states = dataset.getStates();
-
+MethodSummary runStandardNees(const vector<Window>& windows) {
   MethodSummary summary;
   vector<double> reducedNeesValues;
   vector<double> rotErrorNorms;
@@ -195,33 +240,12 @@ MethodSummary runStandardNees(
   const auto params = createPreintegrationParams();
 
   for (const auto& window : windows) {
-    const size_t startIndex = window.startIndex;
-    const size_t endIndex = window.endIndex;
-    const NavState& stateI = states[startIndex].navState;
-    const NavState& stateJ = states[endIndex].navState;
-    const imuBias::ConstantBias initialBias = states[startIndex].bias;
-
-    PIMType preintegrated(params, initialBias);
-    for (size_t sampleIndex = startIndex; sampleIndex < endIndex; ++sampleIndex) {
-      preintegrated.integrateMeasurement(
-          imuMeasurements[sampleIndex].acc, imuMeasurements[sampleIndex].omega, timestep);
-    }
-
-    ImuFactor2T<PIMType> factor(X(1), X(2), B(1), preintegrated);
-    const Vector9 error = factor.evaluateError(stateI, stateJ, initialBias);
-    const Matrix9 covariance = preintegrated.preintMeasCov();
-
-    const auto reducedNees = computeReducedNees(error, covariance);
-    if (!reducedNees) {
+    const auto sample = analyzeStandardWindow<PIMType>(window, params);
+    if (!sample) {
       continue;
     }
-    reducedNeesValues.push_back(*reducedNees);
-    rotErrorNorms.push_back(error.head<3>().norm());
-    rotPredSigmas.push_back(covarianceBlockSigma(covariance, 0));
-    posErrorNorms.push_back(error.segment<3>(3).norm());
-    posPredSigmas.push_back(covarianceBlockSigma(covariance, 3));
-    velErrorNorms.push_back(error.tail<3>().norm());
-    velPredSigmas.push_back(covarianceBlockSigma(covariance, 6));
+    appendMethodSample(*sample, reducedNeesValues, rotErrorNorms, rotPredSigmas,
+                       posErrorNorms, posPredSigmas, velErrorNorms, velPredSigmas);
   }
 
   summary.nees = summarizeNees(reducedNeesValues);
@@ -262,8 +286,6 @@ int main(int argc, char* argv[]) {
       if (states.size() < 2) {
         continue;
       }
-      const double timestep = dataset.timestep();
-
       for (double intervalSeconds : intervals) {
         const size_t samplesPerWindow = dataset.stepsForInterval(intervalSeconds);
         const auto windows = dataset.completeWindows(samplesPerWindow);
@@ -275,9 +297,9 @@ int main(int argc, char* argv[]) {
         row.interval = intervalSeconds;
         row.samplesPerWindow = samplesPerWindow;
         row.quadratureNodes = quadratureNodes;
-        row.quadrature = runQuadratureNees(dataset, timestep, windows, quadratureNodes);
-        row.manifold = runStandardNees<PIMManifold>(dataset, timestep, windows);
-        row.tangent = runStandardNees<PIMTangent>(dataset, timestep, windows);
+        row.quadrature = runQuadratureNees(windows, quadratureNodes);
+        row.manifold = runStandardNees<PIMManifold>(windows);
+        row.tangent = runStandardNees<PIMTangent>(windows);
         rows.push_back(row);
 
         cout << "[done] " << datasetName << " dt=" << fixed << setprecision(1) << intervalSeconds

@@ -19,8 +19,27 @@
 
 #include "Dataset.h"
 #include "NEESEvaluator.h"
+#include "Window.h"
 
 using namespace gtsam;
+
+namespace {
+
+struct CountingIntegrator {
+  size_t callCount = 0;
+  Vector3 lastAcc = Vector3::Zero();
+  Vector3 lastOmega = Vector3::Zero();
+  double lastDt = 0.0;
+
+  void integrateMeasurement(const Vector3& acc, const Vector3& omega, double dt) {
+    ++callCount;
+    lastAcc = acc;
+    lastOmega = omega;
+    lastDt = dt;
+  }
+};
+
+}  // namespace
 
 /* ************************************************************************* */
 TEST(Dataset, LoadEurocCsv) {
@@ -64,15 +83,60 @@ TEST(Dataset, CompleteWindowsForInterval) {
 
   const auto windows = dataset.completeWindowsForInterval(0.2);
   EXPECT(!windows.empty());
-  EXPECT(windows.front().startIndex == 0);
-  EXPECT(windows.front().endIndex == 40);
-  EXPECT(std::abs(windows.front().startTime - states[0].timestamp) < 1e-12);
-  EXPECT(std::abs(windows.front().endTime - states[40].timestamp) < 1e-12);
+  EXPECT(windows.front().startIndex() == 0);
+  EXPECT(windows.front().endIndex() == 40);
+  EXPECT(std::abs(windows.front().startTime() - states[0].timestamp) < 1e-12);
+  EXPECT(std::abs(windows.front().endTime() - states[40].timestamp) < 1e-12);
   EXPECT(windows.front().stepCount() == 40);
+  EXPECT(std::abs(
+             windows.front().duration() -
+             (states[40].timestamp - states[0].timestamp)) < 1e-12);
+  EXPECT(std::abs(windows.front().timestep() - dataset.timestep()) < 1e-12);
+  EXPECT(&windows.front().initialStateMeasurement() == &states[0]);
+  EXPECT(&windows.front().terminalStateMeasurement() == &states[40]);
+  EXPECT(&windows.front().initialState() == &states[0].navState);
+  EXPECT(&windows.front().terminalState() == &states[40].navState);
+  EXPECT((windows.front().initialBias().vector() - states[0].bias.vector()).norm() < 1e-12);
+  EXPECT((windows.front().terminalBias().vector() - states[40].bias.vector()).norm() < 1e-12);
   EXPECT(windows.size() == (sampleCount - 1) / 40);
-  EXPECT(windows.back().endIndex == windows.size() * 40);
-  EXPECT(windows.back().endIndex < sampleCount);
-  EXPECT((sampleCount - 1) - windows.back().endIndex < 40);
+  EXPECT(windows.back().endIndex() == windows.size() * 40);
+  EXPECT(windows.back().endIndex() < sampleCount);
+  EXPECT((sampleCount - 1) - windows.back().endIndex() < 40);
+}
+
+/* ************************************************************************* */
+TEST(Dataset, WindowMeasurementTraversal) {
+  Dataset dataset("../data/euroc/euroc_MH01.csv");
+
+  const auto windows = dataset.completeWindowsForInterval(0.2);
+  EXPECT(!windows.empty());
+  if (windows.empty()) {
+    return;
+  }
+
+  const Window& window = windows.front();
+  const auto& imu = dataset.getImuData();
+  size_t visitedSamples = 0;
+  const Dataset::ImuMeasurement* firstMeasurement = nullptr;
+  const Dataset::ImuMeasurement* lastMeasurement = nullptr;
+  window.forEachImuMeasurement([&](const Dataset::ImuMeasurement& measurement) {
+    if (visitedSamples == 0) {
+      firstMeasurement = &measurement;
+    }
+    lastMeasurement = &measurement;
+    ++visitedSamples;
+  });
+
+  EXPECT(visitedSamples == window.stepCount());
+  EXPECT(firstMeasurement == &imu[window.startIndex()]);
+  EXPECT(lastMeasurement == &imu[window.endIndex() - 1]);
+
+  CountingIntegrator integrator;
+  window.integrateMeasurements(integrator);
+  EXPECT(integrator.callCount == window.stepCount());
+  EXPECT((integrator.lastAcc - imu[window.endIndex() - 1].acc).norm() < 1e-12);
+  EXPECT((integrator.lastOmega - imu[window.endIndex() - 1].omega).norm() < 1e-12);
+  EXPECT(std::abs(integrator.lastDt - dataset.timestep()) < 1e-12);
 }
 
 /* ************************************************************************* */

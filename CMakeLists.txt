@@ -31,6 +31,7 @@ endif()
 # Shared evaluation code (no main)
 add_library(imuFactorsEval
     src/Dataset.cpp
+    src/Window.cpp
     src/NEESEvaluator.cpp
     src/EKFNEESEvaluator.cpp
     src/TrajectoryValidator.cpp

@@ -17,6 +17,7 @@
 
 #include "Dataset.h"
 #include "NEESResults.h"
+#include "Window.h"
 #include <gtsam/navigation/PreintegrationCombinedParams.h>
 #include <gtsam/navigation/CombinedImuFactor.h>
 #include <optional>
@@ -56,7 +57,7 @@ private:
     /// Evaluate one complete integration window
     std::optional<double> calculateWindowNEES(
         const std::shared_ptr<PreintegrationCombinedParams>& params,
-        const Dataset::Window& window, double dt) const;
+        const Window& window) const;
 };
 
 } // namespace gtsam
