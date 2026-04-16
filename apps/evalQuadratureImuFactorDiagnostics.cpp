@@ -116,11 +116,10 @@ double summarizeMedian(const vector<double>& values) { return computeMedian(valu
 MethodSummary runQuadratureNees(
     const Dataset& dataset,
     double timestep,
-    size_t samplesPerWindow,
+    const vector<Dataset::Window>& windows,
     size_t quadratureNodes) {
   const auto& imuMeasurements = dataset.getImuData();
   const auto& states = dataset.getStates();
-  const size_t sampleCount = min(states.size(), imuMeasurements.size());
 
   MethodSummary summary;
   summary.nodeCount = quadratureNodes;
@@ -133,9 +132,9 @@ MethodSummary runQuadratureNees(
   vector<double> velPredSigmas;
   const auto params = createPreintegrationParams();
 
-  for (size_t startIndex = 0; startIndex + samplesPerWindow < sampleCount;
-       startIndex += samplesPerWindow) {
-    const size_t endIndex = startIndex + samplesPerWindow;
+  for (const auto& window : windows) {
+    const size_t startIndex = window.startIndex;
+    const size_t endIndex = window.endIndex;
 
     const NavState& stateI = states[startIndex].navState;
     const NavState& stateJ = states[endIndex].navState;
@@ -178,10 +177,12 @@ MethodSummary runQuadratureNees(
 }
 
 template <class PIMType>
-MethodSummary runStandardNees(const Dataset& dataset, double timestep, size_t samplesPerWindow) {
+MethodSummary runStandardNees(
+    const Dataset& dataset,
+    double timestep,
+    const vector<Dataset::Window>& windows) {
   const auto& imuMeasurements = dataset.getImuData();
   const auto& states = dataset.getStates();
-  const size_t sampleCount = min(states.size(), imuMeasurements.size());
 
   MethodSummary summary;
   vector<double> reducedNeesValues;
@@ -193,9 +194,9 @@ MethodSummary runStandardNees(const Dataset& dataset, double timestep, size_t sa
   vector<double> velPredSigmas;
   const auto params = createPreintegrationParams();
 
-  for (size_t startIndex = 0; startIndex + samplesPerWindow < sampleCount;
-       startIndex += samplesPerWindow) {
-    const size_t endIndex = startIndex + samplesPerWindow;
+  for (const auto& window : windows) {
+    const size_t startIndex = window.startIndex;
+    const size_t endIndex = window.endIndex;
     const NavState& stateI = states[startIndex].navState;
     const NavState& stateJ = states[endIndex].navState;
     const imuBias::ConstantBias initialBias = states[startIndex].bias;
@@ -261,10 +262,11 @@ int main(int argc, char* argv[]) {
       if (states.size() < 2) {
         continue;
       }
-      const double timestep = states[1].timestamp - states[0].timestamp;
+      const double timestep = dataset.timestep();
 
       for (double intervalSeconds : intervals) {
-        const size_t samplesPerWindow = computeWindowSize(dataset, intervalSeconds);
+        const size_t samplesPerWindow = dataset.stepsForInterval(intervalSeconds);
+        const auto windows = dataset.completeWindows(samplesPerWindow);
         const size_t quadratureNodes = max<size_t>(
             3, static_cast<size_t>(floor(sqrt(static_cast<double>(samplesPerWindow)))));
 
@@ -273,9 +275,9 @@ int main(int argc, char* argv[]) {
         row.interval = intervalSeconds;
         row.samplesPerWindow = samplesPerWindow;
         row.quadratureNodes = quadratureNodes;
-        row.quadrature = runQuadratureNees(dataset, timestep, samplesPerWindow, quadratureNodes);
-        row.manifold = runStandardNees<PIMManifold>(dataset, timestep, samplesPerWindow);
-        row.tangent = runStandardNees<PIMTangent>(dataset, timestep, samplesPerWindow);
+        row.quadrature = runQuadratureNees(dataset, timestep, windows, quadratureNodes);
+        row.manifold = runStandardNees<PIMManifold>(dataset, timestep, windows);
+        row.tangent = runStandardNees<PIMTangent>(dataset, timestep, windows);
         rows.push_back(row);
 
         cout << "[done] " << datasetName << " dt=" << fixed << setprecision(1) << intervalSeconds

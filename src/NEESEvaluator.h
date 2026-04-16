@@ -42,25 +42,21 @@ public:
 private:
     const Dataset& dataset_;
 
-    /// Helper functions ordered "up" - used functions defined before calling functions
-    
-    bool isValidWindow(int startIdx, int endIdx) const;
-    
+    /// Build the navigation-plus-bias error vector for one propagated window
     Vector computeError(const NavState& predicted, 
                        const NavState& actual,
                        const imuBias::ConstantBias& biasPred,
                        const imuBias::ConstantBias& biasActual) const;
-    
-    std::optional<double> computeNEES(const Vector& error, const Matrix& covMatrix) const;
-    
-    std::optional<double> calculateWindowNEES(const std::shared_ptr<PreintegrationCombinedParams>& params,
-                                            int startIdx, int endIdx, double dt) const;
-    
-    std::vector<double> processTimeWindow(const std::shared_ptr<PreintegrationCombinedParams>& params,
-                                        int windowCount, int windowSize, double dt) const;
-                                        
-    NEESResults processTimeWindow(const std::shared_ptr<PreintegrationCombinedParams>& params,
-                                  double preintTime, double dt) const;
+
+    /// Compute normalized estimation error squared from an error/covariance
+    /// pair
+    std::optional<double> computeNEES(const Vector& error,
+                                      const Matrix& covMatrix) const;
+
+    /// Evaluate one complete integration window
+    std::optional<double> calculateWindowNEES(
+        const std::shared_ptr<PreintegrationCombinedParams>& params,
+        const Dataset::Window& window, double dt) const;
 };
 
 } // namespace gtsam

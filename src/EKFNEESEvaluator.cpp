@@ -27,8 +27,7 @@ namespace gtsam {
 EKFNEESEvaluator::EKFNEESEvaluator(const Dataset& dataset) : dataset_(dataset) {}
 
 double EKFNEESEvaluator::computeTimestep() const {
-    const auto& states = dataset_.getStates();
-    return states[1].timestamp - states[0].timestamp;
+    return dataset_.timestep();
 }
 
 NEESResults EKFNEESEvaluator::runGal3ImuEKF(double interval, double alpha) const {
@@ -245,6 +244,10 @@ NEESResults EKFNEESEvaluator::processTimeWindowWithGal3EKF(
     
     const auto& states = dataset_.getStates();
     const auto& imuData = dataset_.getImuData();
+    const int stepsPerWindow = static_cast<int>(dataset_.stepsForInterval(preintegrationTime));
+    const auto windows = dataset_.completeWindows(static_cast<size_t>(stepsPerWindow));
+    const int numCompleteWindows = static_cast<int>(windows.size());
+    const size_t actualEndIndex = windows.empty() ? 0 : windows.back().endIndex;
     
     /// Store COMPLETE ground truth trajectory (all points)
     std::cout << "Storing complete ground truth: " << states.size() << " points" << std::endl;
@@ -252,13 +255,6 @@ NEESResults EKFNEESEvaluator::processTimeWindowWithGal3EKF(
         groundTruthTrajectory.push_back(
             createGroundTruthPoint(states[i].navState, states[i].timestamp));
     }
-    
-    /// Compute steps per window
-    const int stepsPerWindow = static_cast<int>(preintegrationTime / dt + 0.5);
-    const int numCompleteWindows = (states.size() - 1) / stepsPerWindow;  // Integer division
-    
-    /// Calculate actual end index (exclude incomplete final window)
-    const size_t actualEndIndex = numCompleteWindows * stepsPerWindow;
     
     std::cout << "Gal3 " << datasetName << " @ " << preintegrationTime 
               << "s: " << stepsPerWindow << " steps/window, " 
@@ -270,9 +266,10 @@ NEESResults EKFNEESEvaluator::processTimeWindowWithGal3EKF(
     errorTrajectory.resize(states.size());
     
     /// Process each COMPLETE window
-    for (int windowIdx = 0; windowIdx < numCompleteWindows; windowIdx++) {
-        const size_t windowStart = windowIdx * stepsPerWindow;
-        const size_t windowEnd = windowStart + stepsPerWindow;  // No min() needed
+    for (size_t windowIdx = 0; windowIdx < windows.size(); ++windowIdx) {
+        const auto& window = windows[windowIdx];
+        const size_t windowStart = window.startIndex;
+        const size_t windowEnd = window.endIndex;
         
         /// RESET: Initialize new EKF at window start
         Gal3ImuEKF ekf = initializeGal3EKF(states[windowStart].navState, params);
@@ -326,7 +323,6 @@ NEESResults EKFNEESEvaluator::processTimeWindowWithGal3EKF(
 
 /// Same for NavState
 NEESResults EKFNEESEvaluator::processTimeWindowWithNavStateEKF(
-    #include "NEESResults.h"
     const std::shared_ptr<PreintegrationCombinedParams>& params,
     double preintegrationTime, double dt,
     const std::string& datasetName) const {
@@ -338,16 +334,16 @@ NEESResults EKFNEESEvaluator::processTimeWindowWithNavStateEKF(
     
     const auto& states = dataset_.getStates();
     const auto& imuData = dataset_.getImuData();
+    const int stepsPerWindow = static_cast<int>(dataset_.stepsForInterval(preintegrationTime));
+    const auto windows = dataset_.completeWindows(static_cast<size_t>(stepsPerWindow));
+    const int numCompleteWindows = static_cast<int>(windows.size());
+    const size_t actualEndIndex = windows.empty() ? 0 : windows.back().endIndex;
     
     /// Store complete ground truth
     for (size_t i = 0; i < states.size(); i++) {
         groundTruthTrajectory.push_back(
             createGroundTruthPoint(states[i].navState, states[i].timestamp));
     }
-    
-    const int stepsPerWindow = static_cast<int>(preintegrationTime / dt + 0.5);
-    const int numCompleteWindows = (states.size() - 1) / stepsPerWindow;
-    const size_t actualEndIndex = numCompleteWindows * stepsPerWindow;
     
     std::cout << "NavState " << datasetName << " @ " << preintegrationTime 
               << "s: " << stepsPerWindow << " steps/window, " 
@@ -358,9 +354,9 @@ NEESResults EKFNEESEvaluator::processTimeWindowWithNavStateEKF(
     predictedTrajectory.resize(states.size());
     errorTrajectory.resize(states.size());
     
-    for (int windowIdx = 0; windowIdx < numCompleteWindows; windowIdx++) {
-        const size_t windowStart = windowIdx * stepsPerWindow;
-        const size_t windowEnd = windowStart + stepsPerWindow;  // No min() needed
+    for (const auto& window : windows) {
+        const size_t windowStart = window.startIndex;
+        const size_t windowEnd = window.endIndex;
         
         NavStateImuEKF ekf = initializeNavStateEKF(states[windowStart].navState, params);
         const imuBias::ConstantBias windowBias = states[windowStart].bias;

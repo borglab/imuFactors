@@ -95,17 +95,17 @@ MethodSummary summarizeReducedNees(const vector<double>& reducedNeesValues) {
 MethodSummary runQuadratureReducedNees(
     const Dataset& dataset,
     double timestep,
-    size_t windowSize,
+    const vector<Dataset::Window>& windows,
     size_t quadratureOrder) {
   const auto& imuMeasurements = dataset.getImuData();
   const auto& states = dataset.getStates();
-  const size_t sampleCount = min(states.size(), imuMeasurements.size());
 
   vector<double> reducedNeesValues;
   const auto params = createPreintegrationParams();
 
-  for (size_t startIndex = 0; startIndex + windowSize < sampleCount; startIndex += windowSize) {
-    const size_t endIndex = startIndex + windowSize;
+  for (const auto& window : windows) {
+    const size_t startIndex = window.startIndex;
+    const size_t endIndex = window.endIndex;
     const imuBias::ConstantBias initialBias = states[startIndex].bias;
 
     auto buildDeltaForBias = [&](const imuBias::ConstantBias& bias) {
@@ -165,16 +165,19 @@ MethodSummary runQuadratureReducedNees(
 }
 
 template <class PIMType>
-MethodSummary runStandardReducedNees(const Dataset& dataset, double timestep, size_t windowSize) {
+MethodSummary runStandardReducedNees(
+    const Dataset& dataset,
+    double timestep,
+    const vector<Dataset::Window>& windows) {
   const auto& imuMeasurements = dataset.getImuData();
   const auto& states = dataset.getStates();
-  const size_t sampleCount = min(states.size(), imuMeasurements.size());
 
   vector<double> reducedNeesValues;
   const auto params = createPreintegrationParams();
 
-  for (size_t startIndex = 0; startIndex + windowSize < sampleCount; startIndex += windowSize) {
-    const size_t endIndex = startIndex + windowSize;
+  for (const auto& window : windows) {
+    const size_t startIndex = window.startIndex;
+    const size_t endIndex = window.endIndex;
     const imuBias::ConstantBias initialBias = states[startIndex].bias;
 
     PIMType preintegrated(params, initialBias);
@@ -235,19 +238,20 @@ int main(int argc, char* argv[]) {
       if (states.size() < 2) {
         continue;
       }
-      const double timestep = states[1].timestamp - states[0].timestamp;
+      const double timestep = dataset.timestep();
 
       for (double intervalSeconds : intervals) {
-        const size_t windowSize = computeWindowSize(dataset, intervalSeconds);
+        const size_t windowSize = dataset.stepsForInterval(intervalSeconds);
+        const auto windows = dataset.completeWindows(windowSize);
         const size_t quadratureOrder = max<size_t>(
             3, static_cast<size_t>(floor(sqrt(static_cast<double>(windowSize)))));
 
         const MethodSummary quadrature =
-            runQuadratureReducedNees(dataset, timestep, windowSize, quadratureOrder);
+            runQuadratureReducedNees(dataset, timestep, windows, quadratureOrder);
         const MethodSummary manifold =
-            runStandardReducedNees<PIMManifold>(dataset, timestep, windowSize);
+            runStandardReducedNees<PIMManifold>(dataset, timestep, windows);
         const MethodSummary tangent =
-            runStandardReducedNees<PIMTangent>(dataset, timestep, windowSize);
+            runStandardReducedNees<PIMTangent>(dataset, timestep, windows);
 
         cout << "| " << datasetName << " | " << fixed << setprecision(1) << intervalSeconds << " | "
              << windowSize << " | " << quadratureOrder << " | " << setprecision(3)
