@@ -15,6 +15,7 @@
 
 #include "EKFNEESEvaluator.h"
 #include "TrajectoryValidator.h"  
+#include "nees.h"
 #include <iostream>
 #include <iomanip>
 #include <fstream>
@@ -30,21 +31,21 @@ double EKFNEESEvaluator::computeTimestep() const {
     return states[1].timestamp - states[0].timestamp;
 }
 
-NEESEvaluator::NEESResults EKFNEESEvaluator::runGal3ImuEKF(double interval, double alpha) const {
+NEESResults EKFNEESEvaluator::runGal3ImuEKF(double interval, double alpha) const {
     auto params = dataset_.configureImuParams(alpha);
     double dt = computeTimestep();
     return processTimeWindowWithGal3EKF(params, interval, dt, "default");
 }
 
 /// NEW: 3-parameter version with alpha and dataset name
-NEESEvaluator::NEESResults EKFNEESEvaluator::runGal3ImuEKF(
+NEESResults EKFNEESEvaluator::runGal3ImuEKF(
     double interval, double alpha, const std::string& datasetName) const {
     auto params = dataset_.configureImuParams(alpha);
     double dt = computeTimestep();
     return processTimeWindowWithGal3EKF(params, interval, dt, datasetName);
 }
 
-NEESEvaluator::NEESResults EKFNEESEvaluator::runGal3ImuEKF(
+NEESResults EKFNEESEvaluator::runGal3ImuEKF(
     double interval, 
     const std::shared_ptr<PreintegrationCombinedParams>& params,
     const std::string& datasetName) const {
@@ -52,21 +53,21 @@ NEESEvaluator::NEESResults EKFNEESEvaluator::runGal3ImuEKF(
     return processTimeWindowWithGal3EKF(params, interval, dt, datasetName);
 }
 
-NEESEvaluator::NEESResults EKFNEESEvaluator::runNavStateImuEKF(double interval, double alpha) const {
+NEESResults EKFNEESEvaluator::runNavStateImuEKF(double interval, double alpha) const {
     auto params = dataset_.configureImuParams(alpha);
     double dt = computeTimestep();
     return processTimeWindowWithNavStateEKF(params, interval, dt, "default");
 }
 
 /// NEW: 3-parameter version with alpha and dataset name
-NEESEvaluator::NEESResults EKFNEESEvaluator::runNavStateImuEKF(
+NEESResults EKFNEESEvaluator::runNavStateImuEKF(
     double interval, double alpha, const std::string& datasetName) const {
     auto params = dataset_.configureImuParams(alpha);
     double dt = computeTimestep();
     return processTimeWindowWithNavStateEKF(params, interval, dt, datasetName);
 }
 
-NEESEvaluator::NEESResults EKFNEESEvaluator::runNavStateImuEKF(
+NEESResults EKFNEESEvaluator::runNavStateImuEKF(
     double interval,
     const std::shared_ptr<PreintegrationCombinedParams>& params,
     const std::string& datasetName) const {
@@ -76,14 +77,10 @@ NEESEvaluator::NEESResults EKFNEESEvaluator::runNavStateImuEKF(
 
 std::optional<double> EKFNEESEvaluator::computeNEES(const Vector& error, 
                                                      const Matrix& covarianceMatrix) const {
-    try {
-        const size_t degreesOfFreedom = error.size();
-        const Matrix covarianceInverse = covarianceMatrix.inverse();
-        const double nees = (error.transpose() * covarianceInverse * error)(0, 0) / degreesOfFreedom;
-        return (nees > 0.0) ? std::optional<double>(nees) : std::nullopt;
-    } catch (...) {
-        return std::nullopt;
-    }
+    auto nees = normalizedQuadraticForm(
+        error, covarianceMatrix, static_cast<double>(error.size()));
+    if (!nees || *nees <= 0.0) return std::nullopt;
+    return nees;
 }
 
 Gal3 EKFNEESEvaluator::convertToGal3(const NavState& navState, double time) const {
@@ -135,7 +132,7 @@ TrajectoryValidator::TrajectoryPoint EKFNEESEvaluator::createGroundTruthPoint(
     point.timestamp = timestamp;
     point.position = navState.position();
     point.velocity = navState.velocity();
-    point.rpy = navState.attitude().rpy() * 180.0 / M_PI;
+    point.rpy = radiansToDegrees(navState.attitude().rpy());
     return point;
 }
 
@@ -145,7 +142,7 @@ TrajectoryValidator::TrajectoryPoint EKFNEESEvaluator::createPredictedPointFromG
     point.timestamp = timestamp;
     point.position = gal3State.translation();
     point.velocity = gal3State.velocity();
-    point.rpy = gal3State.attitude().rpy() * 180.0 / M_PI;
+    point.rpy = radiansToDegrees(gal3State.attitude().rpy());
     point.covariance = covariance;
     return point;
 }
@@ -156,7 +153,7 @@ TrajectoryValidator::TrajectoryPoint EKFNEESEvaluator::createPredictedPointFromN
     point.timestamp = timestamp;
     point.position = navState.position();
     point.velocity = navState.velocity();
-    point.rpy = navState.attitude().rpy() * 180.0 / M_PI;
+    point.rpy = radiansToDegrees(navState.attitude().rpy());
     point.covariance = covariance;
     return point;
 }
@@ -236,7 +233,7 @@ void EKFNEESEvaluator::exportNEESValues(
     std::cout << "✓ Exported NEES values to " << filename << std::endl;
 }
 
-NEESEvaluator::NEESResults EKFNEESEvaluator::processTimeWindowWithGal3EKF(
+NEESResults EKFNEESEvaluator::processTimeWindowWithGal3EKF(
     const std::shared_ptr<PreintegrationCombinedParams>& params,
     double preintegrationTime, double dt,
     const std::string& datasetName) const {
@@ -328,7 +325,8 @@ NEESEvaluator::NEESResults EKFNEESEvaluator::processTimeWindowWithGal3EKF(
 }
 
 /// Same for NavState
-NEESEvaluator::NEESResults EKFNEESEvaluator::processTimeWindowWithNavStateEKF(
+NEESResults EKFNEESEvaluator::processTimeWindowWithNavStateEKF(
+    #include "NEESResults.h"
     const std::shared_ptr<PreintegrationCombinedParams>& params,
     double preintegrationTime, double dt,
     const std::string& datasetName) const {

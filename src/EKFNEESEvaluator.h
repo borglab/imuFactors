@@ -16,6 +16,7 @@
 #pragma once
 
 #include "NEESEvaluator.h"
+#include "NEESResults.h"
 #include "Dataset.h"
 #include "TrajectoryValidator.h"
 #include <gtsam/navigation/Gal3ImuEKF.h>
@@ -38,24 +39,24 @@ public:
     /// @param interval Preintegration time window in seconds
     /// @param alpha Noise scaling factor
     /// @return NEES results
-    NEESEvaluator::NEESResults runGal3ImuEKF(double interval, 
-                                            double alpha) const;
+    NEESResults runGal3ImuEKF(double interval, 
+                              double alpha) const;
     
     /// Run Gal3 IMU EKF with alpha scaling and dataset name
     /// @param interval Preintegration time window in seconds
     /// @param alpha Noise scaling factor
     /// @param datasetName Name for output files
     /// @return NEES results
-    NEESEvaluator::NEESResults runGal3ImuEKF(double interval, 
-                                            double alpha,
-                                            const std::string& datasetName) const;
+    NEESResults runGal3ImuEKF(double interval, 
+                              double alpha,
+                              const std::string& datasetName) const;
     
     /// Run Gal3 IMU EKF with custom parameters
     /// @param interval Preintegration time window
     /// @param params Custom preintegration parameters
     /// @param datasetName Name for output files
     /// @return NEES results
-    NEESEvaluator::NEESResults runGal3ImuEKF(
+    NEESResults runGal3ImuEKF(
         double interval, 
         const std::shared_ptr<PreintegrationCombinedParams>& params,
         const std::string& datasetName = "default") const;
@@ -64,23 +65,23 @@ public:
     /// @param interval Preintegration time window in seconds
     /// @param alpha Noise scaling factor
     /// @return NEES results
-    NEESEvaluator::NEESResults runNavStateImuEKF(double interval, double alpha) const;
+    NEESResults runNavStateImuEKF(double interval, double alpha) const;
     
     /// Run NavState IMU EKF with alpha scaling and dataset name
     /// @param interval Preintegration time window in seconds
     /// @param alpha Noise scaling factor
     /// @param datasetName Name for output files
     /// @return NEES results
-    NEESEvaluator::NEESResults runNavStateImuEKF(double interval, 
-                                                double alpha,
-                                                const std::string& datasetName) const;
+    NEESResults runNavStateImuEKF(double interval, 
+                                  double alpha,
+                                  const std::string& datasetName) const;
     
     /// Run NavState IMU EKF with custom parameters
     /// @param interval Preintegration time window
     /// @param params Custom preintegration parameters
     /// @param datasetName Name for output files
     /// @return NEES results
-    NEESEvaluator::NEESResults runNavStateImuEKF(
+    NEESResults runNavStateImuEKF(
         double interval,
         const std::shared_ptr<PreintegrationCombinedParams>& params,
         const std::string& datasetName = "default") const;
@@ -92,13 +93,13 @@ private:
     double computeTimestep() const;
     
     /// Process time window for Gal3 EKF
-    NEESEvaluator::NEESResults processTimeWindowWithGal3EKF(
+    NEESResults processTimeWindowWithGal3EKF(
         const std::shared_ptr<PreintegrationCombinedParams>& params,
         double preintegrationTime, double dt,
         const std::string& datasetName) const;
     
     /// Process time window for NavState EKF
-    NEESEvaluator::NEESResults processTimeWindowWithNavStateEKF(
+    NEESResults processTimeWindowWithNavStateEKF(
         const std::shared_ptr<PreintegrationCombinedParams>& params,
         double preintegrationTime, double dt,
         const std::string& datasetName) const;
