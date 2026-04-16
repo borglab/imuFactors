@@ -76,7 +76,7 @@ int main(int argc, char* argv[]) {
         printTableHeader();
         
         // Evaluate MH01 dataset
-        const string mh01Path = "../eval/data/euroc/euroc_MH01.csv";
+        const string mh01Path = "../data/euroc/euroc_MH01.csv";
         DatasetResults mh01Results = evaluateDataset(mh01Path, "MH01");
         
         printTableRow("MH01", "Gal3ImuEKF", 
@@ -87,7 +87,7 @@ int main(int argc, char* argv[]) {
         cout << string(70, '-') << "\n";
         
         // Evaluate V202 dataset
-        const string v202Path = "../eval/data/euroc/euroc_V202.csv";
+        const string v202Path = "../data/euroc/euroc_V202.csv";
         DatasetResults v202Results = evaluateDataset(v202Path, "V202");
         
         printTableRow("V202", "Gal3ImuEKF", 

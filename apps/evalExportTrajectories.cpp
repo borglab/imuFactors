@@ -153,7 +153,7 @@ int main(int argc, char* argv[]) {
         NoiseParameters bestParams{bestAlphaGyro, bestAlphaAcc, "BEST"};
         NoiseParameters worstParams{worstAlphaGyro, worstAlphaAcc, "WORST"};
         
-        const std::string dataDirectory = "../eval/data/euroc/";
+        const std::string dataDirectory = "../data/euroc/";
         
         cout << "\n📊 PARAMETERS:\n";
         cout << "  Best:  αGyro = " << bestParams.alphaGyro << ", αAcc = " << bestParams.alphaAcc << "\n";
@@ -230,7 +230,7 @@ int main(int argc, char* argv[]) {
         cout << "✅ All trajectories and NEES values exported!\n";
         cout << "════════════════════════════════════════════════════════════════\n";
         cout << "\n📊 NEES summary saved to: nees_summary_" << datasetType << ".csv\n";
-        cout << "📊 Next: Run 'python3 ../eval/plot_trajectories_plotly.py' for interactive visualization\n";
+        cout << "📊 Next: Run 'python3 ../apps/plot_trajectories_plotly.py' for interactive visualization\n";
         
         return 0;
         

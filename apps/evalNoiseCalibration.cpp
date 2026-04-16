@@ -224,7 +224,7 @@ int main(int argc, char* argv[]) {
         cout << "║  Goal: Minimize |NEES_0.2s - 1| across selected datasets     ║\n";
         cout << "╚════════════════════════════════════════════════════════════════╝\n";
         
-        const std::string dataDirectory = "../eval/data/euroc/";
+        const std::string dataDirectory = "../data/euroc/";
         
         // Discover datasets using the selected filter
         auto datasets = discoverFilteredDatasets(dataDirectory, filter);

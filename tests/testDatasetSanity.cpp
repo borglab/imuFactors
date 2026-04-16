@@ -22,7 +22,7 @@ using namespace gtsam;
 
 /* ************************************************************************* */
 TEST(Dataset, LoadEurocCsv) {
-    Dataset dataset("./data/euroc/euroc_MH01.csv");
+    Dataset dataset("../data/euroc/euroc_MH01.csv");
 
     const auto& states = dataset.getStates();
     const auto& imu = dataset.getImuData();
@@ -35,7 +35,7 @@ TEST(Dataset, LoadEurocCsv) {
 
 /* ************************************************************************* */
 TEST(Dataset, ConfigureImuParamsScaling) {
-    Dataset dataset("./data/euroc/euroc_MH01.csv");
+    Dataset dataset("../data/euroc/euroc_MH01.csv");
 
     auto params = dataset.configureImuParams(2.0, 3.0);
 

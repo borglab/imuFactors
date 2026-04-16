@@ -1,7 +1,7 @@
 # Local repository tests only.
 # Naming convention: tests/testXXX.cpp -> target testXXX -> target testXXX.run
 
-set(IMUFACTORS_TEST_WORKDIR ${CMAKE_SOURCE_DIR}/eval)
+set(IMUFACTORS_TEST_WORKDIR ${CMAKE_BINARY_DIR})
 
 function(imufactors_add_local_test test_name source_file)
     add_executable(${test_name} ${source_file})

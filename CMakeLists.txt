@@ -29,14 +29,14 @@ endif()
 
 # Shared evaluation code (no main)
 add_library(imuFactorsEval
-    eval/Dataset.cpp
-    eval/NEESEvaluator.cpp
-    eval/EKFNEESEvaluator.cpp
-    eval/TrajectoryValidator.cpp
+    src/Dataset.cpp
+    src/NEESEvaluator.cpp
+    src/EKFNEESEvaluator.cpp
+    src/TrajectoryValidator.cpp
 )
 
 target_include_directories(imuFactorsEval PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/eval
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
 target_link_libraries(imuFactorsEval PUBLIC
@@ -44,9 +44,9 @@ target_link_libraries(imuFactorsEval PUBLIC
 )
 
 # CLI entry points
-add_executable(evalGal3NavStateImuEKFNEES eval/evalGal3NavStateImuEKFNEES.cpp)
-add_executable(evalNoiseCalibration eval/evalNoiseCalibration.cpp)
-add_executable(evalExportTrajectories eval/evalExportTrajectories.cpp)
+add_executable(evalGal3NavStateImuEKFNEES apps/evalGal3NavStateImuEKFNEES.cpp)
+add_executable(evalNoiseCalibration apps/evalNoiseCalibration.cpp)
+add_executable(evalExportTrajectories apps/evalExportTrajectories.cpp)
 
 # Link dependencies
 foreach(app_target

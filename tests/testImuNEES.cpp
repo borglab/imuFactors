@@ -35,7 +35,7 @@ using namespace gtsam;
 /* ************************************************************************* */
 TEST(ImuFactor, NEES) {
     try {
-        const string dataPath = "../eval/data/euroc/euroc_V202.csv";
+        const string dataPath = "../data/euroc/euroc_V202.csv";
         auto dataset = Dataset(dataPath);
         auto evaluator = NEESEvaluator(dataset);
         
