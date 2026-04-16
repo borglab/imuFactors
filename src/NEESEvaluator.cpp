@@ -100,13 +100,6 @@ NEESResults NEESEvaluator::computeStatistics(const std::vector<double>& neesResu
     return results;
 }
 
-void NEESEvaluator::printNeesStatistics(const NEESResults& results) {
-    std::cout << "\nAnalyzing with preintegration time: " << results.preintTime << " s\n";
-    std::cout << "ANEES (15-DOF):    mean | median | variance\n"
-              << "--------------------------------------------\n"
-              << "Results:   " << results.mean << " | " << results.median << " | " << results.variance << "\n";
-}
-
 NEESResults NEESEvaluator::run(double interval, double alpha) const {
     // Get configured IMU parameters from the dataset
     auto params = dataset_.configureImuParams(alpha);

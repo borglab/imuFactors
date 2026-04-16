@@ -21,11 +21,21 @@ namespace gtsam {
 
 /// NEES evaluation results
 struct NEESResults {
-    std::vector<double> neesValues;
-    double mean;
-    double median;
-    double variance;
-    double preintTime;
+  std::vector<double> neesValues;
+  double mean;
+  double median;
+  double variance;
+  double preintTime;
+
+  /// Print NEES statistics to stdout
+  void printStatistics() const {
+    std::cout << "\nAnalyzing with preintegration time: " << preintTime
+              << " s\n";
+    std::cout << "ANEES (15-DOF):    mean | median | variance\n"
+              << "--------------------------------------------\n"
+              << "Results:   " << mean << " | " << median << " | " << variance
+              << "\n";
+  }
 };
 
-} // namespace gtsam
+}  // namespace gtsam

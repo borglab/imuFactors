@@ -36,9 +36,6 @@ public:
     /// Returns NEES results instead of printing
     NEESResults run(double interval, double alpha = 3.0) const;
 
-    /// Static method for printing NEES results
-    static void printNeesStatistics(const NEESResults& results);
-
     /// Compute statistics from NEES values (made public for EKF evaluator)
     static NEESResults computeStatistics(const std::vector<double>& neesResults, double preintTime);
 
