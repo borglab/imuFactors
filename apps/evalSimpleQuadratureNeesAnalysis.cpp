@@ -12,6 +12,7 @@
  * @brief  Compare reduced NEES for Quadrature, Manifold, and Tangent IMU preintegration
  */
 
+#include "AppUtils.h"
 #include "Dataset.h"
 #include "NoiseCalibration.h"
 #include "nees.h"
@@ -23,7 +24,6 @@
 #include <gtsam/navigation/QuadratureImuFactor.h>
 #include <gtsam/navigation/TangentPreintegration.h>
 
-#include <algorithm>
 #include <cmath>
 #include <iomanip>
 #include <iostream>
@@ -90,19 +90,6 @@ MethodSummary summarizeReducedNees(const vector<double>& reducedNeesValues) {
   summary.reducedNeesMedian = computeMedian(reducedNeesValues);
   summary.reducedNeesP95 = computePercentile(reducedNeesValues, 95.0);
   return summary;
-}
-
-size_t computeWindowSize(const Dataset& dataset, double intervalSeconds) {
-  const auto& states = dataset.getStates();
-  if (states.size() < 2) {
-    throw runtime_error("Dataset must contain at least two state samples.");
-  }
-  const double timestep = states[1].timestamp - states[0].timestamp;
-  if (timestep <= 0.0) {
-    throw runtime_error("Dataset timestep must be positive.");
-  }
-  const size_t windowSize = static_cast<size_t>(intervalSeconds / timestep);
-  return max<size_t>(windowSize, 1);
 }
 
 MethodSummary runQuadratureReducedNees(
@@ -216,26 +203,23 @@ MethodSummary runStandardReducedNees(const Dataset& dataset, double timestep, si
 
   return summarizeReducedNees(reducedNeesValues);
 }
-
 }  // namespace
 
 int main(int argc, char* argv[]) {
   try {
-    if (argc > 2) {
-      cerr << "Usage: " << argv[0] << " [data_directory]\n";
-      return 1;
-    }
-
-    const string dataDirectory = (argc == 2) ? argv[1] : "../data/euroc/";
+    const AppCliOptions options = parseDatasetAppCliOptions(argc, argv);
+    const vector<pair<string, string>> discoveredDatasets =
+        discoverFilteredDatasets(options.dataDirectory, DatasetFilters::all);
     const vector<pair<string, string>> datasets =
-        discoverFilteredDatasets(dataDirectory, DatasetFilters::all);
+        selectDatasets(discoveredDatasets, options.datasetName);
 
     if (datasets.empty()) {
-      cerr << "No datasets found in " << dataDirectory << "\n";
+      cerr << "No datasets found in " << options.dataDirectory << "\n";
       return 1;
     }
 
-    const vector<double> intervals = {0.2, 0.5, 1.0};
+    const vector<double> defaultIntervals = defaultQuadratureIntervals();
+    const vector<double> intervals = selectIntervals(defaultIntervals, options.maxIntervals);
 
     cout << "# Quadrature vs Manifold vs Tangent reduced NEES\n";
     cout << "# alpha=" << kAlpha << " sigma_gyro=" << kSigmaGyro << " sigma_acc=" << kSigmaAcc << "\n\n";

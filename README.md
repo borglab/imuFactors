@@ -10,6 +10,7 @@ imuFactors/
 ├── LICENSE
 ├── README.md
 ├── src/
+│   ├── AppUtils.h
 │   ├── Dataset.h / Dataset.cpp
 │   ├── NEESEvaluator.h / NEESEvaluator.cpp
 │   ├── EKFNEESEvaluator.h / EKFNEESEvaluator.cpp
@@ -19,7 +20,9 @@ imuFactors/
 ├── apps/
 │   ├── evalGal3NavStateImuEKFNEES.cpp
 │   ├── evalNoiseCalibration.cpp
-│   └── evalExportTrajectories.cpp
+│   ├── evalExportTrajectories.cpp
+│   ├── evalSimpleQuadratureNeesAnalysis.cpp
+│   └── evalQuadratureImuFactorNeesAnalysis.cpp
 ├── tests/
 │   ├── CMakeLists.txt
 │   ├── testImuNEES.cpp
@@ -41,7 +44,8 @@ imuFactors/
 - `src/EKFNEESEvaluator.*`: Compares `Gal3ImuEKF` and `NavStateImuEKF`, computes windowed NEES, and exports trajectory/NEES CSV files.
 - `src/TrajectoryValidator.*`: CSV export helpers and RMS error summaries for 9D navigation error vectors.
 - `src/NoiseCalibration.h`: Header-only calibration utilities for dataset discovery and alpha-grid search.
-- `src/math.*`: Shared, documented equations for NEES and descriptive statistics.
+- `src/AppUtils.h`: Shared CLI parsing and dataset/interval selection helpers for dataset-driven apps.
+- `src/nees.*`: Shared, documented equations for NEES and descriptive statistics.
 
 ## Build
 
@@ -105,7 +109,8 @@ cd build
 ./evalGal3NavStateImuEKFNEES
 ./evalNoiseCalibration [dataset_type] [search_mode]
 ./evalExportTrajectories [options]
-./evalSimpleQuadratureNeesAnalysis [data_directory]
+./evalSimpleQuadratureNeesAnalysis [options]
+./evalQuadratureImuFactorNeesAnalysis [options]
 ```
 
 Examples:
@@ -116,22 +121,19 @@ cd build
 ./evalNoiseCalibration all both
 ./evalExportTrajectories --dataset-type vicon
 ./evalExportTrajectories --best-gyro 13.0 --best-acc 9.4 --worst-gyro 0.5 --worst-acc 0.5
+./evalSimpleQuadratureNeesAnalysis --dataset MH01 --max-intervals 1
+./evalQuadratureImuFactorNeesAnalysis --dataset MH01 --max-intervals 1
+```
 
-### Quadrature NEES Analysis App
+### Quadrature Analysis Apps
 
-To compare reduced NEES for Quadrature, Manifold, and Tangent IMU preintegration methods, use:
+Both quadrature analysis apps accept the same dataset-selection flags:
 
 ```bash
-cd build
-./evalSimpleQuadratureNeesAnalysis [data_directory]
+--data-dir <path>       # dataset directory, default ../data/euroc/
+--dataset <name>        # restrict to one dataset, e.g. MH01 or euroc_MH01.csv
+--max-intervals <count> # use only the first N default intervals
 ```
 
-If `[data_directory]` is omitted, it defaults to `../data/euroc/`.
-
-Example:
-
-```bash
-cd build
-./evalSimpleQuadratureNeesAnalysis ../data/euroc/
-```
-```
+Use `evalSimpleQuadratureNeesAnalysis` for the reduced-NEES comparison table and
+`evalQuadratureImuFactorNeesAnalysis` for the fuller NEES/error summary tables.
