@@ -72,11 +72,6 @@ private:
                                         
     NEESResults processTimeWindow(const std::shared_ptr<PreintegrationCombinedParams>& params,
                                 double preintTime, double dt) const;
-    
-    /// Statistics computation helper functions
-    static double computeMean(const std::vector<double>& values);
-    static double computeMedian(const std::vector<double>& values);
-    static double computeVariance(const std::vector<double>& values, double mean);
 };
 
 } // namespace gtsam

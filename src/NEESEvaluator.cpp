@@ -14,7 +14,7 @@
  */
 
 #include "NEESEvaluator.h"
-#include <algorithm>
+#include "nees.h"
 #include <iostream>
 
 namespace gtsam {
@@ -36,11 +36,7 @@ Vector NEESEvaluator::computeError(const NavState& predicted,
 }
 
 std::optional<double> NEESEvaluator::computeNEES(const Vector& error, const Matrix& covMatrix) const {
-    try {
-        return (error.transpose() * covMatrix.inverse() * error)(0,0) / 15.0;
-    } catch (...) {
-        return std::nullopt;
-    }
+    return normalizedQuadraticForm(error, covMatrix, 15.0);
 }
 
 std::optional<double> NEESEvaluator::calculateWindowNEES(const std::shared_ptr<PreintegrationCombinedParams>& params,
@@ -83,42 +79,6 @@ NEESEvaluator::NEESResults NEESEvaluator::processTimeWindow(const std::shared_pt
     return NEESEvaluator::computeStatistics(neesValues, preintTime);
 }
 
-// Statistics computation helper functions
-
-double NEESEvaluator::computeMean(const std::vector<double>& values) {
-    if (values.empty()) return 0.0;
-    
-    double sum = 0.0;
-    for (double value : values) {
-        sum += value;
-    }
-    return sum / values.size();
-}
-
-double NEESEvaluator::computeMedian(const std::vector<double>& values) {
-    if (values.empty()) return 0.0;
-    
-    std::vector<double> sortedValues = values;
-    std::sort(sortedValues.begin(), sortedValues.end());
-    size_t n = sortedValues.size();
-    
-    if (n % 2 == 0) {
-        return (sortedValues[n/2 - 1] + sortedValues[n/2]) / 2.0;
-    } else {
-        return sortedValues[n/2];
-    }
-}
-
-double NEESEvaluator::computeVariance(const std::vector<double>& values, double mean) {
-    if (values.empty()) return 0.0;
-    
-    double variance = 0.0;
-    for (double value : values) {
-        variance += (value - mean) * (value - mean);
-    }
-    return variance / values.size();
-}
-
 NEESEvaluator::NEESResults NEESEvaluator::computeStatistics(const std::vector<double>& neesResults, double preintTime) {
     NEESResults results;
     results.neesValues = neesResults;
@@ -131,7 +91,7 @@ NEESEvaluator::NEESResults NEESEvaluator::computeStatistics(const std::vector<do
         return results;
     }
 
-    // Use helper functions to compute statistics
+    // Use shared math utilities for statistics.
     results.mean = computeMean(neesResults);
     results.median = computeMedian(neesResults);
     results.variance = computeVariance(neesResults, results.mean);

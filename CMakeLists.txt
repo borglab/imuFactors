@@ -34,6 +34,7 @@ add_library(imuFactorsEval
     src/NEESEvaluator.cpp
     src/EKFNEESEvaluator.cpp
     src/TrajectoryValidator.cpp
+    src/nees.cpp
 )
 
 target_include_directories(imuFactorsEval PUBLIC

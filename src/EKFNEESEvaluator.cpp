@@ -15,6 +15,7 @@
 
 #include "EKFNEESEvaluator.h"
 #include "TrajectoryValidator.h"  
+#include "nees.h"
 #include <iostream>
 #include <iomanip>
 #include <fstream>
@@ -76,14 +77,10 @@ NEESEvaluator::NEESResults EKFNEESEvaluator::runNavStateImuEKF(
 
 std::optional<double> EKFNEESEvaluator::computeNEES(const Vector& error, 
                                                      const Matrix& covarianceMatrix) const {
-    try {
-        const size_t degreesOfFreedom = error.size();
-        const Matrix covarianceInverse = covarianceMatrix.inverse();
-        const double nees = (error.transpose() * covarianceInverse * error)(0, 0) / degreesOfFreedom;
-        return (nees > 0.0) ? std::optional<double>(nees) : std::nullopt;
-    } catch (...) {
-        return std::nullopt;
-    }
+    auto nees = normalizedQuadraticForm(
+        error, covarianceMatrix, static_cast<double>(error.size()));
+    if (!nees || *nees <= 0.0) return std::nullopt;
+    return nees;
 }
 
 Gal3 EKFNEESEvaluator::convertToGal3(const NavState& navState, double time) const {
@@ -135,7 +132,7 @@ TrajectoryValidator::TrajectoryPoint EKFNEESEvaluator::createGroundTruthPoint(
     point.timestamp = timestamp;
     point.position = navState.position();
     point.velocity = navState.velocity();
-    point.rpy = navState.attitude().rpy() * 180.0 / M_PI;
+    point.rpy = radiansToDegrees(navState.attitude().rpy());
     return point;
 }
 
@@ -145,7 +142,7 @@ TrajectoryValidator::TrajectoryPoint EKFNEESEvaluator::createPredictedPointFromG
     point.timestamp = timestamp;
     point.position = gal3State.translation();
     point.velocity = gal3State.velocity();
-    point.rpy = gal3State.attitude().rpy() * 180.0 / M_PI;
+    point.rpy = radiansToDegrees(gal3State.attitude().rpy());
     point.covariance = covariance;
     return point;
 }
@@ -156,7 +153,7 @@ TrajectoryValidator::TrajectoryPoint EKFNEESEvaluator::createPredictedPointFromN
     point.timestamp = timestamp;
     point.position = navState.position();
     point.velocity = navState.velocity();
-    point.rpy = navState.attitude().rpy() * 180.0 / M_PI;
+    point.rpy = radiansToDegrees(navState.attitude().rpy());
     point.covariance = covariance;
     return point;
 }

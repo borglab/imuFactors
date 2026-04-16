@@ -14,7 +14,8 @@ imuFactors/
 │   ├── NEESEvaluator.h / NEESEvaluator.cpp
 │   ├── EKFNEESEvaluator.h / EKFNEESEvaluator.cpp
 │   ├── TrajectoryValidator.h / TrajectoryValidator.cpp
-│   └── NoiseCalibration.h
+│   ├── NoiseCalibration.h
+│   └── nees.h / nees.cpp
 ├── apps/
 │   ├── evalGal3NavStateImuEKFNEES.cpp
 │   ├── evalNoiseCalibration.cpp
@@ -40,6 +41,7 @@ imuFactors/
 - `src/EKFNEESEvaluator.*`: Compares `Gal3ImuEKF` and `NavStateImuEKF`, computes windowed NEES, and exports trajectory/NEES CSV files.
 - `src/TrajectoryValidator.*`: CSV export helpers and RMS error summaries for 9D navigation error vectors.
 - `src/NoiseCalibration.h`: Header-only calibration utilities for dataset discovery and alpha-grid search.
+- `src/math.*`: Shared, documented equations for NEES and descriptive statistics.
 
 ## Build
 
