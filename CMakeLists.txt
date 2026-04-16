@@ -7,6 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Enable testing framework
 include(CTest)
+option(IMUFACTORS_BUILD_INTEGRATION_TESTS "Build long-running integration Monte Carlo tests" OFF)
 
 # Find GTSAM (allow local hint to gtsam-private build)
 find_package(GTSAM REQUIRED HINTS "$ENV{HOME}/git/gtsam-private/build")
@@ -62,4 +63,7 @@ endforeach()
 
 if(BUILD_TESTING)
     add_subdirectory(tests)
+    if(IMUFACTORS_BUILD_INTEGRATION_TESTS)
+        add_subdirectory(integration)
+    endif()
 endif()

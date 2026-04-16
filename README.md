@@ -23,9 +23,10 @@ imuFactors/
 │   ├── CMakeLists.txt
 │   ├── testImuNEES.cpp
 │   └── testDatasetSanity.cpp
-├── legacy/
-│   ├── evalImuFactor.cpp
-│   └── evalAHRSFactor.cpp
+├── integration/
+│   ├── CMakeLists.txt
+│   ├── testImuFactorMC.cpp
+│   └── testAHRSFactorMC.cpp
 └── data/
     └── euroc/
         ├── euroc_MH01.csv ... euroc_MH05.csv
@@ -40,25 +41,20 @@ imuFactors/
 - `src/TrajectoryValidator.*`: CSV export helpers and RMS error summaries for 9D navigation error vectors.
 - `src/NoiseCalibration.h`: Header-only calibration utilities for dataset discovery and alpha-grid search.
 
-## CLI Entry Points
+## Build
 
-- `apps/evalGal3NavStateImuEKFNEES.cpp`: Prints Gal3 vs NavState EKF NEES comparison table.
-- `apps/evalNoiseCalibration.cpp`: Coarse/fine grid search for `(alphaGyro, alphaAcc)`.
-- `apps/evalExportTrajectories.cpp`: Exports trajectories and NEES summaries for best vs worst noise settings.
-
-## Local Tests
-
-- `tests/testImuNEES.cpp` -> target `testImuNEES` -> run target `testImuNEES.run`
-- `tests/testDatasetSanity.cpp` -> target `testDatasetSanity` -> run target `testDatasetSanity.run`
-
-Only local tests in `tests/` are wired into this repository build. Files in `legacy/` are reference-only and not built.
-
-## Build and Run
-
-### Configure
+### Configure (local tests only)
 
 ```bash
 cmake -S . -B build -DGTSAM_DIR=~/git/gtsam-private/build
+```
+
+### Configure (include long-running integration MC tests)
+
+```bash
+cmake -S . -B build \
+  -DGTSAM_DIR=~/git/gtsam-private/build \
+  -DIMUFACTORS_BUILD_INTEGRATION_TESTS=ON
 ```
 
 ### Build
@@ -67,24 +63,54 @@ cmake -S . -B build -DGTSAM_DIR=~/git/gtsam-private/build
 cmake --build build -j6
 ```
 
-### List tests
+## Running Tests
+
+### List registered tests
 
 ```bash
 cd build
 ctest -N
 ```
 
-### Run all local tests
+### Local tests (`tests/`)
 
-```bash
-cd build
-ctest --output-on-failure
-```
-
-### Run one local test (`make -j6 testXXX.run`)
+- `tests/testImuNEES.cpp` -> `testImuNEES` -> `testImuNEES.run`
+- `tests/testDatasetSanity.cpp` -> `testDatasetSanity` -> `testDatasetSanity.run`
 
 ```bash
 cd build
 make -j6 testImuNEES.run
 make -j6 testDatasetSanity.run
+```
+
+### Monte Carlo tests (`integration/`, opt-in)
+
+- `integration/testImuFactorMC.cpp` -> `testImuFactorMC` -> `testImuFactorMC.run`
+- `integration/testAHRSFactorMC.cpp` -> `testAHRSFactorMC` -> `testAHRSFactorMC.run`
+
+```bash
+cd build
+make -j6 testImuFactorMC.run
+make -j6 testAHRSFactorMC.run
+```
+
+## Running Apps
+
+From the build directory:
+
+```bash
+cd build
+./evalGal3NavStateImuEKFNEES
+./evalNoiseCalibration [dataset_type] [search_mode]
+./evalExportTrajectories [options]
+```
+
+Examples:
+
+```bash
+cd build
+./evalNoiseCalibration machine_hall coarse
+./evalNoiseCalibration all both
+./evalExportTrajectories --dataset-type vicon
+./evalExportTrajectories --best-gyro 13.0 --best-acc 9.4 --worst-gyro 0.5 --worst-acc 0.5
 ```

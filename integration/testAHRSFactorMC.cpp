@@ -10,15 +10,15 @@
  * -------------------------------------------------------------------------- */
 
 /**
- * @file   evalImuFactor.cpp
- * @brief  Evaluations for ImuFactor
+ * @file   testAHRSFactorMC.cpp
+ * @brief  Evaluations for AHRSFactor
  * @author Porter Zach
  */
 
 #include <CppUnitLite/TestHarness.h>
 #include <gtsam/base/TestableAssertions.h>
 #include <gtsam/base/debug.h>
-#include <gtsam/navigation/ImuFactor.h>
+#include <gtsam/navigation/AHRSFactor.h>
 #include <gtsam/navigation/ScenarioRunner.h>
 #include <gtsam/navigation/tests/imuFactorTesting.h>
 
@@ -39,7 +39,7 @@ static const double kImuFreq = 200.0;
  */
 
 /* ************************************************************************* */
-TEST(ImuFactor, Accelerating) {
+TEST(AHRSFactor, Accelerating) {
   const double a = 0.2, v = 50;
 
   // Set up body pointing towards y axis, and start at 10,20,0 with velocity
@@ -52,42 +52,42 @@ TEST(ImuFactor, Accelerating) {
                                       Vector3(a, 0, 0));
 
   const double T = 3.0;  // seconds
-  ScenarioRunner runner(scenario, testing::Params(), T / 10);
+  AhrsScenarioRunner runner(scenario, testing::Params(), T / 10);
 
-  PreintegratedImuMeasurements pim = runner.integrate(T);
-  EXPECT(assert_equal(scenario.navState(T), runner.predict(pim), 1e-9));
+  PreintegratedAhrsMeasurements pim = runner.integrate(T);
+  EXPECT(assert_equal(scenario.rotation(T), runner.predict(pim), 1e-9));
 
-  Matrix9 estimatedCov = runner.estimateCovariance(T, 1000);
+  Matrix3 estimatedCov = runner.estimateCovariance(T, 1000);
   EXPECT(assert_equal(estimatedCov, pim.preintMeasCov(), 0.01));
 }
 
 /* ************************************************************************* */
-TEST(ImuFactor, EurocDataEasy) {
-  const string data_path = "./data/euroc/euroc_MH01.csv";
+TEST(AHRSFactor, EurocDataEasy) {
+  const string data_path = "../data/euroc/euroc_MH01.csv";
 
   const DiscreteScenario scenario = DiscreteScenario::FromCSV(data_path);
 
-  ScenarioRunner runner(scenario, testing::Params(), 1.0 / kImuFreq);
+  AhrsScenarioRunner runner(scenario, testing::Params(), 1.0 / kImuFreq);
 
-  PreintegratedImuMeasurements pim = runner.integrate(scenario.duration());
-  EXPECT(assert_equal(scenario.navState(scenario.duration()), runner.predict(pim), 1e-9));
+  PreintegratedAhrsMeasurements pim = runner.integrate(scenario.duration());
+  EXPECT(assert_equal(scenario.rotation(scenario.duration()), runner.predict(pim), 1e-9));
 
-  Matrix9 estimatedCov = runner.estimateCovariance(scenario.duration(), 1000);
+  Matrix3 estimatedCov = runner.estimateCovariance(scenario.duration(), 1000);
   EXPECT(assert_equal(estimatedCov, pim.preintMeasCov(), 0.01));
 }
 
 /* ************************************************************************* */
-TEST(ImuFactor, EurocDataHard) {
-  const string data_path = "./data/euroc/euroc_V202.csv";
+TEST(AHRSFactor, EurocDataHard) {
+  const string data_path = "../data/euroc/euroc_V202.csv";
 
   const DiscreteScenario scenario = DiscreteScenario::FromCSV(data_path);
 
-  ScenarioRunner runner(scenario, testing::Params(), 1.0 / kImuFreq);
+  AhrsScenarioRunner runner(scenario, testing::Params(), 1.0 / kImuFreq);
 
-  PreintegratedImuMeasurements pim = runner.integrate(scenario.duration());
-  EXPECT(assert_equal(scenario.navState(scenario.duration()), runner.predict(pim), 1e-9));
+  PreintegratedAhrsMeasurements pim = runner.integrate(scenario.duration());
+  EXPECT(assert_equal(scenario.rotation(scenario.duration()), runner.predict(pim), 1e-9));
 
-  Matrix9 estimatedCov = runner.estimateCovariance(scenario.duration(), 1000);
+  Matrix3 estimatedCov = runner.estimateCovariance(scenario.duration(), 1000);
   EXPECT(assert_equal(estimatedCov, pim.preintMeasCov(), 0.01));
 }
 
