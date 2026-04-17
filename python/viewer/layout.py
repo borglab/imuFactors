@@ -86,12 +86,13 @@ def build_filter_dropdown(component_id: str, label: str) -> html.Div:
     )
 
 
-def build_data_table(table_id: str) -> dash_table.DataTable:
+def build_data_table(table_id: str, merge_duplicate_headers: bool = False) -> dash_table.DataTable:
     return dash_table.DataTable(
         id=table_id,
         page_size=12,
         sort_action="native",
         filter_action="native",
+        merge_duplicate_headers=merge_duplicate_headers,
         style_as_list_view=False,
         style_table={"overflowX": "auto"},
         style_header={
@@ -120,6 +121,7 @@ def build_shell(catalog: list[RunCatalogEntry], results_root: Path) -> html.Div:
 
     return html.Div(
         [
+            dcc.Store(id="catalog-store"),
             dcc.Store(id="selected-run-store"),
             html.Div(
                 [
@@ -130,7 +132,7 @@ def build_shell(catalog: list[RunCatalogEntry], results_root: Path) -> html.Div:
                                 style={"margin": "0 0 6px 0", "fontSize": "28px", "color": TEXT},
                             ),
                             html.P(
-                                "CSV-backed Dash MVP for canonical result packages.",
+                                "CSV-backed Dash viewer for canonical result packages.",
                                 style={"margin": 0, "color": MUTED},
                             ),
                         ],
@@ -157,22 +159,47 @@ def build_shell(catalog: list[RunCatalogEntry], results_root: Path) -> html.Div:
                         placeholder="Select a discovered run",
                         clearable=False,
                     ),
+                    html.Div(style={"height": "16px"}),
+                    html.Label("Compare Against", htmlFor="compare-select", style={"fontSize": "12px", "color": MUTED}),
+                    dcc.Dropdown(
+                        id="compare-select",
+                        options=options,
+                        value=[default_value] if default_value else [],
+                        placeholder="Select additional runs for comparison",
+                        multi=True,
+                    ),
+                    html.Button(
+                        "Refresh Runs",
+                        id="refresh-runs-button",
+                        n_clicks=0,
+                        style={
+                            "marginTop": "18px",
+                            "width": "100%",
+                            "padding": "12px 14px",
+                            "borderRadius": "12px",
+                            "border": f"1px solid {ACCENT}",
+                            "backgroundColor": ACCENT,
+                            "color": "#fff8ef",
+                            "fontWeight": 700,
+                            "cursor": "pointer",
+                        },
+                    ),
                     html.Div(
                         id="run-list-note",
                         children=f"{len(catalog)} runs discovered",
                         style={"marginTop": "14px", "fontSize": "13px", "color": MUTED},
                     ),
-                    html.Div(
-                        [
-                            html.Div("Planned next:", style={"fontSize": "12px", "color": MUTED}),
-                            html.Ul(
+                            html.Div(
                                 [
-                                    html.Li("Multi-run summary compare"),
-                                    html.Li("Window detail tables"),
-                                    html.Li("Trajectory views and graphs"),
-                                ],
-                                style={"paddingLeft": "20px", "margin": "10px 0 0 0", "color": TEXT},
-                            ),
+                                    html.Div("Planned next:", style={"fontSize": "12px", "color": MUTED}),
+                                    html.Ul(
+                                        [
+                                            html.Li("Window detail tables"),
+                                            html.Li("Trajectory views and graphs"),
+                                            html.Li("Plotly trend panels"),
+                                        ],
+                                        style={"paddingLeft": "20px", "margin": "10px 0 0 0", "color": TEXT},
+                                    ),
                         ],
                         style={"marginTop": "24px"},
                     ),
@@ -222,6 +249,28 @@ def build_shell(catalog: list[RunCatalogEntry], results_root: Path) -> html.Div:
                                             build_filter_dropdown("window-method-filter", "Method"),
                                             build_filter_dropdown("window-config-filter", "Config Label"),
                                             build_filter_dropdown("window-interval-filter", "Interval Seconds"),
+                                            html.Div(
+                                                [
+                                                    html.Label(
+                                                        "Comparison Metric Set",
+                                                        htmlFor="window-comparison-metric-set",
+                                                        style={"fontSize": "12px", "color": MUTED},
+                                                    ),
+                                                    dcc.Dropdown(
+                                                        id="window-comparison-metric-set",
+                                                        options=[
+                                                            {"label": "Core Metrics", "value": "core"},
+                                                            {"label": "NEES Statistics", "value": "nees"},
+                                                            {"label": "Error Medians", "value": "errors"},
+                                                            {"label": "Sigma Medians", "value": "sigmas"},
+                                                            {"label": "All Summary Metrics", "value": "all"},
+                                                        ],
+                                                        value="core",
+                                                        clearable=False,
+                                                    ),
+                                                ],
+                                                style={"minWidth": "220px", "flex": "1 1 220px"},
+                                            ),
                                         ],
                                         style={
                                             "display": "flex",
@@ -231,6 +280,13 @@ def build_shell(catalog: list[RunCatalogEntry], results_root: Path) -> html.Div:
                                         },
                                     ),
                                     html.Div(id="window-summary-message", style={"marginBottom": "12px"}),
+                                    html.H3("Method Comparison", style={"color": TEXT}),
+                                    html.Div(
+                                        id="window-comparison-message",
+                                        style={"marginBottom": "12px", "color": MUTED, "fontSize": "13px"},
+                                    ),
+                                    build_data_table("window-method-compare-table", merge_duplicate_headers=True),
+                                    html.H3("Raw Summary Rows", style={"color": TEXT, "marginTop": "28px"}),
                                     build_data_table("window-summary-table"),
                                 ],
                             ),
@@ -252,6 +308,47 @@ def build_shell(catalog: list[RunCatalogEntry], results_root: Path) -> html.Div:
                                     ),
                                     html.Div(id="calibration-summary-message", style={"marginBottom": "12px"}),
                                     build_data_table("calibration-summary-table"),
+                                ],
+                            ),
+                            dcc.Tab(
+                                label="Compare",
+                                value="compare",
+                                children=[
+                                    html.Div(
+                                        "Comparison includes the active run plus any additional selected runs from the sidebar.",
+                                        style={"margin": "18px 0", "color": MUTED, "fontSize": "13px"},
+                                    ),
+                                    html.Div(id="compare-summary-message", style={"marginBottom": "12px"}),
+                                    html.Div(
+                                        [
+                                            build_filter_dropdown("compare-window-dataset-filter", "Dataset"),
+                                            build_filter_dropdown("compare-window-method-filter", "Method"),
+                                            build_filter_dropdown("compare-window-config-filter", "Config Label"),
+                                            build_filter_dropdown("compare-window-interval-filter", "Interval Seconds"),
+                                        ],
+                                        style={
+                                            "display": "flex",
+                                            "gap": "12px",
+                                            "flexWrap": "wrap",
+                                            "margin": "18px 0",
+                                        },
+                                    ),
+                                    html.H3("Window Summary Comparison", style={"color": TEXT}),
+                                    build_data_table("compare-window-table"),
+                                    html.Div(
+                                        [
+                                            build_filter_dropdown("compare-calibration-study-filter", "Study Name"),
+                                            build_filter_dropdown("compare-calibration-result-filter", "Result Label"),
+                                        ],
+                                        style={
+                                            "display": "flex",
+                                            "gap": "12px",
+                                            "flexWrap": "wrap",
+                                            "margin": "28px 0 18px 0",
+                                        },
+                                    ),
+                                    html.H3("Calibration Summary Comparison", style={"color": TEXT}),
+                                    build_data_table("compare-calibration-table"),
                                 ],
                             ),
                         ],

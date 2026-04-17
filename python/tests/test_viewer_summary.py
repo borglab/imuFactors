@@ -6,7 +6,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from python.viewer.app import create_dash_app
+from python.viewer.app import (
+    _build_window_method_comparison,
+    _comparison_rows,
+    _resolve_compare_paths,
+    create_dash_app,
+)
 from python.viewer.discovery import discover_runs
 from python.viewer.loading import load_run_data
 
@@ -174,6 +179,102 @@ class ViewerSummaryTests(unittest.TestCase):
 
             app = create_dash_app(root)
             self.assertEqual(app.title, "imuFactors Summary Viewer")
+
+    def test_resolve_compare_paths_includes_selected_once(self) -> None:
+        resolved = _resolve_compare_paths("run-a", ["run-b", "run-a", "run-c"])
+        self.assertEqual(resolved, ["run-a", "run-b", "run-c"])
+
+    def test_comparison_rows_merge_multiple_runs(self) -> None:
+        payloads = [
+            {
+                "entry": {
+                    "app_name": "evalA",
+                    "run_id": "run-a",
+                    "path": "/tmp/evalA/run-a",
+                    "status": "ready",
+                    "timestamp_utc": "2026-04-17T00:00:00.000Z",
+                },
+                "window_rows": [
+                    {
+                        "dataset": "MH01",
+                        "method": "quadrature",
+                        "config_label": "default",
+                        "interval_seconds": 0.2,
+                    }
+                ],
+            },
+            {
+                "entry": {
+                    "app_name": "evalB",
+                    "run_id": "run-b",
+                    "path": "/tmp/evalB/run-b",
+                    "status": "partial",
+                    "timestamp_utc": "2026-04-17T00:00:01.000Z",
+                },
+                "window_rows": [
+                    {
+                        "dataset": "MH02",
+                        "method": "manifold",
+                        "config_label": "best",
+                        "interval_seconds": 0.5,
+                    }
+                ],
+            },
+        ]
+
+        columns, rows = _comparison_rows(payloads, "window_rows")
+        self.assertEqual(columns[:5], ["run_label", "app_name", "run_id", "timestamp_utc", "status"])
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["run_label"], "evalA | run-a")
+        self.assertEqual(rows[1]["dataset"], "MH02")
+
+    def test_build_window_method_comparison_pivots_methods_side_by_side(self) -> None:
+        rows = [
+            {
+                "dataset": "V102",
+                "interval_seconds": 0.2,
+                "config_label": "default",
+                "samples_per_window": 40,
+                "sample_count": 400,
+                "method": "quadrature",
+                "normalized_nees_mean": 0.0240659,
+                "rot_error_median": 0.0011,
+                "pos_error_median": 0.0022,
+                "vel_error_median": 0.0033,
+            },
+            {
+                "dataset": "V102",
+                "interval_seconds": 0.2,
+                "config_label": "default",
+                "samples_per_window": 40,
+                "sample_count": 400,
+                "method": "manifold",
+                "normalized_nees_mean": 0.0189061,
+                "rot_error_median": 0.0010,
+                "pos_error_median": 0.0021,
+                "vel_error_median": 0.0031,
+            },
+            {
+                "dataset": "V102",
+                "interval_seconds": 0.2,
+                "config_label": "default",
+                "samples_per_window": 40,
+                "sample_count": 400,
+                "method": "tangent",
+                "normalized_nees_mean": 0.0189061,
+                "rot_error_median": 0.0010,
+                "pos_error_median": 0.0021,
+                "vel_error_median": 0.0031,
+            },
+        ]
+
+        columns, comparison_rows = _build_window_method_comparison(rows, "core")
+        self.assertEqual(comparison_rows[0]["dataset"], "V102")
+        self.assertIn("normalized_nees_mean__quadrature", comparison_rows[0])
+        self.assertIn("normalized_nees_mean__manifold", comparison_rows[0])
+        self.assertIn("normalized_nees_mean__tangent", comparison_rows[0])
+        self.assertEqual(columns[0]["name"], ["Dataset", ""])
+        self.assertEqual(columns[5]["name"], ["Normalized NEES Mean", "Quadrature"])
 
 
 if __name__ == "__main__":
