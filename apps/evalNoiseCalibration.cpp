@@ -13,6 +13,7 @@
  */
 
 #include "NoiseCalibration.h"
+#include "ResultsAdapters.h"
 #include "ResultsWriter.h"
 
 using namespace gtsam;
@@ -164,13 +165,10 @@ int main(int argc, char* argv[]) {
     }
 
     ResultsWriter writer(argv[0], options.outputRoot);
-    writer.writeRunMetadata({writer.runId(), writer.appName(),
-                             writer.timestampUtc(),
-                             joinCommandLineArguments(argc, argv),
-                             writer.outputRoot().string(), ""});
+    writeCanonicalRunMetadata(&writer, argc, argv);
     for (const auto& [datasetName, datasetPath] : datasets) {
-      writer.writeDataset({writer.runId(), writer.appName(), datasetName,
-                           datasetPath, options.datasetType});
+      writer.writeDataset(makeDatasetRow(writer, datasetName, datasetPath,
+                                         options.datasetType));
     }
 
     NoiseCalibrationStudy coarseStudy;
