@@ -179,8 +179,9 @@ AppOptions parseAppArguments(const vector<string>& arguments,
 }
 
 struct RunForDataset {
-  explicit RunForDataset(vector<double> intervals)
-      : intervals(std::move(intervals)) {}
+  explicit RunForDataset(const AppOptions& options)
+      : intervals(selectIntervals(defaultQuadratureIntervals(),
+                                  options.maxIntervals)) {}
 
   vector<double> intervals;
   vector<Row> rows;
@@ -191,8 +192,7 @@ struct RunForDataset {
       const size_t N = max<size_t>(
           3, static_cast<size_t>(floor(sqrt(static_cast<double>(m)))));
 
-      // Compare the prior-aware normalized-NEES score across all three
-      // methods.
+      // Compare the prior-aware normalized-NEES score across all methods.
       const auto windows = dataset.completeWindows(m);
       Row row;
       row.dataset = datasetName;
@@ -205,39 +205,36 @@ struct RunForDataset {
       rows.push_back(row);
     }
   }
+
+  void report() const {
+    cout << "# Quadrature vs Manifold vs Tangent normalized NEES\n";
+    cout << "# alpha=" << kAlpha << " sigma_gyro=" << kSigmaGyro
+         << " sigma_acc=" << kSigmaAcc << "\n\n";
+    cout << "| dataset | dt(s) | m | N | Quadrature | Manifold | Tangent |\n";
+    cout << "|---|---:|---:|---:|---:|---:|---:|\n";
+
+    for (const auto& row : rows) {
+      cout << "| " << row.dataset << " | " << fixed << setprecision(1)
+           << row.interval << " | " << row.samplesPerWindow << " | "
+           << row.quadratureNodes << " | " << setprecision(3)
+           << row.quadrature.normalizedNeesMedian << " | "
+           << row.manifold.normalizedNeesMedian << " | "
+           << row.tangent.normalizedNeesMedian << " |\n";
+    }
+  }
 };
 }  // namespace
 
 int main(int argc, char* argv[]) {
-  // Resolve the datasets and interval subset requested on the command line.
   const auto datasetCli = resolveDatasetAppCli(argc, argv);
   const AppOptions appOptions =
       parseAppArguments(datasetCli.remainingArgs, argv[0]);
 
-  const vector<double> defaultIntervals = defaultQuadratureIntervals();
-  const vector<double> intervals =
-      selectIntervals(defaultIntervals, appOptions.maxIntervals);
-
-  // Print a compact one-table summary comparing normalized NEES.
-  cout << "# Quadrature vs Manifold vs Tangent normalized NEES\n";
-  cout << "# alpha=" << kAlpha << " sigma_gyro=" << kSigmaGyro
-       << " sigma_acc=" << kSigmaAcc << "\n\n";
-  cout << "| dataset | dt(s) | m | N | Quadrature | Manifold | Tangent |\n";
-  cout << "|---|---:|---:|---:|---:|---:|---:|\n";
-
-  RunForDataset runner(intervals);
+  RunForDataset runner(appOptions);
   const int status = runForDatasets(datasetCli, runner);
   if (status != 0) {
     return status;
   }
-
-  for (const auto& row : runner.rows) {
-    cout << "| " << row.dataset << " | " << fixed << setprecision(1)
-         << row.interval << " | " << row.samplesPerWindow << " | "
-         << row.quadratureNodes << " | " << setprecision(3)
-         << row.quadrature.normalizedNeesMedian << " | "
-         << row.manifold.normalizedNeesMedian << " | "
-         << row.tangent.normalizedNeesMedian << " |\n";
-  }
+  runner.report();
   return 0;
 }

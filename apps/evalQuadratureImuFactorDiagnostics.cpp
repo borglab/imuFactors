@@ -201,8 +201,9 @@ AppOptions parseAppArguments(const vector<string>& arguments,
 }
 
 struct RunForDataset {
-  explicit RunForDataset(vector<double> intervals)
-      : intervals(std::move(intervals)) {}
+  explicit RunForDataset(const AppOptions& options)
+      : intervals(selectIntervals(defaultQuadratureIntervals(),
+                                  options.maxIntervals)) {}
 
   vector<double> intervals;
   vector<Row> rows;
@@ -231,141 +232,136 @@ struct RunForDataset {
            << "\n";
     }
   }
+
+  void report() const {
+    // Table 1 is the direct normalized-NEES comparison across the three
+    // methods.
+    cout << "\n## Table 1: Normalized NEES Median (full 9-DOF)\n\n";
+    cout << "| dataset | dt(s) | m | N | quad | manifold | tangent |\n";
+    cout << "|---|---:|---:|---:|---:|---:|---:|\n";
+    for (const auto& row : rows) {
+      cout << "| " << row.dataset << " | " << fixed << setprecision(1)
+           << row.interval << " | " << row.samplesPerWindow << " | "
+           << row.quadratureNodes << " | " << setprecision(3)
+           << row.quadrature.nees.median << " | " << row.manifold.nees.median
+           << " | " << row.tangent.nees.median << " |\n";
+    }
+
+    // Table 1b exposes how quadrature's observed errors compare to its
+    // covariance scale.
+    cout << "\n## Table 1b: Quad Error vs Predicted Sigma (median)\n\n";
+    cout << "| dataset | dt(s) | m | N | NEES"
+         << " | err_rot | sig_rot | err_pos | sig_pos | err_vel | sig_vel |\n";
+    cout << "|---|---:|---:|---:|---:"
+         << "|---:|---:|---:|---:|---:|---:|\n";
+    for (const auto& row : rows) {
+      cout << "| " << row.dataset << " | " << fixed << setprecision(1)
+           << row.interval << " | " << row.samplesPerWindow << " | "
+           << row.quadratureNodes << " | " << setprecision(3)
+           << row.quadrature.nees.median << " | " << setprecision(6)
+           << row.quadrature.rotErrorMedian << " | "
+           << row.quadrature.rotPredSigmaMedian << " | "
+           << row.quadrature.posErrorMedian << " | "
+           << row.quadrature.posPredSigmaMedian << " | "
+           << row.quadrature.velErrorMedian << " | "
+           << row.quadrature.velPredSigmaMedian << " |\n";
+    }
+
+    // Table 2 compares median error magnitudes directly for each method.
+    cout << "\n## Table 2: Median Errors per Dataset\n\n";
+    cout << "| dataset | dt(s) | m | N"
+         << " | q_rot | m_rot | t_rot"
+         << " | q_pos | m_pos | t_pos"
+         << " | q_vel | m_vel | t_vel |\n";
+    cout << "|---|---:|---:|---:"
+         << "|---:|---:|---:"
+         << "|---:|---:|---:"
+         << "|---:|---:|---:|\n";
+    for (const auto& row : rows) {
+      cout << "| " << row.dataset << " | " << fixed << setprecision(1)
+           << row.interval << " | " << row.samplesPerWindow << " | "
+           << row.quadratureNodes << " | " << setprecision(4)
+           << row.quadrature.rotErrorMedian << " | "
+           << row.manifold.rotErrorMedian << " | " << row.tangent.rotErrorMedian
+           << " | " << row.quadrature.posErrorMedian << " | "
+           << row.manifold.posErrorMedian << " | " << row.tangent.posErrorMedian
+           << " | " << row.quadrature.velErrorMedian << " | "
+           << row.manifold.velErrorMedian << " | " << row.tangent.velErrorMedian
+           << " |\n";
+    }
+
+    // Table 3 averages the per-dataset medians to get one row per interval.
+    cout << "\n## Table 3: Aggregated Mean-of-Median Errors\n\n";
+    cout << "| dt(s) | m | N"
+         << " | q_rot | m_rot | t_rot"
+         << " | q_pos | m_pos | t_pos"
+         << " | q_vel | m_vel | t_vel |\n";
+    cout << "|---:|---:|---:"
+         << "|---:|---:|---:"
+         << "|---:|---:|---:"
+         << "|---:|---:|---:|\n";
+    for (double intervalSeconds : intervals) {
+      double qRot = 0.0;
+      double mRot = 0.0;
+      double tRot = 0.0;
+      double qPos = 0.0;
+      double mPos = 0.0;
+      double tPos = 0.0;
+      double qVel = 0.0;
+      double mVel = 0.0;
+      double tVel = 0.0;
+      size_t count = 0;
+      size_t samplesPerWindow = 0;
+      size_t quadratureNodes = 0;
+
+      // Gather all rows that share this interval across the selected datasets.
+      for (const auto& row : rows) {
+        if (row.interval != intervalSeconds) {
+          continue;
+        }
+        samplesPerWindow = row.samplesPerWindow;
+        quadratureNodes = row.quadratureNodes;
+        qRot += row.quadrature.rotErrorMedian;
+        mRot += row.manifold.rotErrorMedian;
+        tRot += row.tangent.rotErrorMedian;
+        qPos += row.quadrature.posErrorMedian;
+        mPos += row.manifold.posErrorMedian;
+        tPos += row.tangent.posErrorMedian;
+        qVel += row.quadrature.velErrorMedian;
+        mVel += row.manifold.velErrorMedian;
+        tVel += row.tangent.velErrorMedian;
+        ++count;
+      }
+
+      if (count == 0) {
+        continue;
+      }
+      // Normalize the accumulated medians by the number of contributing
+      // datasets.
+      const double sampleCount = static_cast<double>(count);
+      cout << "| " << fixed << setprecision(1) << intervalSeconds << " | "
+           << samplesPerWindow << " | " << quadratureNodes << " | "
+           << setprecision(4) << qRot / sampleCount << " | "
+           << mRot / sampleCount << " | " << tRot / sampleCount << " | "
+           << qPos / sampleCount << " | " << mPos / sampleCount << " | "
+           << tPos / sampleCount << " | " << qVel / sampleCount << " | "
+           << mVel / sampleCount << " | " << tVel / sampleCount << " |\n";
+    }
+  }
 };
 
 }  // namespace
 
 int main(int argc, char* argv[]) {
-  // Resolve the datasets and interval subset requested on the command line.
   const auto datasetCli = resolveDatasetAppCli(argc, argv);
   const AppOptions appOptions =
       parseAppArguments(datasetCli.remainingArgs, argv[0]);
 
-  const vector<double> defaultIntervals = defaultQuadratureIntervals();
-  const vector<double> intervals =
-      selectIntervals(defaultIntervals, appOptions.maxIntervals);
-
-  // Evaluate all requested datasets and window lengths.
-  RunForDataset runner(intervals);
+  RunForDataset runner(appOptions);
   const int status = runForDatasets(datasetCli, runner);
   if (status != 0) {
     return status;
   }
-  const vector<Row>& rows = runner.rows;
-
-  // Table 1 is the direct normalized-NEES comparison across the three
-  // methods.
-  cout << "\n## Table 1: Normalized NEES Median (full 9-DOF)\n\n";
-  cout << "| dataset | dt(s) | m | N | quad | manifold | tangent |\n";
-  cout << "|---|---:|---:|---:|---:|---:|---:|\n";
-  for (const auto& row : rows) {
-    cout << "| " << row.dataset << " | " << fixed << setprecision(1)
-         << row.interval << " | " << row.samplesPerWindow << " | "
-         << row.quadratureNodes << " | " << setprecision(3)
-         << row.quadrature.nees.median << " | " << row.manifold.nees.median
-         << " | " << row.tangent.nees.median << " |\n";
-  }
-
-  // Table 1b exposes how quadrature's observed errors compare to its
-  // covariance scale.
-  cout << "\n## Table 1b: Quad Error vs Predicted Sigma (median)\n\n";
-  cout << "| dataset | dt(s) | m | N | NEES"
-       << " | err_rot | sig_rot | err_pos | sig_pos | err_vel | sig_vel |\n";
-  cout << "|---|---:|---:|---:|---:"
-       << "|---:|---:|---:|---:|---:|---:|\n";
-  for (const auto& row : rows) {
-    cout << "| " << row.dataset << " | " << fixed << setprecision(1)
-         << row.interval << " | " << row.samplesPerWindow << " | "
-         << row.quadratureNodes << " | " << setprecision(3)
-         << row.quadrature.nees.median << " | " << setprecision(6)
-         << row.quadrature.rotErrorMedian << " | "
-         << row.quadrature.rotPredSigmaMedian << " | "
-         << row.quadrature.posErrorMedian << " | "
-         << row.quadrature.posPredSigmaMedian << " | "
-         << row.quadrature.velErrorMedian << " | "
-         << row.quadrature.velPredSigmaMedian << " |\n";
-  }
-
-  // Table 2 compares median error magnitudes directly for each method.
-  cout << "\n## Table 2: Median Errors per Dataset\n\n";
-  cout << "| dataset | dt(s) | m | N"
-       << " | q_rot | m_rot | t_rot"
-       << " | q_pos | m_pos | t_pos"
-       << " | q_vel | m_vel | t_vel |\n";
-  cout << "|---|---:|---:|---:"
-       << "|---:|---:|---:"
-       << "|---:|---:|---:"
-       << "|---:|---:|---:|\n";
-  for (const auto& row : rows) {
-    cout << "| " << row.dataset << " | " << fixed << setprecision(1)
-         << row.interval << " | " << row.samplesPerWindow << " | "
-         << row.quadratureNodes << " | " << setprecision(4)
-         << row.quadrature.rotErrorMedian << " | "
-         << row.manifold.rotErrorMedian << " | " << row.tangent.rotErrorMedian
-         << " | " << row.quadrature.posErrorMedian << " | "
-         << row.manifold.posErrorMedian << " | " << row.tangent.posErrorMedian
-         << " | " << row.quadrature.velErrorMedian << " | "
-         << row.manifold.velErrorMedian << " | " << row.tangent.velErrorMedian
-         << " |\n";
-  }
-
-  // Table 3 averages the per-dataset medians to get one row per interval.
-  cout << "\n## Table 3: Aggregated Mean-of-Median Errors\n\n";
-  cout << "| dt(s) | m | N"
-       << " | q_rot | m_rot | t_rot"
-       << " | q_pos | m_pos | t_pos"
-       << " | q_vel | m_vel | t_vel |\n";
-  cout << "|---:|---:|---:"
-       << "|---:|---:|---:"
-       << "|---:|---:|---:"
-       << "|---:|---:|---:|\n";
-  for (double intervalSeconds : runner.intervals) {
-    double qRot = 0.0;
-    double mRot = 0.0;
-    double tRot = 0.0;
-    double qPos = 0.0;
-    double mPos = 0.0;
-    double tPos = 0.0;
-    double qVel = 0.0;
-    double mVel = 0.0;
-    double tVel = 0.0;
-    size_t count = 0;
-    size_t samplesPerWindow = 0;
-    size_t quadratureNodes = 0;
-
-    // Gather all rows that share this interval across the selected datasets.
-    for (const auto& row : rows) {
-      if (row.interval != intervalSeconds) {
-        continue;
-      }
-      samplesPerWindow = row.samplesPerWindow;
-      quadratureNodes = row.quadratureNodes;
-      qRot += row.quadrature.rotErrorMedian;
-      mRot += row.manifold.rotErrorMedian;
-      tRot += row.tangent.rotErrorMedian;
-      qPos += row.quadrature.posErrorMedian;
-      mPos += row.manifold.posErrorMedian;
-      tPos += row.tangent.posErrorMedian;
-      qVel += row.quadrature.velErrorMedian;
-      mVel += row.manifold.velErrorMedian;
-      tVel += row.tangent.velErrorMedian;
-      ++count;
-    }
-
-    if (count == 0) {
-      continue;
-    }
-    // Normalize the accumulated medians by the number of contributing
-    // datasets.
-    const double sampleCount = static_cast<double>(count);
-    cout << "| " << fixed << setprecision(1) << intervalSeconds << " | "
-         << samplesPerWindow << " | " << quadratureNodes << " | "
-         << setprecision(4) << qRot / sampleCount << " | " << mRot / sampleCount
-         << " | " << tRot / sampleCount << " | " << qPos / sampleCount << " | "
-         << mPos / sampleCount << " | " << tPos / sampleCount << " | "
-         << qVel / sampleCount << " | " << mVel / sampleCount << " | "
-         << tVel / sampleCount << " |\n";
-  }
-
+  runner.report();
   return 0;
 }

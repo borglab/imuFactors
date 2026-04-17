@@ -26,7 +26,6 @@ using namespace std;
 namespace {
 
 constexpr double kAlpha = 3.0;
-const vector<double> kIntervals{0.2, 0.5, 1.0};
 
 /// NEES results for all intervals.
 struct DatasetResults {
@@ -43,12 +42,14 @@ struct ResultRow {
   DatasetResults results;
 };
 
+struct AppOptions {};
+
 /// Print usage for the EKF comparison app.
 void printUsage(const char* programName) { printDatasetAppUsage(programName); }
 
 /// Validate any EKF-specific trailing arguments.
-void parseAppArguments(const vector<string>& arguments,
-                       const char* programName) {
+AppOptions parseAppArguments(const vector<string>& arguments,
+                             const char* programName) {
   for (const string& argument : arguments) {
     if (isHelpArgument(argument)) {
       printUsage(programName);
@@ -56,6 +57,7 @@ void parseAppArguments(const vector<string>& arguments,
     }
     throw runtime_error("Unknown argument: " + argument);
   }
+  return {};
 }
 
 /// Print table header.
@@ -77,6 +79,10 @@ static void printTableRow(const string& datasetName, const string& methodName,
 
 /// Accumulate EKF comparison rows for each requested dataset.
 struct RunForDataset {
+  explicit RunForDataset(const AppOptions&)
+      : intervals(defaultQuadratureIntervals()) {}
+
+  vector<double> intervals;
   vector<ResultRow> rows;
 
   void operator()(const string& datasetName, const Dataset& dataset) {
@@ -84,21 +90,21 @@ struct RunForDataset {
 
     DatasetResults results;
     results.gal3_0_2s =
-        evaluator.runGal3ImuEKF(kIntervals[0], kAlpha, datasetName);
+        evaluator.runGal3ImuEKF(intervals[0], kAlpha, datasetName);
     results.gal3_0_5s =
-        evaluator.runGal3ImuEKF(kIntervals[1], kAlpha, datasetName);
+        evaluator.runGal3ImuEKF(intervals[1], kAlpha, datasetName);
     results.gal3_1_0s =
-        evaluator.runGal3ImuEKF(kIntervals[2], kAlpha, datasetName);
+        evaluator.runGal3ImuEKF(intervals[2], kAlpha, datasetName);
     results.navstate_0_2s =
-        evaluator.runNavStateImuEKF(kIntervals[0], kAlpha, datasetName);
+        evaluator.runNavStateImuEKF(intervals[0], kAlpha, datasetName);
     results.navstate_0_5s =
-        evaluator.runNavStateImuEKF(kIntervals[1], kAlpha, datasetName);
+        evaluator.runNavStateImuEKF(intervals[1], kAlpha, datasetName);
     results.navstate_1_0s =
-        evaluator.runNavStateImuEKF(kIntervals[2], kAlpha, datasetName);
+        evaluator.runNavStateImuEKF(intervals[2], kAlpha, datasetName);
     rows.push_back({datasetName, results});
   }
 
-  void print() const {
+  void report() const {
     printTableHeader();
     for (size_t index = 0; index < rows.size(); ++index) {
       const ResultRow& row = rows[index];
@@ -120,13 +126,14 @@ struct RunForDataset {
 /// Main evaluation program.
 int main(int argc, char* argv[]) {
   const auto datasetCli = resolveDatasetAppCli(argc, argv);
-  parseAppArguments(datasetCli.remainingArgs, argv[0]);
+  const AppOptions appOptions =
+      parseAppArguments(datasetCli.remainingArgs, argv[0]);
 
-  RunForDataset runner;
+  RunForDataset runner(appOptions);
   const int status = runForDatasets(datasetCli, runner);
   if (status != 0) {
     return status;
   }
-  runner.print();
+  runner.report();
   return 0;
 }
