@@ -28,6 +28,23 @@ struct WindowResult {
 };
 
 /**
+ * @brief Aggregate summary across a set of per-window metrics.
+ */
+struct WindowResultSummary {
+  size_t sampleCount = 0;
+  double normalizedNeesMean = 0.0;
+  double normalizedNeesMedian = 0.0;
+  double normalizedNeesP95 = 0.0;
+  double normalizedNeesVariance = 0.0;
+  double rotErrorMedian = 0.0;
+  double rotPredSigmaMedian = 0.0;
+  double posErrorMedian = 0.0;
+  double posPredSigmaMedian = 0.0;
+  double velErrorMedian = 0.0;
+  double velPredSigmaMedian = 0.0;
+};
+
+/**
  * Optional prior covariance to fold into the preintegrated covariance.
  */
 struct InitialCovarianceOptions {
@@ -87,6 +104,45 @@ inline WindowResult makeWindowResult(const Vector9& error,
   result.velErrorNorm = error.tail<3>().norm();
   result.velPredSigma = covarianceBlockSigma(covariance, 6);
   return result;
+}
+
+/**
+ * @brief Summarize a collection of per-window results.
+ */
+inline WindowResultSummary summarizeWindowResults(
+    const std::vector<WindowResult>& results) {
+  WindowResultSummary summary;
+  if (results.empty()) {
+    return summary;
+  }
+
+  const auto project = [&results](auto member) {
+    std::vector<double> values;
+    values.reserve(results.size());
+    for (const auto& result : results) {
+      values.push_back(result.*member);
+    }
+    return values;
+  };
+
+  const std::vector<double> normalizedNeesValues =
+      project(&WindowResult::normalizedNees);
+  summary.sampleCount = normalizedNeesValues.size();
+  summary.normalizedNeesMean = computeMean(normalizedNeesValues);
+  summary.normalizedNeesMedian = computeMedian(normalizedNeesValues);
+  summary.normalizedNeesP95 = computePercentile(normalizedNeesValues, 95.0);
+  summary.normalizedNeesVariance =
+      computeVariance(normalizedNeesValues, summary.normalizedNeesMean);
+  summary.rotErrorMedian = computeMedian(project(&WindowResult::rotErrorNorm));
+  summary.rotPredSigmaMedian =
+      computeMedian(project(&WindowResult::rotPredSigma));
+  summary.posErrorMedian = computeMedian(project(&WindowResult::posErrorNorm));
+  summary.posPredSigmaMedian =
+      computeMedian(project(&WindowResult::posPredSigma));
+  summary.velErrorMedian = computeMedian(project(&WindowResult::velErrorNorm));
+  summary.velPredSigmaMedian =
+      computeMedian(project(&WindowResult::velPredSigma));
+  return summary;
 }
 
 /**

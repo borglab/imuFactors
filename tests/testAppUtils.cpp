@@ -68,9 +68,11 @@ TEST(AppUtils, NormalizeDatasetName) {
 TEST(AppUtils, ParseDatasetCliOptionsPreservesRemainingArgs) {
   const ParsedAppCliOptions parsedOptions = parseDatasetAppCliOptions(
       {"--dataset", "euroc_MH01.csv", "--data-dir", "/tmp/euroc",
+       "--output-root", "/tmp/results",
        "--max-intervals", "2", "--custom-flag"});
 
   EXPECT(parsedOptions.options.dataDirectory == "/tmp/euroc");
+  EXPECT(parsedOptions.options.outputRoot == "/tmp/results");
   EXPECT(parsedOptions.options.datasetName.has_value());
   EXPECT(parsedOptions.options.datasetName.value() == "MH01");
   EXPECT(parsedOptions.remainingArgs.size() == 3);
@@ -112,7 +114,8 @@ TEST(AppUtils, RunForDatasetsHandlesEmptyAndExceptions) {
   std::streambuf* const originalErrorBuffer = std::cerr.rdbuf();
   std::cerr.rdbuf(capturedErrors.rdbuf());
 
-  const ResolvedDatasetCli emptyCli{{"/tmp/missing", std::nullopt}, {}, {}};
+  const ResolvedDatasetCli emptyCli{{"/tmp/missing", "./results", std::nullopt},
+                                    {}, {}};
   CountingRunner countingRunner;
   const int emptyStatus = runForDatasets(emptyCli, countingRunner);
   EXPECT(emptyStatus == 1);

@@ -33,6 +33,7 @@ add_library(imuFactorsEval
     src/Dataset.cpp
     src/NEESEvaluator.cpp
     src/EKFNEESEvaluator.cpp
+    src/ResultsWriter.cpp
     src/TrajectoryValidator.cpp
     src/nees.cpp
 )

@@ -28,6 +28,7 @@ namespace gtsam {
  */
 struct AppCliOptions {
   std::string dataDirectory = "../data/euroc/";
+  std::string outputRoot = "./results";
   std::optional<std::string> datasetName;
 };
 
@@ -80,9 +81,11 @@ inline std::vector<double> defaultQuadratureIntervals() {
  */
 inline void printDatasetAppUsage(const char* programName) {
   std::cout << "Usage: " << programName
-            << " [--data-dir <path>] [--dataset <name>]\n";
+            << " [--data-dir <path>] [--output-root <path>] [--dataset <name>]\n";
   std::cout << "  --data-dir <path>       Dataset directory (default: "
                "../data/euroc/)\n";
+  std::cout << "  --output-root <path>    Results root directory (default: "
+               "./results)\n";
   std::cout << "  --dataset <name>        Restrict to one dataset (e.g. MH01 "
                "or euroc_MH01.csv)\n";
 }
@@ -126,6 +129,13 @@ inline ParsedAppCliOptions parseDatasetAppCliOptions(
         throw std::runtime_error("Missing value for --data-dir");
       }
       parsedOptions.options.dataDirectory = arguments[++index];
+      continue;
+    }
+    if (argument == "--output-root") {
+      if (index + 1 >= arguments.size()) {
+        throw std::runtime_error("Missing value for --output-root");
+      }
+      parsedOptions.options.outputRoot = arguments[++index];
       continue;
     }
     if (argument == "--dataset") {

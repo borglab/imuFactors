@@ -13,24 +13,20 @@
  * preintegration
  */
 
-#include <gtsam/base/Vector.h>
 #include <gtsam/navigation/ImuFactor.h>
 #include <gtsam/navigation/ManifoldPreintegration.h>
 #include <gtsam/navigation/TangentPreintegration.h>
 
 #include <cmath>
-#include <iomanip>
 #include <iostream>
 #include <optional>
 #include <string>
 #include <vector>
 
 #include "AppUtils.h"
-#include "Dataset.h"
-#include "NoiseCalibration.h"
 #include "PIMs.h"
+#include "ResultsWriter.h"
 #include "Window.h"
-#include "nees.h"
 
 using namespace gtsam;
 using namespace std;
@@ -41,33 +37,34 @@ using PIMManifold = PreintegratedImuMeasurementsT<ManifoldPreintegration>;
 
 namespace {
 
-// Scale the nominal sensor noise for the prior-aware normalized-NEES
-// comparison.
 constexpr double kAlpha = 3.0;
 constexpr double kSigmaGyro = kAlpha * 1.6968e-4;
 constexpr double kSigmaAcc = kAlpha * 2.0000e-3;
 constexpr double kInitialStateCovariance = 5e-6;
 constexpr double kInitialBiasCovariance = 1e-1;
+constexpr const char* kConfigLabel = "default";
 
-// Only the normalized-NEES distribution is reported in this script.
-struct Summary {
-  double normalizedNeesMedian = 0.0;
-  double normalizedNeesMean = 0.0;
-  double normalizedNeesP95 = 0.0;
-  size_t sampleCount = 0;
+struct AppOptions {
+  size_t maxIntervals = 0;
 };
 
-// Model uncertainty in the initial pose, velocity, and rotation state.
+struct WindowEvaluationRecord {
+  size_t windowIndex = 0;
+  size_t startSample = 0;
+  size_t endSample = 0;
+  double startTime = 0.0;
+  double endTime = 0.0;
+  WindowResult metrics;
+};
+
 Matrix9 initialNavCovariance() {
   return Matrix9::Identity() * kInitialStateCovariance;
 }
 
-// Model uncertainty in the initial accelerometer and gyro biases.
 Matrix6 initialBiasCovariance() {
   return Matrix6::Identity() * kInitialBiasCovariance;
 }
 
-// Build the shared IMU noise model used by all three preintegration methods.
 shared_ptr<PreintegrationParams> createPreintegrationParams() {
   auto params = PreintegrationParams::MakeSharedU(9.81);
   params->accelerometerCovariance = I_3x3 * kSigmaAcc * kSigmaAcc;
@@ -76,95 +73,33 @@ shared_ptr<PreintegrationParams> createPreintegrationParams() {
   return params;
 }
 
-Summary summarizeNormalizedNees(const vector<double>& normalizedNeesValues) {
-  Summary summary;
-  if (normalizedNeesValues.empty()) {
-    return summary;
-  }
-
-  // Report the normalized-NEES distribution using a few standard summary
-  // statistics.
-  summary.sampleCount = normalizedNeesValues.size();
-  summary.normalizedNeesMean = computeMean(normalizedNeesValues);
-  summary.normalizedNeesMedian = computeMedian(normalizedNeesValues);
-  summary.normalizedNeesP95 = computePercentile(normalizedNeesValues, 95.0);
-  return summary;
-}
-
-optional<double> computeQuadratureNormalizedNeesForWindow(
-    const Window& window, const shared_ptr<PreintegrationParams>& params,
-    size_t N) {
+template <class PIMType>
+vector<WindowEvaluationRecord> collectWindowEvaluations(
+    const vector<Window>& windows, const shared_ptr<PreintegrationParams>& params,
+    size_t quadratureOrder = 0) {
+  vector<WindowEvaluationRecord> evaluations;
+  evaluations.reserve(windows.size());
   const InitialCovarianceOptions initialCovariance{initialNavCovariance(),
                                                    initialBiasCovariance()};
-  const auto result =
-      evaluateWindow<PIMQuadrature>(window, params, initialCovariance, N);
-  return result ? optional<double>(result->normalizedNees) : nullopt;
-}
-
-template <class PIMType>
-optional<double> computeStandardNormalizedNeesForWindow(
-    const Window& window, const shared_ptr<PreintegrationParams>& params) {
-  const InitialCovarianceOptions initialCovariance{initialNavCovariance(),
-                                                   initialBiasCovariance()};
-  const auto result =
-      evaluateWindow<PIMType>(window, params, initialCovariance);
-  return result ? optional<double>(result->normalizedNees) : nullopt;
-}
-
-Summary runQuadratureNormalizedNees(const vector<Window>& windows,
-                                    size_t quadratureOrder) {
-  vector<double> normalizedNeesValues;
-  const auto params = createPreintegrationParams();
-
-  // Score each valid window and keep only the normalized-NEES scalar.
-  for (const auto& window : windows) {
-    const auto normalizedNees = computeQuadratureNormalizedNeesForWindow(
-        window, params, quadratureOrder);
-    if (normalizedNees) normalizedNeesValues.push_back(*normalizedNees);
-  }
-
-  return summarizeNormalizedNees(normalizedNeesValues);
-}
-
-template <class PIMType>
-Summary runStandardNormalizedNees(const vector<Window>& windows) {
-  vector<double> normalizedNeesValues;
-  const auto params = createPreintegrationParams();
-
-  // Score each valid window for the chosen standard preintegration method.
-  for (const auto& window : windows) {
-    const auto normalizedNees =
-        computeStandardNormalizedNeesForWindow<PIMType>(window, params);
-    if (normalizedNees) {
-      normalizedNeesValues.push_back(*normalizedNees);
+  for (size_t windowIndex = 0; windowIndex < windows.size(); ++windowIndex) {
+    const auto& window = windows[windowIndex];
+    const auto result =
+        evaluateWindow<PIMType>(window, params, initialCovariance,
+                                quadratureOrder);
+    if (!result) {
+      continue;
     }
+    evaluations.push_back({windowIndex, window.start, window.end,
+                           window.initialTruth().timestamp,
+                           window.terminalTruth().timestamp, *result});
   }
-
-  return summarizeNormalizedNees(normalizedNeesValues);
+  return evaluations;
 }
-
-struct AppOptions {
-  size_t maxIntervals = 0;
-};
-
-struct Row {
-  string dataset;
-  double interval = 0.0;
-  size_t samplesPerWindow = 0;
-  size_t quadratureNodes = 0;
-  Summary quadrature;
-  Summary manifold;
-  Summary tangent;
-};
 
 void printUsage(const char* programName) {
   cout << "Usage: " << programName
-       << " [--data-dir <path>] [--dataset <name>] [--max-intervals <count>]\n";
-  cout << "  --data-dir <path>       Dataset directory (default: "
-          "../data/euroc/)\n";
-  cout << "  --dataset <name>        Restrict to one dataset (e.g. MH01 or "
-          "euroc_MH01.csv)\n";
-  cout << "  --max-intervals <count> Restrict to first N default intervals\n";
+       << " [--data-dir <path>] [--output-root <path>] [--dataset <name>]"
+       << " [--max-intervals <count>]\n";
 }
 
 AppOptions parseAppArguments(const vector<string>& arguments,
@@ -178,51 +113,113 @@ AppOptions parseAppArguments(const vector<string>& arguments,
   return {parseMaxIntervalsArgument(arguments)};
 }
 
+WindowSummaryRow makeSummaryRow(const ResultsWriter& writer,
+                                const string& datasetName,
+                                const string& method,
+                                double intervalSeconds,
+                                size_t samplesPerWindow,
+                                size_t quadratureNodes,
+                                const WindowResultSummary& summary) {
+  WindowSummaryRow row;
+  row.runId = writer.runId();
+  row.appName = writer.appName();
+  row.dataset = datasetName;
+  row.method = method;
+  row.configLabel = kConfigLabel;
+  row.intervalSeconds = intervalSeconds;
+  row.samplesPerWindow = samplesPerWindow;
+  row.quadratureNodes = quadratureNodes;
+  row.sampleCount = summary.sampleCount;
+  row.normalizedNeesMean = summary.normalizedNeesMean;
+  row.normalizedNeesMedian = summary.normalizedNeesMedian;
+  row.normalizedNeesP95 = summary.normalizedNeesP95;
+  row.normalizedNeesVariance = summary.normalizedNeesVariance;
+  row.rotErrorMedian = summary.rotErrorMedian;
+  row.rotPredSigmaMedian = summary.rotPredSigmaMedian;
+  row.posErrorMedian = summary.posErrorMedian;
+  row.posPredSigmaMedian = summary.posPredSigmaMedian;
+  row.velErrorMedian = summary.velErrorMedian;
+  row.velPredSigmaMedian = summary.velPredSigmaMedian;
+  return row;
+}
+
+void writeWindowEvaluations(const ResultsWriter& writer, ResultsWriter* sink,
+                            const string& datasetName, const string& method,
+                            double intervalSeconds, size_t samplesPerWindow,
+                            size_t quadratureNodes,
+                            const vector<WindowEvaluationRecord>& evaluations) {
+  vector<WindowResult> results;
+  results.reserve(evaluations.size());
+  for (const auto& evaluation : evaluations) {
+    WindowMetricRow row;
+    row.runId = writer.runId();
+    row.appName = writer.appName();
+    row.dataset = datasetName;
+    row.method = method;
+    row.configLabel = kConfigLabel;
+    row.intervalSeconds = intervalSeconds;
+    row.samplesPerWindow = samplesPerWindow;
+    row.quadratureNodes = quadratureNodes;
+    row.windowIndex = evaluation.windowIndex;
+    row.windowStartSample = evaluation.startSample;
+    row.windowEndSample = evaluation.endSample;
+    row.windowStartTime = evaluation.startTime;
+    row.windowEndTime = evaluation.endTime;
+    row.normalizedNees = evaluation.metrics.normalizedNees;
+    row.rotErrorNorm = evaluation.metrics.rotErrorNorm;
+    row.rotPredSigma = evaluation.metrics.rotPredSigma;
+    row.posErrorNorm = evaluation.metrics.posErrorNorm;
+    row.posPredSigma = evaluation.metrics.posPredSigma;
+    row.velErrorNorm = evaluation.metrics.velErrorNorm;
+    row.velPredSigma = evaluation.metrics.velPredSigma;
+    sink->writeWindowMetric(row);
+    results.push_back(evaluation.metrics);
+  }
+  sink->writeWindowSummary(makeSummaryRow(
+      writer, datasetName, method, intervalSeconds, samplesPerWindow,
+      quadratureNodes, summarizeWindowResults(results)));
+}
+
 struct RunForDataset {
-  explicit RunForDataset(const AppOptions& options)
+  RunForDataset(const AppOptions& options, ResultsWriter* writer)
       : intervals(selectIntervals(defaultQuadratureIntervals(),
-                                  options.maxIntervals)) {}
+                                  options.maxIntervals)),
+        writer(writer) {}
 
   vector<double> intervals;
-  vector<Row> rows;
+  ResultsWriter* writer = nullptr;
 
   void operator()(const string& datasetName, const Dataset& dataset) {
     for (double intervalSeconds : intervals) {
-      const size_t m = dataset.stepsForInterval(intervalSeconds);
-      const size_t N = max<size_t>(
-          3, static_cast<size_t>(floor(sqrt(static_cast<double>(m)))));
+      const size_t samplesPerWindow = dataset.stepsForInterval(intervalSeconds);
+      const size_t quadratureNodes = max<size_t>(
+          3, static_cast<size_t>(floor(sqrt(static_cast<double>(
+                                   samplesPerWindow)))));
+      const auto windows = dataset.completeWindows(samplesPerWindow);
+      const auto params = createPreintegrationParams();
 
-      // Compare the prior-aware normalized-NEES score across all methods.
-      const auto windows = dataset.completeWindows(m);
-      Row row;
-      row.dataset = datasetName;
-      row.interval = intervalSeconds;
-      row.samplesPerWindow = m;
-      row.quadratureNodes = N;
-      row.quadrature = runQuadratureNormalizedNees(windows, N);
-      row.manifold = runStandardNormalizedNees<PIMManifold>(windows);
-      row.tangent = runStandardNormalizedNees<PIMTangent>(windows);
-      rows.push_back(row);
-    }
-  }
-
-  void report() const {
-    cout << "# Quadrature vs Manifold vs Tangent normalized NEES\n";
-    cout << "# alpha=" << kAlpha << " sigma_gyro=" << kSigmaGyro
-         << " sigma_acc=" << kSigmaAcc << "\n\n";
-    cout << "| dataset | dt(s) | m | N | Quadrature | Manifold | Tangent |\n";
-    cout << "|---|---:|---:|---:|---:|---:|---:|\n";
-
-    for (const auto& row : rows) {
-      cout << "| " << row.dataset << " | " << fixed << setprecision(1)
-           << row.interval << " | " << row.samplesPerWindow << " | "
-           << row.quadratureNodes << " | " << setprecision(3)
-           << row.quadrature.normalizedNeesMedian << " | "
-           << row.manifold.normalizedNeesMedian << " | "
-           << row.tangent.normalizedNeesMedian << " |\n";
+      writeWindowEvaluations(
+          *writer, writer, datasetName, "quadrature", intervalSeconds,
+          samplesPerWindow, quadratureNodes,
+          collectWindowEvaluations<PIMQuadrature>(windows, params,
+                                                  quadratureNodes));
+      writeWindowEvaluations(
+          *writer, writer, datasetName, "manifold", intervalSeconds,
+          samplesPerWindow, 0,
+          collectWindowEvaluations<PIMManifold>(windows, params));
+      writeWindowEvaluations(
+          *writer, writer, datasetName, "tangent", intervalSeconds,
+          samplesPerWindow, 0,
+          collectWindowEvaluations<PIMTangent>(windows, params));
     }
   }
 };
+
+string datasetGroupLabel(const ResolvedDatasetCli& datasetCli) {
+  return datasetCli.options.datasetName ? *datasetCli.options.datasetName
+                                        : "all";
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -230,11 +227,22 @@ int main(int argc, char* argv[]) {
   const AppOptions appOptions =
       parseAppArguments(datasetCli.remainingArgs, argv[0]);
 
-  RunForDataset runner(appOptions);
+  ResultsWriter writer(argv[0], datasetCli.options.outputRoot);
+  writer.writeRunMetadata(
+      {writer.runId(), writer.appName(), writer.timestampUtc(),
+       joinCommandLineArguments(argc, argv), writer.outputRoot().string(), ""});
+  const string datasetGroup = datasetGroupLabel(datasetCli);
+  for (const auto& [datasetName, datasetPath] : datasetCli.datasets) {
+    writer.writeDataset({writer.runId(), writer.appName(), datasetName,
+                         datasetPath, datasetGroup});
+  }
+
+  RunForDataset runner(appOptions, &writer);
   const int status = runForDatasets(datasetCli, runner);
   if (status != 0) {
     return status;
   }
-  runner.report();
+
+  cout << "Results written to " << writer.runDirectory() << "\n";
   return 0;
 }

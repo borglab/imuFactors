@@ -9,16 +9,18 @@
 
 /**
  * @file   evalGal3NavStateImuEKFNEES.cpp
- * @brief  Clean NEES comparison table for EKF variants
- * @author Alec Kain
+ * @brief  Canonical EKF export for Gal3 and NavState IMU EKF variants
  */
 
-#include <iomanip>
 #include <iostream>
+#include <string>
 #include <vector>
 
 #include "AppUtils.h"
 #include "EKFNEESEvaluator.h"
+#include "PIMs.h"
+#include "ResultsWriter.h"
+#include "TrajectoryValidator.h"
 
 using namespace gtsam;
 using namespace std;
@@ -26,28 +28,12 @@ using namespace std;
 namespace {
 
 constexpr double kAlpha = 3.0;
-
-/// NEES results for all intervals.
-struct DatasetResults {
-  NEESResults gal3_0_2s;
-  NEESResults gal3_0_5s;
-  NEESResults gal3_1_0s;
-  NEESResults navstate_0_2s;
-  NEESResults navstate_0_5s;
-  NEESResults navstate_1_0s;
-};
-
-struct ResultRow {
-  string datasetName;
-  DatasetResults results;
-};
+constexpr const char* kConfigLabel = "default";
 
 struct AppOptions {};
 
-/// Print usage for the EKF comparison app.
 void printUsage(const char* programName) { printDatasetAppUsage(programName); }
 
-/// Validate any EKF-specific trailing arguments.
 AppOptions parseAppArguments(const vector<string>& arguments,
                              const char* programName) {
   for (const string& argument : arguments) {
@@ -60,80 +46,170 @@ AppOptions parseAppArguments(const vector<string>& arguments,
   return {};
 }
 
-/// Print table header.
-static void printTableHeader() {
-  cout << "\n" << string(70, '=') << "\n";
-  cout << "Dataset\t\tMethod\t\t\t0.2s\t0.5s\t1.0s\n";
-  cout << string(70, '-') << "\n";
+WindowSummaryRow makeSummaryRow(const ResultsWriter& writer,
+                                const string& datasetName,
+                                const string& method,
+                                const EKFNEESEvaluator::RunArtifacts& artifacts,
+                                const WindowResultSummary& summary) {
+  WindowSummaryRow row;
+  row.runId = writer.runId();
+  row.appName = writer.appName();
+  row.dataset = datasetName;
+  row.method = method;
+  row.configLabel = kConfigLabel;
+  row.intervalSeconds = artifacts.preintegrationTime;
+  row.samplesPerWindow = artifacts.samplesPerWindow;
+  row.quadratureNodes = 0;
+  row.sampleCount = summary.sampleCount;
+  row.normalizedNeesMean = summary.normalizedNeesMean;
+  row.normalizedNeesMedian = summary.normalizedNeesMedian;
+  row.normalizedNeesP95 = summary.normalizedNeesP95;
+  row.normalizedNeesVariance = summary.normalizedNeesVariance;
+  row.rotErrorMedian = summary.rotErrorMedian;
+  row.rotPredSigmaMedian = summary.rotPredSigmaMedian;
+  row.posErrorMedian = summary.posErrorMedian;
+  row.posPredSigmaMedian = summary.posPredSigmaMedian;
+  row.velErrorMedian = summary.velErrorMedian;
+  row.velPredSigmaMedian = summary.velPredSigmaMedian;
+  return row;
 }
 
-/// Print NEES results row.
-static void printTableRow(const string& datasetName, const string& methodName,
-                          const NEESResults& result_0_2s,
-                          const NEESResults& result_0_5s,
-                          const NEESResults& result_1_0s) {
-  cout << datasetName << "\t" << methodName << ":\t" << fixed << setprecision(3)
-       << result_0_2s.median << "\t" << result_0_5s.median << "\t"
-       << result_1_0s.median << "\n";
+TrajectorySampleRow makeTrajectoryRow(
+    const ResultsWriter& writer, const string& datasetName,
+    const string& method, const EKFNEESEvaluator::RunArtifacts& artifacts,
+    const EKFNEESEvaluator::TrajectorySample& sample) {
+  TrajectorySampleRow row;
+  row.runId = writer.runId();
+  row.appName = writer.appName();
+  row.dataset = datasetName;
+  row.method = method;
+  row.configLabel = kConfigLabel;
+  row.intervalSeconds = artifacts.preintegrationTime;
+  row.samplesPerWindow = artifacts.samplesPerWindow;
+  row.timestamp = sample.groundTruth.timestamp;
+  row.gtX = sample.groundTruth.position.x();
+  row.gtY = sample.groundTruth.position.y();
+  row.gtZ = sample.groundTruth.position.z();
+  row.gtVx = sample.groundTruth.velocity.x();
+  row.gtVy = sample.groundTruth.velocity.y();
+  row.gtVz = sample.groundTruth.velocity.z();
+  row.gtRoll = sample.groundTruth.rpy.x();
+  row.gtPitch = sample.groundTruth.rpy.y();
+  row.gtYaw = sample.groundTruth.rpy.z();
+  row.predX = sample.predicted.position.x();
+  row.predY = sample.predicted.position.y();
+  row.predZ = sample.predicted.position.z();
+  row.predVx = sample.predicted.velocity.x();
+  row.predVy = sample.predicted.velocity.y();
+  row.predVz = sample.predicted.velocity.z();
+  row.predRoll = sample.predicted.rpy.x();
+  row.predPitch = sample.predicted.rpy.y();
+  row.predYaw = sample.predicted.rpy.z();
+  row.errRotX = sample.error(0);
+  row.errRotY = sample.error(1);
+  row.errRotZ = sample.error(2);
+  row.errPosX = sample.error(3);
+  row.errPosY = sample.error(4);
+  row.errPosZ = sample.error(5);
+  row.errVelX = sample.error(6);
+  row.errVelY = sample.error(7);
+  row.errVelZ = sample.error(8);
+  row.rotPredSigma = covarianceBlockSigma(sample.predicted.covariance, 0);
+  row.posPredSigma = covarianceBlockSigma(sample.predicted.covariance, 3);
+  row.velPredSigma = covarianceBlockSigma(sample.predicted.covariance, 6);
+  row.covariance = sample.predicted.covariance;
+  return row;
 }
 
-/// Accumulate EKF comparison rows for each requested dataset.
+void writeArtifacts(ResultsWriter* writer, const string& datasetName,
+                    const string& method,
+                    const EKFNEESEvaluator::RunArtifacts& artifacts) {
+  vector<WindowResult> results;
+  results.reserve(artifacts.windowEvaluations.size());
+  for (const auto& evaluation : artifacts.windowEvaluations) {
+    WindowMetricRow row;
+    row.runId = writer->runId();
+    row.appName = writer->appName();
+    row.dataset = datasetName;
+    row.method = method;
+    row.configLabel = kConfigLabel;
+    row.intervalSeconds = artifacts.preintegrationTime;
+    row.samplesPerWindow = artifacts.samplesPerWindow;
+    row.quadratureNodes = 0;
+    row.windowIndex = evaluation.windowIndex;
+    row.windowStartSample = evaluation.startSample;
+    row.windowEndSample = evaluation.endSample;
+    row.windowStartTime = evaluation.startTime;
+    row.windowEndTime = evaluation.endTime;
+    row.normalizedNees = evaluation.metrics.normalizedNees;
+    row.rotErrorNorm = evaluation.metrics.rotErrorNorm;
+    row.rotPredSigma = evaluation.metrics.rotPredSigma;
+    row.posErrorNorm = evaluation.metrics.posErrorNorm;
+    row.posPredSigma = evaluation.metrics.posPredSigma;
+    row.velErrorNorm = evaluation.metrics.velErrorNorm;
+    row.velPredSigma = evaluation.metrics.velPredSigma;
+    writer->writeWindowMetric(row);
+    results.push_back(evaluation.metrics);
+  }
+
+  writer->writeWindowSummary(
+      makeSummaryRow(*writer, datasetName, method, artifacts,
+                     summarizeWindowResults(results)));
+
+  for (const auto& sample : artifacts.trajectorySamples) {
+    writer->writeTrajectorySample(
+        makeTrajectoryRow(*writer, datasetName, method, artifacts, sample));
+  }
+}
+
 struct RunForDataset {
-  explicit RunForDataset(const AppOptions&)
-      : intervals(defaultQuadratureIntervals()) {}
+  explicit RunForDataset(ResultsWriter* writer) : writer(writer) {}
 
-  vector<double> intervals;
-  vector<ResultRow> rows;
+  vector<double> intervals = defaultQuadratureIntervals();
+  ResultsWriter* writer = nullptr;
 
   void operator()(const string& datasetName, const Dataset& dataset) {
     EKFNEESEvaluator evaluator(dataset);
-
-    DatasetResults results;
-    results.gal3_0_2s =
-        evaluator.runGal3ImuEKF(intervals[0], kAlpha, datasetName);
-    results.gal3_0_5s =
-        evaluator.runGal3ImuEKF(intervals[1], kAlpha, datasetName);
-    results.gal3_1_0s =
-        evaluator.runGal3ImuEKF(intervals[2], kAlpha, datasetName);
-    results.navstate_0_2s =
-        evaluator.runNavStateImuEKF(intervals[0], kAlpha, datasetName);
-    results.navstate_0_5s =
-        evaluator.runNavStateImuEKF(intervals[1], kAlpha, datasetName);
-    results.navstate_1_0s =
-        evaluator.runNavStateImuEKF(intervals[2], kAlpha, datasetName);
-    rows.push_back({datasetName, results});
-  }
-
-  void report() const {
-    printTableHeader();
-    for (size_t index = 0; index < rows.size(); ++index) {
-      const ResultRow& row = rows[index];
-      printTableRow(row.datasetName, "Gal3ImuEKF", row.results.gal3_0_2s,
-                    row.results.gal3_0_5s, row.results.gal3_1_0s);
-      printTableRow(row.datasetName, "NavStateImuEKF",
-                    row.results.navstate_0_2s, row.results.navstate_0_5s,
-                    row.results.navstate_1_0s);
-      if (index + 1 != rows.size()) {
-        cout << string(70, '-') << "\n";
-      }
+    for (const double intervalSeconds : intervals) {
+      writeArtifacts(writer, datasetName, "gal3_imu_ekf",
+                     evaluator.computeGal3ImuEKFArtifacts(intervalSeconds,
+                                                          kAlpha));
+      writeArtifacts(writer, datasetName, "navstate_imu_ekf",
+                     evaluator.computeNavStateImuEKFArtifacts(intervalSeconds,
+                                                              kAlpha));
     }
-    cout << string(70, '=') << "\n";
   }
 };
 
+string datasetGroupLabel(const ResolvedDatasetCli& datasetCli) {
+  return datasetCli.options.datasetName ? *datasetCli.options.datasetName
+                                        : "all";
+}
+
 }  // namespace
 
-/// Main evaluation program.
 int main(int argc, char* argv[]) {
   const auto datasetCli = resolveDatasetAppCli(argc, argv);
   const AppOptions appOptions =
       parseAppArguments(datasetCli.remainingArgs, argv[0]);
+  (void)appOptions;
 
-  RunForDataset runner(appOptions);
+  ResultsWriter writer(argv[0], datasetCli.options.outputRoot);
+  writer.writeRunMetadata(
+      {writer.runId(), writer.appName(), writer.timestampUtc(),
+       joinCommandLineArguments(argc, argv), writer.outputRoot().string(), ""});
+  const string datasetGroup = datasetGroupLabel(datasetCli);
+  for (const auto& [datasetName, datasetPath] : datasetCli.datasets) {
+    writer.writeDataset({writer.runId(), writer.appName(), datasetName,
+                         datasetPath, datasetGroup});
+  }
+
+  RunForDataset runner(&writer);
   const int status = runForDatasets(datasetCli, runner);
   if (status != 0) {
     return status;
   }
-  runner.report();
+
+  cout << "Results written to " << writer.runDirectory() << "\n";
   return 0;
 }

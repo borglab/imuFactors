@@ -26,11 +26,11 @@ namespace gtsam {
 
 /// Trajectory validation and export utilities
 struct TrajectoryPoint {
-  double timestamp;    ///< Time in seconds
-  Point3 position;     ///< Position in meters
-  Vector3 velocity;    ///< Velocity in m/s
-  Vector3 rpy;         ///< Roll-pitch-yaw in degrees
-  Matrix9 covariance;  ///< 9x9 covariance matrix (rotation, position, velocity)
+  double timestamp = 0.0;               ///< Time in seconds
+  Point3 position = Point3::Zero();     ///< Position in meters
+  Vector3 velocity = Vector3::Zero();   ///< Velocity in m/s
+  Vector3 rpy = Vector3::Zero();        ///< Roll-pitch-yaw in degrees
+  Matrix9 covariance = Matrix9::Zero();  ///< 9x9 covariance matrix
 };
 
 class TrajectoryValidator {

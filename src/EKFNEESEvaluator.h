@@ -21,6 +21,7 @@
 #include "Dataset.h"
 #include "NEESEvaluator.h"
 #include "NEESResults.h"
+#include "PIMs.h"
 #include "TrajectoryValidator.h"
 
 namespace gtsam {
@@ -34,8 +35,58 @@ namespace gtsam {
  */
 class EKFNEESEvaluator {
  public:
+  /**
+   * @brief One window-level EKF result with timing and sample bounds.
+   */
+  struct WindowEvaluation {
+    size_t windowIndex = 0;
+    size_t startSample = 0;
+    size_t endSample = 0;
+    double startTime = 0.0;
+    double endTime = 0.0;
+    WindowResult metrics;
+  };
+
+  /**
+   * @brief One trajectory sample with GT, prediction, and 9D error.
+   */
+  struct TrajectorySample {
+    size_t sampleIndex = 0;
+    TrajectoryPoint groundTruth;
+    TrajectoryPoint predicted;
+    Vector9 error = Vector9::Zero();
+  };
+
+  /**
+   * @brief Shared rich output for one EKF run.
+   */
+  struct RunArtifacts {
+    double preintegrationTime = 0.0;
+    size_t samplesPerWindow = 0;
+    std::vector<double> neesValues;
+    std::vector<WindowEvaluation> windowEvaluations;
+    std::vector<TrajectorySample> trajectorySamples;
+  };
+
   /// Constructor
   explicit EKFNEESEvaluator(const Dataset& dataset);
+
+  /// Compute rich Gal3 EKF artifacts with alpha scaling.
+  RunArtifacts computeGal3ImuEKFArtifacts(double interval, double alpha) const;
+
+  /// Compute rich Gal3 EKF artifacts with custom parameters.
+  RunArtifacts computeGal3ImuEKFArtifacts(
+      double interval,
+      const std::shared_ptr<PreintegrationCombinedParams>& params) const;
+
+  /// Compute rich NavState EKF artifacts with alpha scaling.
+  RunArtifacts computeNavStateImuEKFArtifacts(double interval,
+                                              double alpha) const;
+
+  /// Compute rich NavState EKF artifacts with custom parameters.
+  RunArtifacts computeNavStateImuEKFArtifacts(
+      double interval,
+      const std::shared_ptr<PreintegrationCombinedParams>& params) const;
 
   /// Run Gal3 IMU EKF with alpha scaling
   /// @param interval Preintegration time window in seconds
@@ -89,16 +140,14 @@ class EKFNEESEvaluator {
   const Dataset& dataset_;
 
   /// Process time window for Gal3 EKF
-  NEESResults processTimeWindowWithGal3EKF(
+  RunArtifacts processTimeWindowWithGal3EKF(
       const std::shared_ptr<PreintegrationCombinedParams>& params,
-      double preintegrationTime, double dt,
-      const std::string& datasetName) const;
+      double preintegrationTime, double dt) const;
 
   /// Process time window for NavState EKF
-  NEESResults processTimeWindowWithNavStateEKF(
+  RunArtifacts processTimeWindowWithNavStateEKF(
       const std::shared_ptr<PreintegrationCombinedParams>& params,
-      double preintegrationTime, double dt,
-      const std::string& datasetName) const;
+      double preintegrationTime, double dt) const;
 
   Gal3 convertToGal3(const NavState& navState, double time) const;
 
@@ -128,21 +177,6 @@ class EKFNEESEvaluator {
   TrajectoryPoint createPredictedPointFromNavState(const NavState& navState,
                                                    const Matrix9& covariance,
                                                    double timestamp) const;
-
-  /// Export trajectory results to CSV
-  void exportTrajectoryResults(
-      const std::vector<TrajectoryPoint>& groundTruthTrajectory,
-      const std::vector<TrajectoryPoint>& predictedTrajectory,
-      const std::vector<Vector9>& errorTrajectory,
-      const std::string& filterName, const std::string& datasetName,
-      const std::string& preintegrationTime) const;
-
-  /// Export NEES values to CSV
-  void exportNEESValues(const std::string& filterName,
-                        const std::string& datasetName,
-                        const std::string& preintegrationTime,
-                        const std::vector<TrajectoryPoint>& trajectory,
-                        const std::vector<double>& neesValues) const;
 };
 
 }  // namespace gtsam
