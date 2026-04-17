@@ -30,6 +30,7 @@
 #include "AppUtils.h"
 #include "Dataset.h"
 #include "NoiseCalibration.h"
+#include "PIMs.h"
 #include "Window.h"
 #include "nees.h"
 
@@ -47,10 +48,12 @@ using symbol_shorthand::X;
 
 namespace {
 
+// Scale the nominal sensor noise to the level used in this diagnostic sweep.
 constexpr double kAlpha = 8.4;
 constexpr double kSigmaGyro = kAlpha * 1.6968e-4;
 constexpr double kSigmaAcc = kAlpha * 2.0000e-3;
 
+// Summaries of the reduced-NEES distribution across all valid windows.
 struct NeesStats {
   double mean = 0.0;
   double median = 0.0;
@@ -58,7 +61,8 @@ struct NeesStats {
   size_t samples = 0;
 };
 
-struct MethodSummary {
+// Final per-method aggregates printed in the markdown tables.
+struct Summary {
   NeesStats nees;
   double rotErrorMedian = 0.0;
   double rotPredSigmaMedian = 0.0;
@@ -70,6 +74,7 @@ struct MethodSummary {
   size_t nodeCount = 0;
 };
 
+// Raw per-window measurements before they are collapsed into medians.
 struct MethodSample {
   double reducedNees = 0.0;
   double rotErrorNorm = 0.0;
@@ -80,12 +85,13 @@ struct MethodSample {
   double velPredSigma = 0.0;
 };
 
+// Hold all samples for one method and summarize them in one place.
 struct MethodSamples {
   vector<MethodSample> values;
 
   void append(const MethodSample& sample) { values.push_back(sample); }
 
-  MethodSummary summarize(size_t nodeCount = 0) const;
+  Summary summarize(size_t nodeCount = 0) const;
 };
 
 struct Row {
@@ -93,11 +99,12 @@ struct Row {
   double interval = 0.0;
   size_t samplesPerWindow = 0;
   size_t quadratureNodes = 0;
-  MethodSummary quadrature;
-  MethodSummary manifold;
-  MethodSummary tangent;
+  Summary quadrature;
+  Summary manifold;
+  Summary tangent;
 };
 
+// Build the shared IMU noise model used by all three preintegration methods.
 shared_ptr<PreintegrationParams> createPreintegrationParams() {
   auto params = PreintegrationParams::MakeSharedU(9.81);
   params->accelerometerCovariance = I_3x3 * kSigmaAcc * kSigmaAcc;
@@ -108,6 +115,8 @@ shared_ptr<PreintegrationParams> createPreintegrationParams() {
 
 optional<double> computeReducedNees(const Vector9& error,
                                     const Matrix9& covariance) {
+  // Light diagonal regularization avoids numerical issues in the quadratic
+  // form.
   const Matrix9 regularizedCovariance =
       covariance + 1e-12 * Matrix9::Identity();
   const auto value = normalizedQuadraticForm(error, regularizedCovariance, 9.0);
@@ -118,6 +127,7 @@ optional<double> computeReducedNees(const Vector9& error,
 }
 
 double covarianceBlockSigma(const Matrix9& covariance, int blockStart) {
+  // Convert a 3x3 covariance block into a scalar sigma proxy via RMS variance.
   return std::sqrt(std::max(
       0.0, covariance.block<3, 3>(blockStart, blockStart).trace() / 3.0));
 }
@@ -127,6 +137,7 @@ NeesStats summarizeNees(const vector<double>& reducedNeesValues) {
   if (reducedNeesValues.empty()) {
     return stats;
   }
+  // Report the same NEES distribution using several robust summary statistics.
   stats.samples = reducedNeesValues.size();
   stats.mean = computeMean(reducedNeesValues);
   stats.median = computeMedian(reducedNeesValues);
@@ -138,10 +149,11 @@ double summarizeMedian(const vector<double>& values) {
   return computeMedian(values);
 }
 
-MethodSummary MethodSamples::summarize(size_t nodeCount) const {
-  MethodSummary summary;
+Summary MethodSamples::summarize(size_t nodeCount) const {
+  Summary summary;
   summary.nodeCount = nodeCount;
 
+  // Project one field across all windows so we can reuse the scalar reducers.
   const auto project = [this](auto member) {
     vector<double> projectedValues;
     projectedValues.reserve(values.size());
@@ -184,12 +196,14 @@ MethodSample makeMethodSample(const Vector9& error, const Matrix9& covariance,
 
 optional<MethodSample> analyzeQuadratureWindow(
     const Window& window, const shared_ptr<PreintegrationParams>& params,
-    size_t quadratureNodes) {
-  PIMQuadrature preintegrated(params, window.initialTruth().bias,
-                              quadratureNodes);
-  window.integrateMeasurements(preintegrated);
-  preintegrated.endPreintegration(preintegrated.deltaTij());
+    size_t N) {
+  // Run quadrature preintegration on one window and close the integration
+  // interval.
+  const PIMQuadrature preintegrated = buildPreintegrated<PIMQuadrature>(
+      window, params, window.initialTruth().bias, N);
 
+  // Evaluate the factor at ground truth to get the residual and predicted
+  // covariance.
   const Matrix9 covariance = preintegrated.preintMeasCov();
   QuadratureImuFactor factor(X(1), V(1), X(2), V(2), B(1), preintegrated);
   const Vector9 error = factor.evaluateError(
@@ -208,9 +222,12 @@ optional<MethodSample> analyzeQuadratureWindow(
 template <class PIMType>
 optional<MethodSample> analyzeStandardWindow(
     const Window& window, const shared_ptr<PreintegrationParams>& params) {
-  PIMType preintegrated(params, window.initialTruth().bias);
-  window.integrateMeasurements(preintegrated);
+  // Run the standard manifold or tangent preintegration on one window.
+  const PIMType preintegrated =
+      buildPreintegrated<PIMType>(window, params, window.initialTruth().bias);
 
+  // The standard factor exposes the same 9D residual, so we summarize it
+  // identically.
   ImuFactor2T<PIMType> factor(X(1), X(2), B(1), preintegrated);
   const Vector9 error = factor.evaluateError(window.initialTruth().navState,
                                              window.terminalTruth().navState,
@@ -224,34 +241,30 @@ optional<MethodSample> analyzeStandardWindow(
   return makeMethodSample(error, covariance, *reducedNees);
 }
 
-MethodSummary runQuadratureNees(const vector<Window>& windows,
-                                size_t quadratureNodes) {
+Summary runQuadratureNees(const vector<Window>& windows,
+                          size_t quadratureNodes) {
   MethodSamples samples;
   const auto params = createPreintegrationParams();
 
+  // Accumulate one sample per valid window for the quadrature method.
   for (const auto& window : windows) {
     const auto sample =
         analyzeQuadratureWindow(window, params, quadratureNodes);
-    if (!sample) {
-      continue;
-    }
-    samples.append(*sample);
+    if (sample) samples.append(*sample);
   }
 
   return samples.summarize(quadratureNodes);
 }
 
 template <class PIMType>
-MethodSummary runStandardNees(const vector<Window>& windows) {
+Summary runStandardNees(const vector<Window>& windows) {
   MethodSamples samples;
   const auto params = createPreintegrationParams();
 
+  // Accumulate one sample per valid window for the chosen standard method.
   for (const auto& window : windows) {
     const auto sample = analyzeStandardWindow<PIMType>(window, params);
-    if (!sample) {
-      continue;
-    }
-    samples.append(*sample);
+    if (sample) samples.append(*sample);
   }
 
   return samples.summarize();
@@ -261,6 +274,7 @@ MethodSummary runStandardNees(const vector<Window>& windows) {
 
 int main(int argc, char* argv[]) {
   try {
+    // Resolve the datasets and interval subset requested on the command line.
     const AppCliOptions options = parseDatasetAppCliOptions(argc, argv);
     const vector<pair<string, string>> discoveredDatasets =
         discoverFilteredDatasets(options.dataDirectory, DatasetFilters::all);
@@ -276,39 +290,39 @@ int main(int argc, char* argv[]) {
     const vector<double> intervals =
         selectIntervals(defaultIntervals, options.maxIntervals);
 
+    // Evaluate all requested datasets and window lengths.
     vector<Row> rows;
     for (const auto& datasetEntry : datasets) {
-      const string& datasetName = datasetEntry.first;
       const string& datasetPath = datasetEntry.second;
       Dataset dataset(datasetPath);
-      if (dataset.truth.size() < 2) {
-        continue;
-      }
-      for (double intervalSeconds : intervals) {
-        const size_t samplesPerWindow =
-            dataset.stepsForInterval(intervalSeconds);
-        const auto windows = dataset.completeWindows(samplesPerWindow);
-        const size_t quadratureNodes = max<size_t>(
-            3, static_cast<size_t>(
-                   floor(sqrt(static_cast<double>(samplesPerWindow)))));
+      if (dataset.truth.size() < 2) continue;
+      const string& datasetName = datasetEntry.first;
 
+      for (double intervalSeconds : intervals) {
+        const size_t m = dataset.stepsForInterval(intervalSeconds);
+        const size_t N = max<size_t>(
+            3, static_cast<size_t>(floor(sqrt(static_cast<double>(m)))));
+
+        // Compare quadrature against the two standard preintegration variants.
         Row row;
         row.dataset = datasetName;
         row.interval = intervalSeconds;
-        row.samplesPerWindow = samplesPerWindow;
-        row.quadratureNodes = quadratureNodes;
-        row.quadrature = runQuadratureNees(windows, quadratureNodes);
+        row.samplesPerWindow = m;
+        row.quadratureNodes = N;
+        const auto windows = dataset.completeWindows(m);
+        row.quadrature = runQuadratureNees(windows, N);
         row.manifold = runStandardNees<PIMManifold>(windows);
         row.tangent = runStandardNees<PIMTangent>(windows);
         rows.push_back(row);
 
         cout << "[done] " << datasetName << " dt=" << fixed << setprecision(1)
-             << intervalSeconds << "s m=" << samplesPerWindow
-             << " N=" << quadratureNodes << " NEES_median=" << setprecision(3)
-             << row.quadrature.nees.median << "\n";
+             << intervalSeconds << "s m=" << m << " N=" << N
+             << " NEES_median=" << setprecision(3) << row.quadrature.nees.median
+             << "\n";
       }
     }
 
+    // Table 1 is the direct reduced-NEES comparison across the three methods.
     cout << "\n## Table 1: NEES Median (full 9-DOF, reduced)\n\n";
     cout << "| dataset | dt(s) | m | N | quad | manifold | tangent |\n";
     cout << "|---|---:|---:|---:|---:|---:|---:|\n";
@@ -320,6 +334,8 @@ int main(int argc, char* argv[]) {
            << " | " << row.tangent.nees.median << " |\n";
     }
 
+    // Table 1b exposes how quadrature's observed errors compare to its
+    // covariance scale.
     cout << "\n## Table 1b: Quad Error vs Predicted Sigma (median)\n\n";
     cout << "| dataset | dt(s) | m | N | NEES"
          << " | err_rot | sig_rot | err_pos | sig_pos | err_vel | sig_vel |\n";
@@ -338,6 +354,7 @@ int main(int argc, char* argv[]) {
            << row.quadrature.velPredSigmaMedian << " |\n";
     }
 
+    // Table 2 compares median error magnitudes directly for each method.
     cout << "\n## Table 2: Median Errors per Dataset\n\n";
     cout << "| dataset | dt(s) | m | N"
          << " | q_rot | m_rot | t_rot"
@@ -360,6 +377,7 @@ int main(int argc, char* argv[]) {
            << " |\n";
     }
 
+    // Table 3 averages the per-dataset medians to get one row per interval.
     cout << "\n## Table 3: Aggregated Mean-of-Median Errors\n\n";
     cout << "| dt(s) | m | N"
          << " | q_rot | m_rot | t_rot"
@@ -383,6 +401,7 @@ int main(int argc, char* argv[]) {
       size_t samplesPerWindow = 0;
       size_t quadratureNodes = 0;
 
+      // Gather all rows that share this interval across the selected datasets.
       for (const auto& row : rows) {
         if (row.interval != intervalSeconds) {
           continue;
@@ -404,6 +423,8 @@ int main(int argc, char* argv[]) {
       if (count == 0) {
         continue;
       }
+      // Normalize the accumulated medians by the number of contributing
+      // datasets.
       const double sampleCount = static_cast<double>(count);
       cout << "| " << fixed << setprecision(1) << intervalSeconds << " | "
            << samplesPerWindow << " | " << quadratureNodes << " | "
