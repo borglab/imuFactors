@@ -110,7 +110,7 @@ std::shared_ptr<PreintegrationCombinedParams> Dataset::configureImuParams(
 
 // Main constructor implementation
 
-Dataset::Dataset(const std::string& filename) {
+Dataset::Dataset(const std::string& filename) : sourcePath_(filename) {
   std::ifstream file(filename);
   if (!file.is_open()) {
     throw std::runtime_error("Could not open file: " + filename);

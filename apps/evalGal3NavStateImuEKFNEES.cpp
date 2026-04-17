@@ -9,16 +9,13 @@
 
 /**
  * @file   evalGal3NavStateImuEKFNEES.cpp
- * @brief  Clean NEES comparison table for EKF variants
- * @author Alec Kain
+ * @brief  Canonical EKF export for Gal3 and NavState IMU EKF variants
  */
-
-#include <iomanip>
-#include <iostream>
-#include <vector>
 
 #include "AppUtils.h"
 #include "EKFNEESEvaluator.h"
+#include "QuadratureRunner.h"
+#include "ResultsAdapters.h"
 
 using namespace gtsam;
 using namespace std;
@@ -26,28 +23,12 @@ using namespace std;
 namespace {
 
 constexpr double kAlpha = 3.0;
-
-/// NEES results for all intervals.
-struct DatasetResults {
-  NEESResults gal3_0_2s;
-  NEESResults gal3_0_5s;
-  NEESResults gal3_1_0s;
-  NEESResults navstate_0_2s;
-  NEESResults navstate_0_5s;
-  NEESResults navstate_1_0s;
-};
-
-struct ResultRow {
-  string datasetName;
-  DatasetResults results;
-};
+constexpr const char* kConfigLabel = "default";
 
 struct AppOptions {};
 
-/// Print usage for the EKF comparison app.
 void printUsage(const char* programName) { printDatasetAppUsage(programName); }
 
-/// Validate any EKF-specific trailing arguments.
 AppOptions parseAppArguments(const vector<string>& arguments,
                              const char* programName) {
   for (const string& argument : arguments) {
@@ -60,80 +41,41 @@ AppOptions parseAppArguments(const vector<string>& arguments,
   return {};
 }
 
-/// Print table header.
-static void printTableHeader() {
-  cout << "\n" << string(70, '=') << "\n";
-  cout << "Dataset\t\tMethod\t\t\t0.2s\t0.5s\t1.0s\n";
-  cout << string(70, '-') << "\n";
-}
-
-/// Print NEES results row.
-static void printTableRow(const string& datasetName, const string& methodName,
-                          const NEESResults& result_0_2s,
-                          const NEESResults& result_0_5s,
-                          const NEESResults& result_1_0s) {
-  cout << datasetName << "\t" << methodName << ":\t" << fixed << setprecision(3)
-       << result_0_2s.median << "\t" << result_0_5s.median << "\t"
-       << result_1_0s.median << "\n";
-}
-
-/// Accumulate EKF comparison rows for each requested dataset.
 struct RunForDataset {
-  explicit RunForDataset(const AppOptions&)
-      : intervals(defaultQuadratureIntervals()) {}
+  explicit RunForDataset(ResultsWriter* writer) : writer(writer) {}
 
-  vector<double> intervals;
-  vector<ResultRow> rows;
+  vector<double> intervals = defaultQuadratureIntervals();
+  ResultsWriter* writer = nullptr;
+  string datasetGroup = "all";
 
   void operator()(const string& datasetName, const Dataset& dataset) {
+    writer->writeDataset(
+        makeDatasetRow(*writer, datasetName, dataset, datasetGroup));
     EKFNEESEvaluator evaluator(dataset);
-
-    DatasetResults results;
-    results.gal3_0_2s =
-        evaluator.runGal3ImuEKF(intervals[0], kAlpha, datasetName);
-    results.gal3_0_5s =
-        evaluator.runGal3ImuEKF(intervals[1], kAlpha, datasetName);
-    results.gal3_1_0s =
-        evaluator.runGal3ImuEKF(intervals[2], kAlpha, datasetName);
-    results.navstate_0_2s =
-        evaluator.runNavStateImuEKF(intervals[0], kAlpha, datasetName);
-    results.navstate_0_5s =
-        evaluator.runNavStateImuEKF(intervals[1], kAlpha, datasetName);
-    results.navstate_1_0s =
-        evaluator.runNavStateImuEKF(intervals[2], kAlpha, datasetName);
-    rows.push_back({datasetName, results});
-  }
-
-  void report() const {
-    printTableHeader();
-    for (size_t index = 0; index < rows.size(); ++index) {
-      const ResultRow& row = rows[index];
-      printTableRow(row.datasetName, "Gal3ImuEKF", row.results.gal3_0_2s,
-                    row.results.gal3_0_5s, row.results.gal3_1_0s);
-      printTableRow(row.datasetName, "NavStateImuEKF",
-                    row.results.navstate_0_2s, row.results.navstate_0_5s,
-                    row.results.navstate_1_0s);
-      if (index + 1 != rows.size()) {
-        cout << string(70, '-') << "\n";
-      }
+    for (const double intervalSeconds : intervals) {
+      writeEkfArtifacts(
+          writer, datasetName, "gal3_imu_ekf", kConfigLabel,
+          evaluator.computeGal3ImuEKFArtifacts(intervalSeconds, kAlpha));
+      writeEkfArtifacts(
+          writer, datasetName, "navstate_imu_ekf", kConfigLabel,
+          evaluator.computeNavStateImuEKFArtifacts(intervalSeconds, kAlpha));
     }
-    cout << string(70, '=') << "\n";
   }
 };
 
 }  // namespace
 
-/// Main evaluation program.
 int main(int argc, char* argv[]) {
   const auto datasetCli = resolveDatasetAppCli(argc, argv);
   const AppOptions appOptions =
       parseAppArguments(datasetCli.remainingArgs, argv[0]);
+  (void)appOptions;
 
-  RunForDataset runner(appOptions);
-  const int status = runForDatasets(datasetCli, runner);
-  if (status != 0) {
-    return status;
-  }
-  runner.report();
-  return 0;
+  return runDatasetApp(
+      datasetCli, argc, argv,
+      [&](ResultsWriter* writer, const std::string& datasetGroup) {
+        RunForDataset runner(writer);
+        runner.datasetGroup = datasetGroup;
+        return runner;
+      });
 }

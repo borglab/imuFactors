@@ -60,39 +60,17 @@ inline void computeMetrics(NoiseTrialResult& result) {
 inline NoiseCalibrationStudy runFilteredCalibration(
     const std::vector<std::pair<std::string, std::string>>& datasets,
     const std::string& studyName) {
-    
-    using namespace std;
-    
     NoiseCalibrationStudy study;
     for (const auto& [name, path] : datasets) {
         study.datasetNames.push_back(name);
     }
-    
-    cout << "\n" << string(100, '=') << "\n";
-    cout << studyName << " NOISE CALIBRATION (0.2s NEES)\n";
-    cout << "Datasets: ";
-    for (const auto& name : study.datasetNames) cout << name << " ";
-    cout << "\n" << string(100, '=') << "\n";
-    
+
     std::vector<double> alphaGyroRange = {0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 13.0};
     std::vector<double> alphaAccRange  = {0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 13.0};
-    
-    cout << "\nGyro alphas: ";
-    for (double a : alphaGyroRange) cout << a << " ";
-    cout << "\nAccel alphas: ";
-    for (double a : alphaAccRange) cout << a << " ";
-    cout << "\n\n";
-    
+
     double bestSumDev = 1e9;
     double worstSumDev = 0.0;
-    
-    cout << "αGyro\tαAcc";
-    for (const auto& name : study.datasetNames) {
-        cout << "\t" << name;
-    }
-    cout << "\tMean\tSumDev\n";
-    cout << string(100, '-') << "\n";
-    
+
     for (double alphaGyro : alphaGyroRange) {
         for (double alphaAcc : alphaAccRange) {
             NoiseTrialResult trial;
@@ -111,14 +89,7 @@ inline NoiseCalibrationStudy runFilteredCalibration(
             
             computeMetrics(trial);
             study.trials.push_back(trial);
-            
-            cout << fixed << setprecision(2)
-                 << alphaGyro << "\t" << alphaAcc;
-            for (const auto& name : study.datasetNames) {
-                cout << "\t" << trial.datasetNees[name];
-            }
-            cout << "\t" << trial.meanNees << "\t" << trial.sumDeviations << "\n";
-            
+
             if (trial.sumDeviations < bestSumDev) {
                 bestSumDev = trial.sumDeviations;
                 study.bestResult = trial;

@@ -14,12 +14,8 @@
  */
 
 #include "EKFNEESEvaluator.h"
-#include "TrajectoryValidator.h"
 #include "Window.h"
-#include "nees.h"
 
-#include <fstream>
-#include <iomanip>
 #include <iostream>
 
 using namespace std;
@@ -55,56 +51,77 @@ void fillWindowPrediction(
   }
 }
 
-std::string preintegrationTimeLabel(double preintegrationTime) {
-  return std::to_string(static_cast<int>(preintegrationTime * 10)) + "s";
-}
-
 }  // namespace
 
 EKFNEESEvaluator::EKFNEESEvaluator(const Dataset& dataset) : dataset_(dataset) {}
 
+EKFNEESEvaluator::RunArtifacts EKFNEESEvaluator::computeGal3ImuEKFArtifacts(
+    double interval, double alpha) const {
+  return computeGal3ImuEKFArtifacts(interval, dataset_.configureImuParams(alpha));
+}
+
+EKFNEESEvaluator::RunArtifacts EKFNEESEvaluator::computeGal3ImuEKFArtifacts(
+    double interval,
+    const std::shared_ptr<PreintegrationCombinedParams>& params) const {
+  return processTimeWindowWithGal3EKF(params, interval, dataset_.timestep());
+}
+
+EKFNEESEvaluator::RunArtifacts
+EKFNEESEvaluator::computeNavStateImuEKFArtifacts(double interval,
+                                                 double alpha) const {
+  return computeNavStateImuEKFArtifacts(interval,
+                                        dataset_.configureImuParams(alpha));
+}
+
+EKFNEESEvaluator::RunArtifacts
+EKFNEESEvaluator::computeNavStateImuEKFArtifacts(
+    double interval,
+    const std::shared_ptr<PreintegrationCombinedParams>& params) const {
+  return processTimeWindowWithNavStateEKF(params, interval, dataset_.timestep());
+}
+
 NEESResults EKFNEESEvaluator::runGal3ImuEKF(double interval, double alpha) const {
-    auto params = dataset_.configureImuParams(alpha);
-    double dt = dataset_.timestep();
-    return processTimeWindowWithGal3EKF(params, interval, dt, "default");
+    return NEESEvaluator::computeStatistics(
+        computeGal3ImuEKFArtifacts(interval, alpha).neesValues, interval);
 }
 
 /// NEW: 3-parameter version with alpha and dataset name
 NEESResults EKFNEESEvaluator::runGal3ImuEKF(
     double interval, double alpha, const std::string& datasetName) const {
-    auto params = dataset_.configureImuParams(alpha);
-    double dt = dataset_.timestep();
-    return processTimeWindowWithGal3EKF(params, interval, dt, datasetName);
+    (void)datasetName;
+    return NEESEvaluator::computeStatistics(
+        computeGal3ImuEKFArtifacts(interval, alpha).neesValues, interval);
 }
 
 NEESResults EKFNEESEvaluator::runGal3ImuEKF(
     double interval, 
     const std::shared_ptr<PreintegrationCombinedParams>& params,
     const std::string& datasetName) const {
-    double dt = dataset_.timestep();
-    return processTimeWindowWithGal3EKF(params, interval, dt, datasetName);
+    (void)datasetName;
+    return NEESEvaluator::computeStatistics(
+        computeGal3ImuEKFArtifacts(interval, params).neesValues, interval);
 }
 
 NEESResults EKFNEESEvaluator::runNavStateImuEKF(double interval, double alpha) const {
-    auto params = dataset_.configureImuParams(alpha);
-    double dt = dataset_.timestep();
-    return processTimeWindowWithNavStateEKF(params, interval, dt, "default");
+    return NEESEvaluator::computeStatistics(
+        computeNavStateImuEKFArtifacts(interval, alpha).neesValues, interval);
 }
 
 /// NEW: 3-parameter version with alpha and dataset name
 NEESResults EKFNEESEvaluator::runNavStateImuEKF(
     double interval, double alpha, const std::string& datasetName) const {
-    auto params = dataset_.configureImuParams(alpha);
-    double dt = dataset_.timestep();
-    return processTimeWindowWithNavStateEKF(params, interval, dt, datasetName);
+    (void)datasetName;
+    return NEESEvaluator::computeStatistics(
+        computeNavStateImuEKFArtifacts(interval, alpha).neesValues, interval);
 }
 
 NEESResults EKFNEESEvaluator::runNavStateImuEKF(
     double interval,
     const std::shared_ptr<PreintegrationCombinedParams>& params,
     const std::string& datasetName) const {
-    double dt = dataset_.timestep();
-    return processTimeWindowWithNavStateEKF(params, interval, dt, datasetName);
+    (void)datasetName;
+    return NEESEvaluator::computeStatistics(
+        computeNavStateImuEKFArtifacts(interval, params).neesValues, interval);
 }
 
 Gal3 EKFNEESEvaluator::convertToGal3(const NavState& navState, double time) const {
@@ -182,118 +199,26 @@ TrajectoryPoint EKFNEESEvaluator::createPredictedPointFromNavState(
     return point;
 }
 
-void EKFNEESEvaluator::exportTrajectoryResults(
-    const vector<TrajectoryPoint>& groundTruthTrajectory,
-    const vector<TrajectoryPoint>& predictedTrajectory,
-    const vector<Vector9>& errorTrajectory,
-    const std::string& filterName,
-    const std::string& datasetName,
-    const std::string& preintegrationTime) const {
-    
-    std::string filename = filterName + "_trajectory_" + datasetName + "_" + preintegrationTime + ".csv";
-    std::ofstream file(filename);
-    
-    if (!file.is_open()) {
-        std::cerr << "Failed to open file: " << filename << std::endl;
-        return;
-    }
-    
-    /// CSV header WITHOUT acceleration columns
-    file << "timestamp,gt_x,gt_y,gt_z,gt_vx,gt_vy,gt_vz,gt_roll,gt_pitch,gt_yaw,"
-         << "pred_x,pred_y,pred_z,pred_vx,pred_vy,pred_vz,pred_roll,pred_pitch,pred_yaw,"
-         << "err_x,err_y,err_z,err_vx,err_vy,err_vz,err_roll,err_pitch,err_yaw\n";
-    
-    for (size_t i = 0; i < groundTruthTrajectory.size(); i++) {
-        const auto& gt = groundTruthTrajectory[i];
-        const auto& pred = predictedTrajectory[i];
-        const auto& err = errorTrajectory[i];
-        
-        /// Ground truth (position, velocity, orientation)
-        file << std::fixed << std::setprecision(6)
-             << gt.timestamp << ","
-             << gt.position.x() << "," << gt.position.y() << "," << gt.position.z() << ","
-             << gt.velocity.x() << "," << gt.velocity.y() << "," << gt.velocity.z() << ","
-             << gt.rpy.x() << "," << gt.rpy.y() << "," << gt.rpy.z() << ",";
-        
-        /// Prediction (position, velocity, orientation)
-        file << pred.position.x() << "," << pred.position.y() << "," << pred.position.z() << ","
-             << pred.velocity.x() << "," << pred.velocity.y() << "," << pred.velocity.z() << ","
-             << pred.rpy.x() << "," << pred.rpy.y() << "," << pred.rpy.z() << ",";
-        
-        /// Error (9D: position, velocity, orientation)
-        file << err[0] << "," << err[1] << "," << err[2] << ","  // position error
-             << err[3] << "," << err[4] << "," << err[5] << ","  // velocity error
-             << err[6] << "," << err[7] << "," << err[8] << "\n";  // orientation error
-    }
-    
-    file.close();
-    std::cout << "✓ Exported trajectory: " << filename << std::endl;
-}
-
-void EKFNEESEvaluator::exportNEESValues(
-    const std::string& filterName,
-    const std::string& datasetName,
-    const std::string& preintegrationTime,
-    const std::vector<TrajectoryPoint>& trajectory,
-    const std::vector<double>& neesValues) const {
-    
-    std::string filename = filterName + "_nees_" + datasetName + "_" + preintegrationTime + ".csv";
-    std::ofstream file(filename);
-    if (!file.is_open()) {
-        std::cerr << "Failed to open NEES file: " << filename << std::endl;
-        return;
-    }
-    
-    file << "timestamp,nees\n";
-    file << std::fixed << std::setprecision(6);
-    
-    for (size_t i = 0; i < neesValues.size(); ++i) {
-        size_t trajIdx = std::min(i * (trajectory.size() / neesValues.size()), 
-                                 trajectory.size() - 1);
-        file << trajectory[trajIdx].timestamp << "," << neesValues[i] << "\n";
-    }
-    
-    file.close();
-    std::cout << "✓ Exported NEES values to " << filename << std::endl;
-}
-
-NEESResults EKFNEESEvaluator::processTimeWindowWithGal3EKF(
+EKFNEESEvaluator::RunArtifacts EKFNEESEvaluator::processTimeWindowWithGal3EKF(
     const std::shared_ptr<PreintegrationCombinedParams>& params,
-    double preintegrationTime, double dt,
-    const std::string& datasetName) const {
-    
-    vector<double> neesValues;
-    vector<TrajectoryPoint> groundTruthTrajectory;
+    double preintegrationTime, double dt) const {
+    RunArtifacts artifacts;
+    artifacts.preintegrationTime = preintegrationTime;
+
     vector<TrajectoryPoint> predictedTrajectory;
     vector<Vector9> errorTrajectory;
-    
+
     const auto& states = dataset_.truth;
-    const int stepsPerWindow = static_cast<int>(dataset_.stepsForInterval(preintegrationTime));
-    const auto windows = dataset_.completeWindows(static_cast<size_t>(stepsPerWindow));
-    const int numCompleteWindows = static_cast<int>(windows.size());
-    const size_t actualEndIndex = windows.empty() ? 0 : windows.back().end;
-    
-    /// Store COMPLETE ground truth trajectory (all points)
-    std::cout << "Storing complete ground truth: " << states.size() << " points" << std::endl;
-    for (size_t i = 0; i < states.size(); i++) {
-        groundTruthTrajectory.push_back(
-            createGroundTruthPoint(states[i].navState, states[i].timestamp));
-    }
-    
-    std::cout << "Gal3 " << datasetName << " @ " << preintegrationTime 
-              << "s: " << stepsPerWindow << " steps/window, " 
-              << numCompleteWindows << " complete windows, "
-              << "ending at index " << actualEndIndex << "/" << (states.size() - 1) << std::endl;
-    
-    /// Initialize prediction trajectory with placeholders
-    predictedTrajectory.resize(states.size());
-    errorTrajectory.resize(states.size());
-    
-    /// Process each COMPLETE window
+    const size_t stepsPerWindow = dataset_.stepsForInterval(preintegrationTime);
+    artifacts.samplesPerWindow = stepsPerWindow;
+    const auto windows = dataset_.completeWindows(stepsPerWindow);
+    const size_t trajectoryLength = windows.empty() ? 0 : windows.back().end + 1;
+
+    predictedTrajectory.resize(trajectoryLength);
+    errorTrajectory.resize(trajectoryLength, Vector9::Zero());
+
     for (size_t windowIdx = 0; windowIdx < windows.size(); ++windowIdx) {
         const auto& window = windows[windowIdx];
-        
-        /// RESET: Initialize new EKF at window start
         Gal3ImuEKF ekf = initializeGal3EKF(window.initialTruth().navState, params);
         const imuBias::ConstantBias& windowBias = window.initialTruth().bias;
 
@@ -308,73 +233,57 @@ NEESResults EKFNEESEvaluator::processTimeWindowWithGal3EKF(
         const Gal3 groundTruthGal3 = convertToGal3(groundTruthNavState, predictedGal3.time());
         const Vector9 navigationError = computeGal3Error(predictedGal3, groundTruthGal3);
         const Matrix9 navigationCovariance = extractNavigationCovariance(ekf);
-        
-        /// FILL THE ENTIRE WINDOW with this prediction (piecewise constant)
+
         fillWindowPrediction(
             window, states,
             createPredictedPointFromGal3(
                 predictedGal3, navigationCovariance, window.terminalTruth().timestamp),
             navigationError, predictedTrajectory, errorTrajectory);
-        
-        /// Compute NEES (only once per window)
+
         auto nees = normalizedNEES(
             navigationError, navigationCovariance,
             static_cast<double>(navigationError.size()));
         if (nees) {
-            neesValues.push_back(*nees);
-            if (windowIdx < 3) {
-                std::cout << "  Window " << (windowIdx + 1) 
-                          << ": NEES = " << *nees << std::endl;
-            }
+            artifacts.neesValues.push_back(*nees);
+            artifacts.windowEvaluations.push_back(
+                {windowIdx, window.start, window.end,
+                 window.initialTruth().timestamp, window.terminalTruth().timestamp,
+                 makeWindowResult(navigationError, navigationCovariance, *nees)});
         }
     }
-    
-    std::string timeStr = preintegrationTimeLabel(preintegrationTime);
-    
-    std::cout << "Exporting: GT=" << groundTruthTrajectory.size() << std::endl;
-    
-    exportTrajectoryResults(groundTruthTrajectory, predictedTrajectory, errorTrajectory, 
-                          "gal3", datasetName, timeStr);
-    exportNEESValues("gal3", datasetName, timeStr, predictedTrajectory, neesValues);
-    
-    TrajectoryValidator::printErrorStatistics(errorTrajectory);
-    
-    return NEESEvaluator::computeStatistics(neesValues, preintegrationTime);
+
+    for (size_t sampleIndex = 0; sampleIndex < trajectoryLength; ++sampleIndex) {
+        artifacts.trajectorySamples.push_back(
+            {sampleIndex,
+             createGroundTruthPoint(states[sampleIndex].navState,
+                                    states[sampleIndex].timestamp),
+             predictedTrajectory[sampleIndex], errorTrajectory[sampleIndex]});
+    }
+
+    return artifacts;
 }
 
 /// Same for NavState
-NEESResults EKFNEESEvaluator::processTimeWindowWithNavStateEKF(
+EKFNEESEvaluator::RunArtifacts EKFNEESEvaluator::processTimeWindowWithNavStateEKF(
     const std::shared_ptr<PreintegrationCombinedParams>& params,
-    double preintegrationTime, double dt,
-    const std::string& datasetName) const {
-    
-    vector<double> neesValues;
-    vector<TrajectoryPoint> groundTruthTrajectory;
+    double preintegrationTime, double dt) const {
+    RunArtifacts artifacts;
+    artifacts.preintegrationTime = preintegrationTime;
+
     vector<TrajectoryPoint> predictedTrajectory;
     vector<Vector9> errorTrajectory;
-    
+
     const auto& states = dataset_.truth;
-    const int stepsPerWindow = static_cast<int>(dataset_.stepsForInterval(preintegrationTime));
-    const auto windows = dataset_.completeWindows(static_cast<size_t>(stepsPerWindow));
-    const int numCompleteWindows = static_cast<int>(windows.size());
-    const size_t actualEndIndex = windows.empty() ? 0 : windows.back().end;
-    
-    /// Store complete ground truth
-    for (size_t i = 0; i < states.size(); i++) {
-        groundTruthTrajectory.push_back(
-            createGroundTruthPoint(states[i].navState, states[i].timestamp));
-    }
-    
-    std::cout << "NavState " << datasetName << " @ " << preintegrationTime 
-              << "s: " << stepsPerWindow << " steps/window, " 
-              << numCompleteWindows << " complete windows, "
-              << "ending at index " << actualEndIndex << "/" << (states.size() - 1) << std::endl;
-    
-    /// Pre-allocate prediction arrays
-    predictedTrajectory.resize(states.size());
-    errorTrajectory.resize(states.size());
-    
-    for (const auto& window : windows) {
+    const size_t stepsPerWindow = dataset_.stepsForInterval(preintegrationTime);
+    artifacts.samplesPerWindow = stepsPerWindow;
+    const auto windows = dataset_.completeWindows(stepsPerWindow);
+    const size_t trajectoryLength = windows.empty() ? 0 : windows.back().end + 1;
+
+    predictedTrajectory.resize(trajectoryLength);
+    errorTrajectory.resize(trajectoryLength, Vector9::Zero());
+
+    for (size_t windowIdx = 0; windowIdx < windows.size(); ++windowIdx) {
+        const auto& window = windows[windowIdx];
         NavStateImuEKF ekf = initializeNavStateEKF(window.initialTruth().navState, params);
         const imuBias::ConstantBias& windowBias = window.initialTruth().bias;
 
@@ -387,29 +296,32 @@ NEESResults EKFNEESEvaluator::processTimeWindowWithNavStateEKF(
         const NavState& groundTruth = window.terminalTruth().navState;
         const Vector9 error = groundTruth.logmap(predicted);
         const Matrix9 navigationCovariance = ekf.covariance();
-        
-        /// Fill entire window with constant prediction
+
         fillWindowPrediction(
             window, states,
             createPredictedPointFromNavState(
                 predicted, navigationCovariance, window.terminalTruth().timestamp),
             error, predictedTrajectory, errorTrajectory);
-        
+
         auto nees = normalizedNEES(
             error, navigationCovariance, static_cast<double>(error.size()));
         if (nees) {
-            neesValues.push_back(*nees);
+            artifacts.neesValues.push_back(*nees);
+            artifacts.windowEvaluations.push_back(
+                {windowIdx, window.start, window.end,
+                 window.initialTruth().timestamp, window.terminalTruth().timestamp,
+                 makeWindowResult(error, navigationCovariance, *nees)});
         }
     }
-    
-    std::string timeStr = preintegrationTimeLabel(preintegrationTime);
-    
-    exportTrajectoryResults(groundTruthTrajectory, predictedTrajectory, errorTrajectory,
-                          "navstate", datasetName, timeStr);
-    exportNEESValues("navstate", datasetName, timeStr, predictedTrajectory, neesValues);
-    
-    TrajectoryValidator::printErrorStatistics(errorTrajectory);
-    
-    return NEESEvaluator::computeStatistics(neesValues, preintegrationTime);
+
+    for (size_t sampleIndex = 0; sampleIndex < trajectoryLength; ++sampleIndex) {
+        artifacts.trajectorySamples.push_back(
+            {sampleIndex,
+             createGroundTruthPoint(states[sampleIndex].navState,
+                                    states[sampleIndex].timestamp),
+             predictedTrajectory[sampleIndex], errorTrajectory[sampleIndex]});
+    }
+
+    return artifacts;
 }
 }

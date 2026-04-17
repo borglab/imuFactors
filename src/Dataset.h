@@ -65,6 +65,12 @@ class Dataset {
   explicit Dataset(const std::string& filename);
 
   /**
+   * @brief Original CSV file path used to construct this dataset.
+   * @return Source dataset path
+   */
+  const std::string& sourcePath() const { return sourcePath_; }
+
+  /**
    * @brief Get the dataset timestep from the synchronized state trajectory
    * @return Positive timestep in seconds
    * @throw std::runtime_error if fewer than two state samples exist or the
@@ -118,6 +124,7 @@ class Dataset {
   const double g = 9.81;
 
  private:
+  std::string sourcePath_;
 
   /// Compute noise parameters with uniform scaling
   /// @param alpha Scaling factor applied to all noise parameters
