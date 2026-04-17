@@ -143,23 +143,4 @@ inline std::vector<double> selectIntervals(
   return std::vector<double>(defaultIntervals.begin(), defaultIntervals.begin() + intervalCount);
 }
 
-/**
- * Compute the number of IMU samples in a window for the requested interval.
- * @param dataset Dataset providing the timestamp cadence
- * @param intervalSeconds Requested integration interval in seconds
- * @return Number of samples per integration window
- */
-inline size_t computeWindowSize(const Dataset& dataset, double intervalSeconds) {
-  const auto& states = dataset.getStates();
-  if (states.size() < 2) {
-    throw std::runtime_error("Dataset must contain at least two state samples.");
-  }
-  const double timestep = states[1].timestamp - states[0].timestamp;
-  if (timestep <= 0.0) {
-    throw std::runtime_error("Dataset timestep must be positive.");
-  }
-  const size_t windowSize = static_cast<size_t>(intervalSeconds / timestep);
-  return std::max<size_t>(windowSize, 1);
-}
-
 }  // namespace gtsam

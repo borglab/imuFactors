@@ -9,13 +9,9 @@
 
 /**
  * @file   evalReducedNeesWithPriorCovariance.cpp
- * @brief  Compare reduced NEES for Quadrature, Manifold, and Tangent IMU preintegration
+ * @brief  Compare normalized NEES for Quadrature, Manifold, and Tangent IMU
+ * preintegration
  */
-
-#include "AppUtils.h"
-#include "Dataset.h"
-#include "NoiseCalibration.h"
-#include "nees.h"
 
 #include <gtsam/base/Vector.h>
 #include <gtsam/inference/Symbol.h>
@@ -31,6 +27,13 @@
 #include <string>
 #include <vector>
 
+#include "AppUtils.h"
+#include "Dataset.h"
+#include "NoiseCalibration.h"
+#include "PIMs.h"
+#include "Window.h"
+#include "nees.h"
+
 using namespace gtsam;
 using namespace std;
 
@@ -45,23 +48,33 @@ using symbol_shorthand::X;
 
 namespace {
 
+// Scale the nominal sensor noise for the prior-aware normalized-NEES
+// comparison.
 constexpr double kAlpha = 3.0;
 constexpr double kSigmaGyro = kAlpha * 1.6968e-4;
 constexpr double kSigmaAcc = kAlpha * 2.0000e-3;
 constexpr double kInitialStateCovariance = 5e-6;
 constexpr double kInitialBiasCovariance = 1e-1;
 
-struct MethodSummary {
-  double reducedNeesMedian = 0.0;
-  double reducedNeesMean = 0.0;
-  double reducedNeesP95 = 0.0;
+// Only the normalized-NEES distribution is reported in this script.
+struct Summary {
+  double normalizedNeesMedian = 0.0;
+  double normalizedNeesMean = 0.0;
+  double normalizedNeesP95 = 0.0;
   size_t sampleCount = 0;
 };
 
-Matrix9 initialNavCovariance() { return Matrix9::Identity() * kInitialStateCovariance; }
+// Model uncertainty in the initial pose, velocity, and rotation state.
+Matrix9 initialNavCovariance() {
+  return Matrix9::Identity() * kInitialStateCovariance;
+}
 
-Matrix6 initialBiasCovariance() { return Matrix6::Identity() * kInitialBiasCovariance; }
+// Model uncertainty in the initial accelerometer and gyro biases.
+Matrix6 initialBiasCovariance() {
+  return Matrix6::Identity() * kInitialBiasCovariance;
+}
 
+// Build the shared IMU noise model used by all three preintegration methods.
 shared_ptr<PreintegrationParams> createPreintegrationParams() {
   auto params = PreintegrationParams::MakeSharedU(9.81);
   params->accelerometerCovariance = I_3x3 * kSigmaAcc * kSigmaAcc;
@@ -70,143 +83,146 @@ shared_ptr<PreintegrationParams> createPreintegrationParams() {
   return params;
 }
 
-optional<double> computeReducedNees(const Vector9& error, const Matrix9& covariance) {
-  const Matrix9 regularizedCovariance = covariance + 1e-12 * Matrix9::Identity();
-  const auto nees = normalizedQuadraticForm(error, regularizedCovariance, 9.0);
-  if (!nees || !std::isfinite(*nees)) {
-    return nullopt;
-  }
-  return *nees;
-}
-
-MethodSummary summarizeReducedNees(const vector<double>& reducedNeesValues) {
-  MethodSummary summary;
-  if (reducedNeesValues.empty()) {
+Summary summarizeNormalizedNees(const vector<double>& normalizedNeesValues) {
+  Summary summary;
+  if (normalizedNeesValues.empty()) {
     return summary;
   }
 
-  summary.sampleCount = reducedNeesValues.size();
-  summary.reducedNeesMean = computeMean(reducedNeesValues);
-  summary.reducedNeesMedian = computeMedian(reducedNeesValues);
-  summary.reducedNeesP95 = computePercentile(reducedNeesValues, 95.0);
+  // Report the normalized-NEES distribution using a few standard summary
+  // statistics.
+  summary.sampleCount = normalizedNeesValues.size();
+  summary.normalizedNeesMean = computeMean(normalizedNeesValues);
+  summary.normalizedNeesMedian = computeMedian(normalizedNeesValues);
+  summary.normalizedNeesP95 = computePercentile(normalizedNeesValues, 95.0);
   return summary;
 }
 
-MethodSummary runQuadratureReducedNees(
-    const Dataset& dataset,
-    double timestep,
-    size_t windowSize,
-    size_t quadratureOrder) {
-  const auto& imuMeasurements = dataset.getImuData();
-  const auto& states = dataset.getStates();
-  const size_t sampleCount = min(states.size(), imuMeasurements.size());
+Vector9 computeQuadratureDeltaForBias(
+    const Window& window, const shared_ptr<PreintegrationParams>& params,
+    size_t quadratureOrder, const imuBias::ConstantBias& bias) {
+  // Convert quadrature's preintegrated state into the 9D residual space used by
+  // NEES.
+  const auto preintegrated =
+      buildPreintegrated<PIMQuadrature>(window, params, bias, quadratureOrder);
 
-  vector<double> reducedNeesValues;
-  const auto params = createPreintegrationParams();
+  Vector9 delta;
+  delta << preintegrated.deltaRij().logmap(Rot3()), preintegrated.deltaPij(),
+      preintegrated.deltaVij();
+  return delta;
+}
 
-  for (size_t startIndex = 0; startIndex + windowSize < sampleCount; startIndex += windowSize) {
-    const size_t endIndex = startIndex + windowSize;
-    const imuBias::ConstantBias initialBias = states[startIndex].bias;
+optional<double> computeQuadratureNormalizedNeesForWindow(
+    const Window& window, const shared_ptr<PreintegrationParams>& params,
+    size_t N) {
+  const imuBias::ConstantBias& initialBias = window.initialTruth().bias;
+  // Start from the nominal quadrature preintegration at the ground-truth bias.
+  auto preintegrated =
+      buildPreintegrated<PIMQuadrature>(window, params, initialBias, N);
 
-    auto buildDeltaForBias = [&](const imuBias::ConstantBias& bias) {
-      PIMQuadrature preintegrated(params, bias, quadratureOrder);
-      for (size_t sampleIndex = startIndex; sampleIndex < endIndex; ++sampleIndex) {
-        preintegrated.integrateMeasurement(
-            imuMeasurements[sampleIndex].acc, imuMeasurements[sampleIndex].omega, timestep);
-      }
-      preintegrated.endPreintegration(preintegrated.deltaTij());
+  // Approximate the bias Jacobian numerically because the quadrature path does
+  // not expose it.
+  constexpr double kBiasPerturbation = 1e-5;
+  Matrix96 biasJacobian;
+  const Vector6 biasVector = initialBias.vector();
+  for (int column = 0; column < 6; ++column) {
+    Vector6 plusBias = biasVector;
+    Vector6 minusBias = biasVector;
+    plusBias(column) += kBiasPerturbation;
+    minusBias(column) -= kBiasPerturbation;
 
-      Vector9 delta;
-      delta << preintegrated.deltaRij().logmap(Rot3()),
-          preintegrated.deltaPij(),
-          preintegrated.deltaVij();
-      return delta;
-    };
-
-    PIMQuadrature preintegrated(params, initialBias, quadratureOrder);
-    for (size_t sampleIndex = startIndex; sampleIndex < endIndex; ++sampleIndex) {
-      preintegrated.integrateMeasurement(
-          imuMeasurements[sampleIndex].acc, imuMeasurements[sampleIndex].omega, timestep);
-    }
-    preintegrated.endPreintegration(preintegrated.deltaTij());
-
-    constexpr double kBiasPerturbation = 1e-5;
-    Matrix96 biasJacobian;
-    const Vector6 biasVector = initialBias.vector();
-    for (int column = 0; column < 6; ++column) {
-      Vector6 plusBias = biasVector;
-      Vector6 minusBias = biasVector;
-      plusBias(column) += kBiasPerturbation;
-      minusBias(column) -= kBiasPerturbation;
-
-      const Vector9 deltaPlus =
-          buildDeltaForBias(imuBias::ConstantBias(plusBias.head<3>(), plusBias.tail<3>()));
-      const Vector9 deltaMinus =
-          buildDeltaForBias(imuBias::ConstantBias(minusBias.head<3>(), minusBias.tail<3>()));
-      biasJacobian.col(column) = (deltaPlus - deltaMinus) / (2.0 * kBiasPerturbation);
-    }
-
-    preintegrated.setInitialCovariance(
-        initialNavCovariance() + biasJacobian * initialBiasCovariance() * biasJacobian.transpose());
-
-    const NavState& stateI = states[startIndex].navState;
-    const NavState& stateJ = states[endIndex].navState;
-    QuadratureImuFactor factor(X(1), V(1), X(2), V(2), B(1), preintegrated);
-    const Vector9 error = factor.evaluateError(
-        stateI.pose(), stateI.velocity(), stateJ.pose(), stateJ.velocity(), initialBias);
-
-    const auto reducedNees = computeReducedNees(error, preintegrated.preintMeasCov());
-    if (reducedNees) {
-      reducedNeesValues.push_back(*reducedNees);
-    }
+    const Vector9 deltaPlus = computeQuadratureDeltaForBias(
+        window, params, N,
+        imuBias::ConstantBias(plusBias.head<3>(), plusBias.tail<3>()));
+    const Vector9 deltaMinus = computeQuadratureDeltaForBias(
+        window, params, N,
+        imuBias::ConstantBias(minusBias.head<3>(), minusBias.tail<3>()));
+    biasJacobian.col(column) =
+        (deltaPlus - deltaMinus) / (2.0 * kBiasPerturbation);
   }
 
-  return summarizeReducedNees(reducedNeesValues);
+  // Fold initial state and bias cov into covariance before scoring NEES.
+  preintegrated.setInitialCovariance(initialNavCovariance() +
+                                     biasJacobian * initialBiasCovariance() *
+                                         biasJacobian.transpose());
+
+  QuadratureImuFactor factor(X(1), V(1), X(2), V(2), B(1), preintegrated);
+  const Vector9 error = factor.evaluateError(
+      window.initialTruth().navState.pose(),
+      window.initialTruth().navState.velocity(),
+      window.terminalTruth().navState.pose(),
+      window.terminalTruth().navState.velocity(), initialBias);
+  const auto normalizedNees =
+      normalizedNEES(error, preintegrated.preintMeasCov(), 9.0);
+  if (!normalizedNees || !std::isfinite(*normalizedNees)) {
+    return nullopt;
+  }
+  return *normalizedNees;
 }
 
 template <class PIMType>
-MethodSummary runStandardReducedNees(const Dataset& dataset, double timestep, size_t windowSize) {
-  const auto& imuMeasurements = dataset.getImuData();
-  const auto& states = dataset.getStates();
-  const size_t sampleCount = min(states.size(), imuMeasurements.size());
+optional<double> computeStandardNormalizedNeesForWindow(
+    const Window& window, const shared_ptr<PreintegrationParams>& params) {
+  const imuBias::ConstantBias& initialBias = window.initialTruth().bias;
+  // Start from the nominal standard preintegration at the ground-truth bias.
+  auto preintegrated = buildPreintegrated<PIMType>(window, params, initialBias);
 
-  vector<double> reducedNeesValues;
+  // Standard preintegration provides the bias Jacobian directly.
+  Matrix96 biasJacobian;
+  preintegrated.biasCorrectedDelta(initialBias, biasJacobian);
+  const Matrix9 totalCovariance =
+      preintegrated.preintMeasCov() + initialNavCovariance() +
+      biasJacobian * initialBiasCovariance() * biasJacobian.transpose();
+  preintegrated.setPreintMeasCov(totalCovariance);
+
+  ImuFactor2T<PIMType> factor(X(1), X(2), B(1), preintegrated);
+  const Vector9 error =
+      factor.evaluateError(window.initialTruth().navState,
+                           window.terminalTruth().navState, initialBias);
+  const auto normalizedNees =
+      normalizedNEES(error, preintegrated.preintMeasCov(), 9.0);
+  if (!normalizedNees || !std::isfinite(*normalizedNees)) {
+    return nullopt;
+  }
+  return *normalizedNees;
+}
+
+Summary runQuadratureNormalizedNees(const vector<Window>& windows,
+                                    size_t quadratureOrder) {
+  vector<double> normalizedNeesValues;
   const auto params = createPreintegrationParams();
 
-  for (size_t startIndex = 0; startIndex + windowSize < sampleCount; startIndex += windowSize) {
-    const size_t endIndex = startIndex + windowSize;
-    const imuBias::ConstantBias initialBias = states[startIndex].bias;
+  // Score each valid window and keep only the normalized-NEES scalar.
+  for (const auto& window : windows) {
+    const auto normalizedNees = computeQuadratureNormalizedNeesForWindow(
+        window, params, quadratureOrder);
+    if (normalizedNees) normalizedNeesValues.push_back(*normalizedNees);
+  }
 
-    PIMType preintegrated(params, initialBias);
-    for (size_t sampleIndex = startIndex; sampleIndex < endIndex; ++sampleIndex) {
-      preintegrated.integrateMeasurement(
-          imuMeasurements[sampleIndex].acc, imuMeasurements[sampleIndex].omega, timestep);
-    }
+  return summarizeNormalizedNees(normalizedNeesValues);
+}
 
-    Matrix96 biasJacobian;
-    preintegrated.biasCorrectedDelta(initialBias, biasJacobian);
-    const Matrix9 totalCovariance =
-        preintegrated.preintMeasCov() + initialNavCovariance() +
-        biasJacobian * initialBiasCovariance() * biasJacobian.transpose();
-    preintegrated.setPreintMeasCov(totalCovariance);
+template <class PIMType>
+Summary runStandardNormalizedNees(const vector<Window>& windows) {
+  vector<double> normalizedNeesValues;
+  const auto params = createPreintegrationParams();
 
-    const NavState& stateI = states[startIndex].navState;
-    const NavState& stateJ = states[endIndex].navState;
-    ImuFactor2T<PIMType> factor(X(1), X(2), B(1), preintegrated);
-    const Vector9 error = factor.evaluateError(stateI, stateJ, initialBias);
-
-    const auto reducedNees = computeReducedNees(error, preintegrated.preintMeasCov());
-    if (reducedNees) {
-      reducedNeesValues.push_back(*reducedNees);
+  // Score each valid window for the chosen standard preintegration method.
+  for (const auto& window : windows) {
+    const auto normalizedNees =
+        computeStandardNormalizedNeesForWindow<PIMType>(window, params);
+    if (normalizedNees) {
+      normalizedNeesValues.push_back(*normalizedNees);
     }
   }
 
-  return summarizeReducedNees(reducedNeesValues);
+  return summarizeNormalizedNees(normalizedNeesValues);
 }
 }  // namespace
 
 int main(int argc, char* argv[]) {
   try {
+    // Resolve the datasets and interval subset requested on the command line.
     const AppCliOptions options = parseDatasetAppCliOptions(argc, argv);
     const vector<pair<string, string>> discoveredDatasets =
         discoverFilteredDatasets(options.dataDirectory, DatasetFilters::all);
@@ -219,40 +235,39 @@ int main(int argc, char* argv[]) {
     }
 
     const vector<double> defaultIntervals = defaultQuadratureIntervals();
-    const vector<double> intervals = selectIntervals(defaultIntervals, options.maxIntervals);
+    const vector<double> intervals =
+        selectIntervals(defaultIntervals, options.maxIntervals);
 
-    cout << "# Quadrature vs Manifold vs Tangent reduced NEES\n";
-    cout << "# alpha=" << kAlpha << " sigma_gyro=" << kSigmaGyro << " sigma_acc=" << kSigmaAcc << "\n\n";
+    // Print a compact one-table summary comparing normalized NEES.
+    cout << "# Quadrature vs Manifold vs Tangent normalized NEES\n";
+    cout << "# alpha=" << kAlpha << " sigma_gyro=" << kSigmaGyro
+         << " sigma_acc=" << kSigmaAcc << "\n\n";
     cout << "| dataset | dt(s) | m | N | Quadrature | Manifold | Tangent |\n";
     cout << "|---|---:|---:|---:|---:|---:|---:|\n";
 
     for (const auto& datasetEntry : datasets) {
-      const string& datasetName = datasetEntry.first;
       const string& datasetPath = datasetEntry.second;
       Dataset dataset(datasetPath);
-
-      const auto& states = dataset.getStates();
-      if (states.size() < 2) {
-        continue;
-      }
-      const double timestep = states[1].timestamp - states[0].timestamp;
+      if (dataset.truth.size() < 2) continue;
+      const string& datasetName = datasetEntry.first;
 
       for (double intervalSeconds : intervals) {
-        const size_t windowSize = computeWindowSize(dataset, intervalSeconds);
-        const size_t quadratureOrder = max<size_t>(
-            3, static_cast<size_t>(floor(sqrt(static_cast<double>(windowSize)))));
+        const size_t m = dataset.stepsForInterval(intervalSeconds);
+        const size_t N = max<size_t>(
+            3, static_cast<size_t>(floor(sqrt(static_cast<double>(m)))));
 
-        const MethodSummary quadrature =
-            runQuadratureReducedNees(dataset, timestep, windowSize, quadratureOrder);
-        const MethodSummary manifold =
-            runStandardReducedNees<PIMManifold>(dataset, timestep, windowSize);
-        const MethodSummary tangent =
-            runStandardReducedNees<PIMTangent>(dataset, timestep, windowSize);
+        // Compare the prior-aware normalized-NEES score across all three
+        // methods.
+        const auto windows = dataset.completeWindows(m);
+        const Summary quadrature = runQuadratureNormalizedNees(windows, N);
+        const Summary manifold = runStandardNormalizedNees<PIMManifold>(windows);
+        const Summary tangent = runStandardNormalizedNees<PIMTangent>(windows);
 
-        cout << "| " << datasetName << " | " << fixed << setprecision(1) << intervalSeconds << " | "
-             << windowSize << " | " << quadratureOrder << " | " << setprecision(3)
-             << quadrature.reducedNeesMedian << " | " << manifold.reducedNeesMedian << " | "
-             << tangent.reducedNeesMedian << " |\n";
+        cout << "| " << datasetName << " | " << fixed << setprecision(1)
+             << intervalSeconds << " | " << m << " | " << N << " | "
+             << setprecision(3) << quadrature.normalizedNeesMedian << " | "
+             << manifold.normalizedNeesMedian << " | "
+             << tangent.normalizedNeesMedian << " |\n";
       }
     }
     return 0;

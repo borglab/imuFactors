@@ -16,15 +16,10 @@
 #include "NEESEvaluator.h"
 #include "NEESResults.h"
 #include "nees.h"
+
 #include <iostream>
 
 namespace gtsam {
-
-// Helper functions ordered "up" - used functions defined before calling functions
-
-bool NEESEvaluator::isValidWindow(int startIdx, int endIdx) const {
-    return endIdx <= dataset_.getStates().size() && endIdx <= dataset_.getImuData().size();
-}
 
 Vector NEESEvaluator::computeError(const NavState& predicted, 
                                  const NavState& actual,
@@ -36,48 +31,18 @@ Vector NEESEvaluator::computeError(const NavState& predicted,
     return error;
 }
 
-std::optional<double> NEESEvaluator::computeNEES(const Vector& error, const Matrix& covMatrix) const {
-    return normalizedQuadraticForm(error, covMatrix, 15.0);
-}
+std::optional<double> NEESEvaluator::calculateWindowNEES(
+    const std::shared_ptr<PreintegrationCombinedParams>& params,
+    const Window& window) const {
+  PreintegratedCombinedMeasurements pim(params, window.initialTruth().bias);
+  window.integrateMeasurements(pim);
 
-std::optional<double> NEESEvaluator::calculateWindowNEES(const std::shared_ptr<PreintegrationCombinedParams>& params,
-                                                       int startIdx, int endIdx, double dt) const {
-    if (!isValidWindow(startIdx, endIdx)) return std::nullopt;
-    
-    const auto& states = dataset_.getStates();
-    const auto& imuData = dataset_.getImuData();
-    
-    PreintegratedCombinedMeasurements pim(params, states[startIdx].bias);
-    
-    for (int k = startIdx; k < endIdx - 1; k++) {
-        pim.integrateMeasurement(imuData[k].acc, imuData[k].omega, dt);
-    }
-    
-    auto predicted = pim.predict(states[startIdx].navState, states[startIdx].bias);
-    auto error = computeError(predicted, states[endIdx - 1].navState,
-                            states[startIdx].bias, states[endIdx - 1].bias);
-    return computeNEES(error, pim.preintMeasCov());
-}
-
-std::vector<double> NEESEvaluator::processTimeWindow(const std::shared_ptr<PreintegrationCombinedParams>& params,
-                                                   int windowCount, int windowSize, double dt) const {
-    std::vector<double> neesResults;
-    for (int m = 0; m < windowCount; m++) {
-        auto nees = calculateWindowNEES(params, m*windowSize, 
-                                      std::min((m+1)*windowSize, (int)dataset_.getStates().size()), dt);
-        if (nees) neesResults.push_back(*nees);
-    }
-    return neesResults;
-}
-
-NEESResults NEESEvaluator::processTimeWindow(const std::shared_ptr<PreintegrationCombinedParams>& params,
-                                             double preintTime, double dt) const {
-    const auto& states = dataset_.getStates();
-    double totalTime = states.back().timestamp - states.front().timestamp;
-    int windowCount = static_cast<int>(totalTime / preintTime);
-    int windowSize = static_cast<int>(states.size() / windowCount);
-    auto neesValues = processTimeWindow(params, windowCount, windowSize, dt);
-    return computeStatistics(neesValues, preintTime);
+  const auto predicted =
+      pim.predict(window.initialTruth().navState, window.initialTruth().bias);
+  const auto error = computeError(predicted, window.terminalTruth().navState,
+                                  window.initialTruth().bias,
+                                  window.terminalTruth().bias);
+  return normalizedNEES(error, pim.preintMeasCov(), 15.0);
 }
 
 NEESResults NEESEvaluator::computeStatistics(const std::vector<double>& neesResults, double preintTime) {
@@ -101,10 +66,18 @@ NEESResults NEESEvaluator::computeStatistics(const std::vector<double>& neesResu
 }
 
 NEESResults NEESEvaluator::run(double interval, double alpha) const {
-    // Get configured IMU parameters from the dataset
-    auto params = dataset_.configureImuParams(alpha);
-    double dt = dataset_.getStates()[1].timestamp - dataset_.getStates()[0].timestamp;
-    return processTimeWindow(params, interval, dt);
+  auto params = dataset_.configureImuParams(alpha);
+  const auto windows = dataset_.completeWindowsForInterval(interval);
+
+  std::vector<double> neesResults;
+  neesResults.reserve(windows.size());
+  for (const auto& window : windows) {
+    auto nees = calculateWindowNEES(params, window);
+    if (nees) {
+      neesResults.push_back(*nees);
+    }
+  }
+  return computeStatistics(neesResults, interval);
 }
 
 } // namespace gtsam
