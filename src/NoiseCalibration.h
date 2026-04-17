@@ -15,8 +15,8 @@
 
 #pragma once
 
+#include "AppUtils.h"
 #include "EKFNEESEvaluator.h"
-#include "Dataset.h"
 #include <iostream>
 #include <iomanip>
 #include <fstream>
@@ -24,8 +24,6 @@
 #include <vector>
 #include <algorithm>
 #include <map>
-#include <filesystem>
-#include <functional>
 
 namespace gtsam {
 
@@ -56,59 +54,6 @@ inline void computeMetrics(NoiseTrialResult& result) {
     }
     result.meanNees = sum / result.datasetNees.size();
     result.sumDeviations = sumDev;
-}
-
-/// Dataset filter predicate type
-using DatasetFilter = std::function<bool(const std::string&)>;
-
-/// Predefined dataset filters
-namespace DatasetFilters {
-    /// Filter for Machine Hall datasets (MH-series)
-    inline bool machineHall(const std::string& name) {
-        return name.find("MH") == 0;
-    }
-    
-    /// Filter for Vicon Room datasets (V-series)
-    inline bool viconRoom(const std::string& name) {
-        return name.find("V") == 0;
-    }
-    
-    /// Filter that accepts all datasets
-    inline bool all(const std::string&) {
-        return true;
-    }
-}
-
-/// Discover datasets matching a filter predicate
-inline std::vector<std::pair<std::string, std::string>> discoverFilteredDatasets(
-    const std::string& dataDirectory, 
-    DatasetFilter filter) {
-    
-    namespace fs = std::filesystem;
-    std::vector<std::pair<std::string, std::string>> datasets;
-    
-    if (!fs::exists(dataDirectory)) {
-        std::cerr << "❌ Data directory not found: " << dataDirectory << std::endl;
-        return datasets;
-    }
-    
-    for (const auto& entry : fs::directory_iterator(dataDirectory)) {
-        if (entry.is_regular_file() && entry.path().extension() == ".csv") {
-            std::string filename = entry.path().filename().string();
-            if (filename.find("euroc_") == 0) {
-                std::string name = filename.substr(6);
-                name = name.substr(0, name.find(".csv"));
-                
-                // Apply filter
-                if (filter(name)) {
-                    datasets.push_back({name, entry.path().string()});
-                }
-            }
-        }
-    }
-    
-    std::sort(datasets.begin(), datasets.end());
-    return datasets;
 }
 
 /// Run calibration with custom dataset filter and study name

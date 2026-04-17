@@ -14,10 +14,8 @@
  */
 
 #include <gtsam/base/Vector.h>
-#include <gtsam/inference/Symbol.h>
 #include <gtsam/navigation/ImuFactor.h>
 #include <gtsam/navigation/ManifoldPreintegration.h>
-#include <gtsam/navigation/QuadratureImuFactor.h>
 #include <gtsam/navigation/TangentPreintegration.h>
 
 #include <cmath>
@@ -38,13 +36,8 @@ using namespace gtsam;
 using namespace std;
 
 using PIMQuadrature = PreintegratedImuMeasurementsQ;
-using QuadratureImuFactor = ImuFactorT<PreintegratedImuMeasurementsQ>;
 using PIMTangent = PreintegratedImuMeasurementsT<TangentPreintegration>;
 using PIMManifold = PreintegratedImuMeasurementsT<ManifoldPreintegration>;
-
-using symbol_shorthand::B;
-using symbol_shorthand::V;
-using symbol_shorthand::X;
 
 namespace {
 
@@ -74,22 +67,11 @@ struct Summary {
   size_t nodeCount = 0;
 };
 
-// Raw per-window measurements before they are collapsed into medians.
-struct MethodSample {
-  double normalizedNees = 0.0;
-  double rotErrorNorm = 0.0;
-  double rotPredSigma = 0.0;
-  double posErrorNorm = 0.0;
-  double posPredSigma = 0.0;
-  double velErrorNorm = 0.0;
-  double velPredSigma = 0.0;
-};
-
 // Hold all samples for one method and summarize them in one place.
 struct MethodSamples {
-  vector<MethodSample> values;
+  vector<WindowResult> values;
 
-  void append(const MethodSample& sample) { values.push_back(sample); }
+  void append(const WindowResult& sample) { values.push_back(sample); }
 
   Summary summarize(size_t nodeCount = 0) const;
 };
@@ -111,12 +93,6 @@ shared_ptr<PreintegrationParams> createPreintegrationParams() {
   params->gyroscopeCovariance = I_3x3 * kSigmaGyro * kSigmaGyro;
   params->integrationCovariance = I_3x3 * 1e-8;
   return params;
-}
-
-double covarianceBlockSigma(const Matrix9& covariance, int blockStart) {
-  // Convert a 3x3 covariance block into a scalar sigma proxy via RMS variance.
-  return std::sqrt(std::max(
-      0.0, covariance.block<3, 3>(blockStart, blockStart).trace() / 3.0));
 }
 
 NeesStats summarizeNormalizedNees(const vector<double>& normalizedNeesValues) {
@@ -152,82 +128,22 @@ Summary MethodSamples::summarize(size_t nodeCount) const {
   };
 
   const vector<double> normalizedNeesValues =
-      project(&MethodSample::normalizedNees);
+      project(&WindowResult::normalizedNees);
   summary.nees = summarizeNormalizedNees(normalizedNeesValues);
   summary.rotErrorMedian =
-      summarizeMedian(project(&MethodSample::rotErrorNorm));
+      summarizeMedian(project(&WindowResult::rotErrorNorm));
   summary.rotPredSigmaMedian =
-      summarizeMedian(project(&MethodSample::rotPredSigma));
+      summarizeMedian(project(&WindowResult::rotPredSigma));
   summary.posErrorMedian =
-      summarizeMedian(project(&MethodSample::posErrorNorm));
+      summarizeMedian(project(&WindowResult::posErrorNorm));
   summary.posPredSigmaMedian =
-      summarizeMedian(project(&MethodSample::posPredSigma));
+      summarizeMedian(project(&WindowResult::posPredSigma));
   summary.velErrorMedian =
-      summarizeMedian(project(&MethodSample::velErrorNorm));
+      summarizeMedian(project(&WindowResult::velErrorNorm));
   summary.velPredSigmaMedian =
-      summarizeMedian(project(&MethodSample::velPredSigma));
+      summarizeMedian(project(&WindowResult::velPredSigma));
   summary.samples = summary.nees.samples;
   return summary;
-}
-
-MethodSample makeMethodSample(const Vector9& error, const Matrix9& covariance,
-                              double normalizedNees) {
-  MethodSample sample;
-  sample.normalizedNees = normalizedNees;
-  sample.rotErrorNorm = error.head<3>().norm();
-  sample.rotPredSigma = covarianceBlockSigma(covariance, 0);
-  sample.posErrorNorm = error.segment<3>(3).norm();
-  sample.posPredSigma = covarianceBlockSigma(covariance, 3);
-  sample.velErrorNorm = error.tail<3>().norm();
-  sample.velPredSigma = covarianceBlockSigma(covariance, 6);
-  return sample;
-}
-
-optional<MethodSample> analyzeQuadratureWindow(
-    const Window& window, const shared_ptr<PreintegrationParams>& params,
-    size_t N) {
-  // Run quadrature preintegration on one window and close the integration
-  // interval.
-  const PIMQuadrature preintegrated = buildPreintegrated<PIMQuadrature>(
-      window, params, window.initialTruth().bias, N);
-
-  // Evaluate the factor at ground truth to get the residual and predicted
-  // covariance.
-  const Matrix9 covariance = preintegrated.preintMeasCov();
-  QuadratureImuFactor factor(X(1), V(1), X(2), V(2), B(1), preintegrated);
-  const Vector9 error = factor.evaluateError(
-      window.initialTruth().navState.pose(),
-      window.initialTruth().navState.velocity(),
-      window.terminalTruth().navState.pose(),
-      window.terminalTruth().navState.velocity(), window.initialTruth().bias);
-
-  const auto normalizedNees = normalizedNEES(error, covariance, 9.0);
-  if (!normalizedNees || !std::isfinite(*normalizedNees)) {
-    return nullopt;
-  }
-  return makeMethodSample(error, covariance, *normalizedNees);
-}
-
-template <class PIMType>
-optional<MethodSample> analyzeStandardWindow(
-    const Window& window, const shared_ptr<PreintegrationParams>& params) {
-  // Run the standard manifold or tangent preintegration on one window.
-  const PIMType preintegrated =
-      buildPreintegrated<PIMType>(window, params, window.initialTruth().bias);
-
-  // The standard factor exposes the same 9D residual, so we summarize it
-  // identically.
-  ImuFactor2T<PIMType> factor(X(1), X(2), B(1), preintegrated);
-  const Vector9 error = factor.evaluateError(window.initialTruth().navState,
-                                             window.terminalTruth().navState,
-                                             window.initialTruth().bias);
-  const Matrix9 covariance = preintegrated.preintMeasCov();
-
-  const auto normalizedNees = normalizedNEES(error, covariance, 9.0);
-  if (!normalizedNees || !std::isfinite(*normalizedNees)) {
-    return nullopt;
-  }
-  return makeMethodSample(error, covariance, *normalizedNees);
 }
 
 Summary runQuadratureNees(const vector<Window>& windows,
@@ -237,8 +153,8 @@ Summary runQuadratureNees(const vector<Window>& windows,
 
   // Accumulate one sample per valid window for the quadrature method.
   for (const auto& window : windows) {
-    const auto sample =
-        analyzeQuadratureWindow(window, params, quadratureNodes);
+    const auto sample = evaluateWindow<PIMQuadrature>(
+        window, params, std::nullopt, quadratureNodes);
     if (sample) samples.append(*sample);
   }
 
@@ -252,65 +168,72 @@ Summary runStandardNees(const vector<Window>& windows) {
 
   // Accumulate one sample per valid window for the chosen standard method.
   for (const auto& window : windows) {
-    const auto sample = analyzeStandardWindow<PIMType>(window, params);
+    const auto sample = evaluateWindow<PIMType>(window, params);
     if (sample) samples.append(*sample);
   }
 
   return samples.summarize();
 }
 
-}  // namespace
+struct AppOptions {
+  size_t maxIntervals = 0;
+};
 
-int main(int argc, char* argv[]) {
-  try {
-    // Resolve the datasets and interval subset requested on the command line.
-    const AppCliOptions options = parseDatasetAppCliOptions(argc, argv);
-    const vector<pair<string, string>> discoveredDatasets =
-        discoverFilteredDatasets(options.dataDirectory, DatasetFilters::all);
-    const vector<pair<string, string>> datasets =
-        selectDatasets(discoveredDatasets, options.datasetName);
+void printUsage(const char* programName) {
+  cout << "Usage: " << programName
+       << " [--data-dir <path>] [--dataset <name>] [--max-intervals <count>]\n";
+  cout << "  --data-dir <path>       Dataset directory (default: "
+          "../data/euroc/)\n";
+  cout << "  --dataset <name>        Restrict to one dataset (e.g. MH01 or "
+          "euroc_MH01.csv)\n";
+  cout << "  --max-intervals <count> Restrict to first N default intervals\n";
+}
 
-    if (datasets.empty()) {
-      cerr << "No datasets found in " << options.dataDirectory << "\n";
-      return 1;
+AppOptions parseAppArguments(const vector<string>& arguments,
+                             const char* programName) {
+  for (const string& argument : arguments) {
+    if (isHelpArgument(argument)) {
+      printUsage(programName);
+      std::exit(0);
     }
+  }
+  return {parseMaxIntervalsArgument(arguments)};
+}
 
-    const vector<double> defaultIntervals = defaultQuadratureIntervals();
-    const vector<double> intervals =
-        selectIntervals(defaultIntervals, options.maxIntervals);
+struct RunForDataset {
+  explicit RunForDataset(const AppOptions& options)
+      : intervals(selectIntervals(defaultQuadratureIntervals(),
+                                  options.maxIntervals)) {}
 
-    // Evaluate all requested datasets and window lengths.
-    vector<Row> rows;
-    for (const auto& datasetEntry : datasets) {
-      const string& datasetPath = datasetEntry.second;
-      Dataset dataset(datasetPath);
-      if (dataset.truth.size() < 2) continue;
-      const string& datasetName = datasetEntry.first;
+  vector<double> intervals;
+  vector<Row> rows;
 
-      for (double intervalSeconds : intervals) {
-        const size_t m = dataset.stepsForInterval(intervalSeconds);
-        const size_t N = max<size_t>(
-            3, static_cast<size_t>(floor(sqrt(static_cast<double>(m)))));
+  void operator()(const string& datasetName, const Dataset& dataset) {
+    for (double intervalSeconds : intervals) {
+      const size_t m = dataset.stepsForInterval(intervalSeconds);
+      const size_t N = max<size_t>(
+          3, static_cast<size_t>(floor(sqrt(static_cast<double>(m)))));
 
-        // Compare quadrature against the two standard preintegration variants.
-        Row row;
-        row.dataset = datasetName;
-        row.interval = intervalSeconds;
-        row.samplesPerWindow = m;
-        row.quadratureNodes = N;
-        const auto windows = dataset.completeWindows(m);
-        row.quadrature = runQuadratureNees(windows, N);
-        row.manifold = runStandardNees<PIMManifold>(windows);
-        row.tangent = runStandardNees<PIMTangent>(windows);
-        rows.push_back(row);
+      // Compare quadrature against the two standard preintegration variants.
+      Row row;
+      row.dataset = datasetName;
+      row.interval = intervalSeconds;
+      row.samplesPerWindow = m;
+      row.quadratureNodes = N;
+      const auto windows = dataset.completeWindows(m);
+      row.quadrature = runQuadratureNees(windows, N);
+      row.manifold = runStandardNees<PIMManifold>(windows);
+      row.tangent = runStandardNees<PIMTangent>(windows);
+      rows.push_back(row);
 
-        cout << "[done] " << datasetName << " dt=" << fixed << setprecision(1)
-             << intervalSeconds << "s m=" << m << " N=" << N
-             << " NEES_median=" << setprecision(3) << row.quadrature.nees.median
-             << "\n";
-      }
+      cout << "[done] " << datasetName << " dt=" << fixed << setprecision(1)
+           << intervalSeconds << "s m=" << m << " N=" << N
+           << " NEES_median=" << setprecision(3) << row.quadrature.nees.median
+           << "\n";
     }
+  }
 
+  void report() const {
     // Table 1 is the direct normalized-NEES comparison across the three
     // methods.
     cout << "\n## Table 1: Normalized NEES Median (full 9-DOF)\n\n";
@@ -424,10 +347,21 @@ int main(int argc, char* argv[]) {
            << tPos / sampleCount << " | " << qVel / sampleCount << " | "
            << mVel / sampleCount << " | " << tVel / sampleCount << " |\n";
     }
-
-    return 0;
-  } catch (const exception& error) {
-    cerr << "Error: " << error.what() << "\n";
-    return 1;
   }
+};
+
+}  // namespace
+
+int main(int argc, char* argv[]) {
+  const auto datasetCli = resolveDatasetAppCli(argc, argv);
+  const AppOptions appOptions =
+      parseAppArguments(datasetCli.remainingArgs, argv[0]);
+
+  RunForDataset runner(appOptions);
+  const int status = runForDatasets(datasetCli, runner);
+  if (status != 0) {
+    return status;
+  }
+  runner.report();
+  return 0;
 }
