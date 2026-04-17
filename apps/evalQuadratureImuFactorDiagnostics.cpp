@@ -9,14 +9,9 @@
 
 /**
  * @file   evalQuadratureImuFactorDiagnostics.cpp
- * @brief  Minimal NEES and error analysis for Quadrature, Manifold, and Tangent IMU preintegration
+ * @brief  Minimal NEES and error analysis for Quadrature, Manifold, and Tangent
+ * IMU preintegration
  */
-
-#include "AppUtils.h"
-#include "Dataset.h"
-#include "NoiseCalibration.h"
-#include "Window.h"
-#include "nees.h"
 
 #include <gtsam/base/Vector.h>
 #include <gtsam/inference/Symbol.h>
@@ -31,6 +26,12 @@
 #include <optional>
 #include <string>
 #include <vector>
+
+#include "AppUtils.h"
+#include "Dataset.h"
+#include "NoiseCalibration.h"
+#include "Window.h"
+#include "nees.h"
 
 using namespace gtsam;
 using namespace std;
@@ -79,6 +80,14 @@ struct MethodSample {
   double velPredSigma = 0.0;
 };
 
+struct MethodSamples {
+  vector<MethodSample> values;
+
+  void append(const MethodSample& sample) { values.push_back(sample); }
+
+  MethodSummary summarize(size_t nodeCount = 0) const;
+};
+
 struct Row {
   string dataset;
   double interval = 0.0;
@@ -97,8 +106,10 @@ shared_ptr<PreintegrationParams> createPreintegrationParams() {
   return params;
 }
 
-optional<double> computeReducedNees(const Vector9& error, const Matrix9& covariance) {
-  const Matrix9 regularizedCovariance = covariance + 1e-12 * Matrix9::Identity();
+optional<double> computeReducedNees(const Vector9& error,
+                                    const Matrix9& covariance) {
+  const Matrix9 regularizedCovariance =
+      covariance + 1e-12 * Matrix9::Identity();
   const auto value = normalizedQuadraticForm(error, regularizedCovariance, 9.0);
   if (!value || !std::isfinite(*value)) {
     return nullopt;
@@ -107,7 +118,8 @@ optional<double> computeReducedNees(const Vector9& error, const Matrix9& covaria
 }
 
 double covarianceBlockSigma(const Matrix9& covariance, int blockStart) {
-  return std::sqrt(std::max(0.0, covariance.block<3, 3>(blockStart, blockStart).trace() / 3.0));
+  return std::sqrt(std::max(
+      0.0, covariance.block<3, 3>(blockStart, blockStart).trace() / 3.0));
 }
 
 NeesStats summarizeNees(const vector<double>& reducedNeesValues) {
@@ -122,9 +134,43 @@ NeesStats summarizeNees(const vector<double>& reducedNeesValues) {
   return stats;
 }
 
-double summarizeMedian(const vector<double>& values) { return computeMedian(values); }
+double summarizeMedian(const vector<double>& values) {
+  return computeMedian(values);
+}
 
-MethodSample makeMethodSample(const Vector9& error, const Matrix9& covariance, double reducedNees) {
+MethodSummary MethodSamples::summarize(size_t nodeCount) const {
+  MethodSummary summary;
+  summary.nodeCount = nodeCount;
+
+  const auto project = [this](auto member) {
+    vector<double> projectedValues;
+    projectedValues.reserve(values.size());
+    for (const auto& sample : values) {
+      projectedValues.push_back(sample.*member);
+    }
+    return projectedValues;
+  };
+
+  const vector<double> reducedNeesValues = project(&MethodSample::reducedNees);
+  summary.nees = summarizeNees(reducedNeesValues);
+  summary.rotErrorMedian =
+      summarizeMedian(project(&MethodSample::rotErrorNorm));
+  summary.rotPredSigmaMedian =
+      summarizeMedian(project(&MethodSample::rotPredSigma));
+  summary.posErrorMedian =
+      summarizeMedian(project(&MethodSample::posErrorNorm));
+  summary.posPredSigmaMedian =
+      summarizeMedian(project(&MethodSample::posPredSigma));
+  summary.velErrorMedian =
+      summarizeMedian(project(&MethodSample::velErrorNorm));
+  summary.velPredSigmaMedian =
+      summarizeMedian(project(&MethodSample::velPredSigma));
+  summary.samples = summary.nees.samples;
+  return summary;
+}
+
+MethodSample makeMethodSample(const Vector9& error, const Matrix9& covariance,
+                              double reducedNees) {
   MethodSample sample;
   sample.reducedNees = reducedNees;
   sample.rotErrorNorm = error.head<3>().norm();
@@ -136,29 +182,11 @@ MethodSample makeMethodSample(const Vector9& error, const Matrix9& covariance, d
   return sample;
 }
 
-void appendMethodSample(
-    const MethodSample& sample,
-    vector<double>& reducedNeesValues,
-    vector<double>& rotErrorNorms,
-    vector<double>& rotPredSigmas,
-    vector<double>& posErrorNorms,
-    vector<double>& posPredSigmas,
-    vector<double>& velErrorNorms,
-    vector<double>& velPredSigmas) {
-  reducedNeesValues.push_back(sample.reducedNees);
-  rotErrorNorms.push_back(sample.rotErrorNorm);
-  rotPredSigmas.push_back(sample.rotPredSigma);
-  posErrorNorms.push_back(sample.posErrorNorm);
-  posPredSigmas.push_back(sample.posPredSigma);
-  velErrorNorms.push_back(sample.velErrorNorm);
-  velPredSigmas.push_back(sample.velPredSigma);
-}
-
 optional<MethodSample> analyzeQuadratureWindow(
-    const Window& window,
-    const shared_ptr<PreintegrationParams>& params,
+    const Window& window, const shared_ptr<PreintegrationParams>& params,
     size_t quadratureNodes) {
-  PIMQuadrature preintegrated(params, window.initialTruth().bias, quadratureNodes);
+  PIMQuadrature preintegrated(params, window.initialTruth().bias,
+                              quadratureNodes);
   window.integrateMeasurements(preintegrated);
   preintegrated.endPreintegration(preintegrated.deltaTij());
 
@@ -196,49 +224,26 @@ optional<MethodSample> analyzeStandardWindow(
   return makeMethodSample(error, covariance, *reducedNees);
 }
 
-MethodSummary runQuadratureNees(const vector<Window>& windows, size_t quadratureNodes) {
-
-  MethodSummary summary;
-  summary.nodeCount = quadratureNodes;
-  vector<double> reducedNeesValues;
-  vector<double> rotErrorNorms;
-  vector<double> rotPredSigmas;
-  vector<double> posErrorNorms;
-  vector<double> posPredSigmas;
-  vector<double> velErrorNorms;
-  vector<double> velPredSigmas;
+MethodSummary runQuadratureNees(const vector<Window>& windows,
+                                size_t quadratureNodes) {
+  MethodSamples samples;
   const auto params = createPreintegrationParams();
 
   for (const auto& window : windows) {
-    const auto sample = analyzeQuadratureWindow(window, params, quadratureNodes);
+    const auto sample =
+        analyzeQuadratureWindow(window, params, quadratureNodes);
     if (!sample) {
       continue;
     }
-    appendMethodSample(*sample, reducedNeesValues, rotErrorNorms, rotPredSigmas,
-                       posErrorNorms, posPredSigmas, velErrorNorms, velPredSigmas);
+    samples.append(*sample);
   }
 
-  summary.nees = summarizeNees(reducedNeesValues);
-  summary.rotErrorMedian = summarizeMedian(rotErrorNorms);
-  summary.rotPredSigmaMedian = summarizeMedian(rotPredSigmas);
-  summary.posErrorMedian = summarizeMedian(posErrorNorms);
-  summary.posPredSigmaMedian = summarizeMedian(posPredSigmas);
-  summary.velErrorMedian = summarizeMedian(velErrorNorms);
-  summary.velPredSigmaMedian = summarizeMedian(velPredSigmas);
-  summary.samples = summary.nees.samples;
-  return summary;
+  return samples.summarize(quadratureNodes);
 }
 
 template <class PIMType>
 MethodSummary runStandardNees(const vector<Window>& windows) {
-  MethodSummary summary;
-  vector<double> reducedNeesValues;
-  vector<double> rotErrorNorms;
-  vector<double> rotPredSigmas;
-  vector<double> posErrorNorms;
-  vector<double> posPredSigmas;
-  vector<double> velErrorNorms;
-  vector<double> velPredSigmas;
+  MethodSamples samples;
   const auto params = createPreintegrationParams();
 
   for (const auto& window : windows) {
@@ -246,19 +251,10 @@ MethodSummary runStandardNees(const vector<Window>& windows) {
     if (!sample) {
       continue;
     }
-    appendMethodSample(*sample, reducedNeesValues, rotErrorNorms, rotPredSigmas,
-                       posErrorNorms, posPredSigmas, velErrorNorms, velPredSigmas);
+    samples.append(*sample);
   }
 
-  summary.nees = summarizeNees(reducedNeesValues);
-  summary.rotErrorMedian = summarizeMedian(rotErrorNorms);
-  summary.rotPredSigmaMedian = summarizeMedian(rotPredSigmas);
-  summary.posErrorMedian = summarizeMedian(posErrorNorms);
-  summary.posPredSigmaMedian = summarizeMedian(posPredSigmas);
-  summary.velErrorMedian = summarizeMedian(velErrorNorms);
-  summary.velPredSigmaMedian = summarizeMedian(velPredSigmas);
-  summary.samples = summary.nees.samples;
-  return summary;
+  return samples.summarize();
 }
 
 }  // namespace
@@ -277,7 +273,8 @@ int main(int argc, char* argv[]) {
     }
 
     const vector<double> defaultIntervals = defaultQuadratureIntervals();
-    const vector<double> intervals = selectIntervals(defaultIntervals, options.maxIntervals);
+    const vector<double> intervals =
+        selectIntervals(defaultIntervals, options.maxIntervals);
 
     vector<Row> rows;
     for (const auto& datasetEntry : datasets) {
@@ -288,10 +285,12 @@ int main(int argc, char* argv[]) {
         continue;
       }
       for (double intervalSeconds : intervals) {
-        const size_t samplesPerWindow = dataset.stepsForInterval(intervalSeconds);
+        const size_t samplesPerWindow =
+            dataset.stepsForInterval(intervalSeconds);
         const auto windows = dataset.completeWindows(samplesPerWindow);
         const size_t quadratureNodes = max<size_t>(
-            3, static_cast<size_t>(floor(sqrt(static_cast<double>(samplesPerWindow)))));
+            3, static_cast<size_t>(
+                   floor(sqrt(static_cast<double>(samplesPerWindow)))));
 
         Row row;
         row.dataset = datasetName;
@@ -303,9 +302,10 @@ int main(int argc, char* argv[]) {
         row.tangent = runStandardNees<PIMTangent>(windows);
         rows.push_back(row);
 
-        cout << "[done] " << datasetName << " dt=" << fixed << setprecision(1) << intervalSeconds
-             << "s m=" << samplesPerWindow << " N=" << quadratureNodes
-             << " NEES_median=" << setprecision(3) << row.quadrature.nees.median << "\n";
+        cout << "[done] " << datasetName << " dt=" << fixed << setprecision(1)
+             << intervalSeconds << "s m=" << samplesPerWindow
+             << " N=" << quadratureNodes << " NEES_median=" << setprecision(3)
+             << row.quadrature.nees.median << "\n";
       }
     }
 
@@ -313,10 +313,11 @@ int main(int argc, char* argv[]) {
     cout << "| dataset | dt(s) | m | N | quad | manifold | tangent |\n";
     cout << "|---|---:|---:|---:|---:|---:|---:|\n";
     for (const auto& row : rows) {
-      cout << "| " << row.dataset << " | " << fixed << setprecision(1) << row.interval << " | "
-           << row.samplesPerWindow << " | " << row.quadratureNodes << " | " << setprecision(3)
-           << row.quadrature.nees.median << " | " << row.manifold.nees.median << " | "
-           << row.tangent.nees.median << " |\n";
+      cout << "| " << row.dataset << " | " << fixed << setprecision(1)
+           << row.interval << " | " << row.samplesPerWindow << " | "
+           << row.quadratureNodes << " | " << setprecision(3)
+           << row.quadrature.nees.median << " | " << row.manifold.nees.median
+           << " | " << row.tangent.nees.median << " |\n";
     }
 
     cout << "\n## Table 1b: Quad Error vs Predicted Sigma (median)\n\n";
@@ -325,13 +326,16 @@ int main(int argc, char* argv[]) {
     cout << "|---|---:|---:|---:|---:"
          << "|---:|---:|---:|---:|---:|---:|\n";
     for (const auto& row : rows) {
-      cout << "| " << row.dataset << " | " << fixed << setprecision(1) << row.interval << " | "
-           << row.samplesPerWindow << " | " << row.quadratureNodes << " | " << setprecision(3)
+      cout << "| " << row.dataset << " | " << fixed << setprecision(1)
+           << row.interval << " | " << row.samplesPerWindow << " | "
+           << row.quadratureNodes << " | " << setprecision(3)
            << row.quadrature.nees.median << " | " << setprecision(6)
-           << row.quadrature.rotErrorMedian << " | " << row.quadrature.rotPredSigmaMedian << " | "
-           << row.quadrature.posErrorMedian << " | " << row.quadrature.posPredSigmaMedian << " | "
-           << row.quadrature.velErrorMedian << " | " << row.quadrature.velPredSigmaMedian
-           << " |\n";
+           << row.quadrature.rotErrorMedian << " | "
+           << row.quadrature.rotPredSigmaMedian << " | "
+           << row.quadrature.posErrorMedian << " | "
+           << row.quadrature.posPredSigmaMedian << " | "
+           << row.quadrature.velErrorMedian << " | "
+           << row.quadrature.velPredSigmaMedian << " |\n";
     }
 
     cout << "\n## Table 2: Median Errors per Dataset\n\n";
@@ -344,13 +348,16 @@ int main(int argc, char* argv[]) {
          << "|---:|---:|---:"
          << "|---:|---:|---:|\n";
     for (const auto& row : rows) {
-      cout << "| " << row.dataset << " | " << fixed << setprecision(1) << row.interval << " | "
-           << row.samplesPerWindow << " | " << row.quadratureNodes << " | " << setprecision(4)
-           << row.quadrature.rotErrorMedian << " | " << row.manifold.rotErrorMedian << " | "
-           << row.tangent.rotErrorMedian << " | " << row.quadrature.posErrorMedian << " | "
-           << row.manifold.posErrorMedian << " | " << row.tangent.posErrorMedian << " | "
-           << row.quadrature.velErrorMedian << " | " << row.manifold.velErrorMedian << " | "
-           << row.tangent.velErrorMedian << " |\n";
+      cout << "| " << row.dataset << " | " << fixed << setprecision(1)
+           << row.interval << " | " << row.samplesPerWindow << " | "
+           << row.quadratureNodes << " | " << setprecision(4)
+           << row.quadrature.rotErrorMedian << " | "
+           << row.manifold.rotErrorMedian << " | " << row.tangent.rotErrorMedian
+           << " | " << row.quadrature.posErrorMedian << " | "
+           << row.manifold.posErrorMedian << " | " << row.tangent.posErrorMedian
+           << " | " << row.quadrature.velErrorMedian << " | "
+           << row.manifold.velErrorMedian << " | " << row.tangent.velErrorMedian
+           << " |\n";
     }
 
     cout << "\n## Table 3: Aggregated Mean-of-Median Errors\n\n";
@@ -398,12 +405,13 @@ int main(int argc, char* argv[]) {
         continue;
       }
       const double sampleCount = static_cast<double>(count);
-      cout << "| " << fixed << setprecision(1) << intervalSeconds << " | " << samplesPerWindow << " | "
-           << quadratureNodes << " | " << setprecision(4) << qRot / sampleCount << " | "
-           << mRot / sampleCount << " | " << tRot / sampleCount << " | " << qPos / sampleCount
-           << " | " << mPos / sampleCount << " | " << tPos / sampleCount << " | "
-           << qVel / sampleCount << " | " << mVel / sampleCount << " | " << tVel / sampleCount
-           << " |\n";
+      cout << "| " << fixed << setprecision(1) << intervalSeconds << " | "
+           << samplesPerWindow << " | " << quadratureNodes << " | "
+           << setprecision(4) << qRot / sampleCount << " | "
+           << mRot / sampleCount << " | " << tRot / sampleCount << " | "
+           << qPos / sampleCount << " | " << mPos / sampleCount << " | "
+           << tPos / sampleCount << " | " << qVel / sampleCount << " | "
+           << mVel / sampleCount << " | " << tVel / sampleCount << " |\n";
     }
 
     return 0;
