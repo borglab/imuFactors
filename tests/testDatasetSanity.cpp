@@ -86,12 +86,6 @@ TEST(Dataset, CompleteWindowsForInterval) {
   EXPECT(!windows.empty());
   EXPECT(windows.front().start == 0);
   EXPECT(windows.front().end == 40);
-  EXPECT(std::abs(windows.front().startTime() - truth[0].timestamp) < 1e-12);
-  EXPECT(std::abs(windows.front().endTime() - truth[40].timestamp) < 1e-12);
-  EXPECT(windows.front().stepCount() == 40);
-  EXPECT(std::abs(windows.front().duration() -
-                  (truth[40].timestamp - truth[0].timestamp)) < 1e-12);
-  EXPECT(std::abs(windows.front().timestep() - dataset.timestep()) < 1e-12);
   EXPECT(&windows.front().initialTruth() == &truth[0]);
   EXPECT(&windows.front().terminalTruth() == &truth[40]);
   EXPECT(&windows.front().initialTruth().navState == &truth[0].navState);
@@ -122,7 +116,7 @@ TEST(Dataset, WindowMeasurementTraversal) {
   size_t visitedSamples = 0;
   const Dataset::ImuMeasurement* firstMeasurement = nullptr;
   const Dataset::ImuMeasurement* lastMeasurement = nullptr;
-  window.forEachImuMeasurement([&](const Dataset::ImuMeasurement& measurement) {
+  window.forEachImuSample([&](const Dataset::ImuMeasurement& measurement) {
     if (visitedSamples == 0) {
       firstMeasurement = &measurement;
     }
@@ -130,13 +124,13 @@ TEST(Dataset, WindowMeasurementTraversal) {
     ++visitedSamples;
   });
 
-  EXPECT(visitedSamples == window.stepCount());
+  EXPECT(visitedSamples == window.end - window.start);
   EXPECT(firstMeasurement == &imu[window.start]);
   EXPECT(lastMeasurement == &imu[window.end - 1]);
 
   CountingIntegrator integrator;
   window.integrateMeasurements(integrator);
-  EXPECT(integrator.callCount == window.stepCount());
+  EXPECT(integrator.callCount == window.end - window.start);
   EXPECT((integrator.lastAcc - imu[window.end - 1].acc).norm() < 1e-12);
   EXPECT((integrator.lastOmega - imu[window.end - 1].omega).norm() < 1e-12);
   EXPECT(std::abs(integrator.lastDt - dataset.timestep()) < 1e-12);

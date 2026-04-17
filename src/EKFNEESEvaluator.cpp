@@ -33,7 +33,7 @@ void propagateWindowMeasurements(
     const Window& window,
     const imuBias::ConstantBias& windowBias,
     PredictFunction&& predictFunction) {
-  window.forEachImuMeasurement([&](const Dataset::ImuMeasurement& measurement) {
+  window.forEachImuSample([&](const Dataset::ImuMeasurement& measurement) {
     const Vector3 omega = measurement.omega - windowBias.gyroscope();
     const Vector3 acceleration = measurement.acc - windowBias.accelerometer();
     predictFunction(omega, acceleration);
@@ -43,9 +43,9 @@ void propagateWindowMeasurements(
 void fillWindowPrediction(
     const Window& window,
     const std::vector<Dataset::Truth>& states,
-    const TrajectoryValidator::TrajectoryPoint& predictedPoint,
+    const TrajectoryPoint& predictedPoint,
     const Vector9& error,
-    std::vector<TrajectoryValidator::TrajectoryPoint>& predictedTrajectory,
+    std::vector<TrajectoryPoint>& predictedTrajectory,
     std::vector<Vector9>& errorTrajectory) {
   for (size_t sampleIndex = window.start; sampleIndex <= window.end;
        ++sampleIndex) {
@@ -63,13 +63,9 @@ std::string preintegrationTimeLabel(double preintegrationTime) {
 
 EKFNEESEvaluator::EKFNEESEvaluator(const Dataset& dataset) : dataset_(dataset) {}
 
-double EKFNEESEvaluator::computeTimestep() const {
-    return dataset_.timestep();
-}
-
 NEESResults EKFNEESEvaluator::runGal3ImuEKF(double interval, double alpha) const {
     auto params = dataset_.configureImuParams(alpha);
-    double dt = computeTimestep();
+    double dt = dataset_.timestep();
     return processTimeWindowWithGal3EKF(params, interval, dt, "default");
 }
 
@@ -77,7 +73,7 @@ NEESResults EKFNEESEvaluator::runGal3ImuEKF(double interval, double alpha) const
 NEESResults EKFNEESEvaluator::runGal3ImuEKF(
     double interval, double alpha, const std::string& datasetName) const {
     auto params = dataset_.configureImuParams(alpha);
-    double dt = computeTimestep();
+    double dt = dataset_.timestep();
     return processTimeWindowWithGal3EKF(params, interval, dt, datasetName);
 }
 
@@ -85,13 +81,13 @@ NEESResults EKFNEESEvaluator::runGal3ImuEKF(
     double interval, 
     const std::shared_ptr<PreintegrationCombinedParams>& params,
     const std::string& datasetName) const {
-    double dt = computeTimestep();
+    double dt = dataset_.timestep();
     return processTimeWindowWithGal3EKF(params, interval, dt, datasetName);
 }
 
 NEESResults EKFNEESEvaluator::runNavStateImuEKF(double interval, double alpha) const {
     auto params = dataset_.configureImuParams(alpha);
-    double dt = computeTimestep();
+    double dt = dataset_.timestep();
     return processTimeWindowWithNavStateEKF(params, interval, dt, "default");
 }
 
@@ -99,7 +95,7 @@ NEESResults EKFNEESEvaluator::runNavStateImuEKF(double interval, double alpha) c
 NEESResults EKFNEESEvaluator::runNavStateImuEKF(
     double interval, double alpha, const std::string& datasetName) const {
     auto params = dataset_.configureImuParams(alpha);
-    double dt = computeTimestep();
+    double dt = dataset_.timestep();
     return processTimeWindowWithNavStateEKF(params, interval, dt, datasetName);
 }
 
@@ -107,7 +103,7 @@ NEESResults EKFNEESEvaluator::runNavStateImuEKF(
     double interval,
     const std::shared_ptr<PreintegrationCombinedParams>& params,
     const std::string& datasetName) const {
-    double dt = computeTimestep();
+    double dt = dataset_.timestep();
     return processTimeWindowWithNavStateEKF(params, interval, dt, datasetName);
 }
 
@@ -162,9 +158,9 @@ Matrix9 EKFNEESEvaluator::extractNavigationCovariance(const Gal3ImuEKF& ekf) con
     return ekfCovariance.block<9, 9>(0, 0);
 }
 
-TrajectoryValidator::TrajectoryPoint EKFNEESEvaluator::createGroundTruthPoint(
+TrajectoryPoint EKFNEESEvaluator::createGroundTruthPoint(
     const NavState& navState, double timestamp) const {
-    TrajectoryValidator::TrajectoryPoint point;
+    TrajectoryPoint point;
     point.timestamp = timestamp;
     point.position = navState.position();
     point.velocity = navState.velocity();
@@ -172,9 +168,9 @@ TrajectoryValidator::TrajectoryPoint EKFNEESEvaluator::createGroundTruthPoint(
     return point;
 }
 
-TrajectoryValidator::TrajectoryPoint EKFNEESEvaluator::createPredictedPointFromGal3(
+TrajectoryPoint EKFNEESEvaluator::createPredictedPointFromGal3(
     const Gal3& gal3State, const Matrix9& covariance, double timestamp) const {
-    TrajectoryValidator::TrajectoryPoint point;
+    TrajectoryPoint point;
     point.timestamp = timestamp;
     point.position = gal3State.translation();
     point.velocity = gal3State.velocity();
@@ -183,9 +179,9 @@ TrajectoryValidator::TrajectoryPoint EKFNEESEvaluator::createPredictedPointFromG
     return point;
 }
 
-TrajectoryValidator::TrajectoryPoint EKFNEESEvaluator::createPredictedPointFromNavState(
+TrajectoryPoint EKFNEESEvaluator::createPredictedPointFromNavState(
     const NavState& navState, const Matrix9& covariance, double timestamp) const {
-    TrajectoryValidator::TrajectoryPoint point;
+    TrajectoryPoint point;
     point.timestamp = timestamp;
     point.position = navState.position();
     point.velocity = navState.velocity();
@@ -195,8 +191,8 @@ TrajectoryValidator::TrajectoryPoint EKFNEESEvaluator::createPredictedPointFromN
 }
 
 void EKFNEESEvaluator::exportTrajectoryResults(
-    const vector<TrajectoryValidator::TrajectoryPoint>& groundTruthTrajectory,
-    const vector<TrajectoryValidator::TrajectoryPoint>& predictedTrajectory,
+    const vector<TrajectoryPoint>& groundTruthTrajectory,
+    const vector<TrajectoryPoint>& predictedTrajectory,
     const vector<Vector9>& errorTrajectory,
     const std::string& filterName,
     const std::string& datasetName,
@@ -246,7 +242,7 @@ void EKFNEESEvaluator::exportNEESValues(
     const std::string& filterName,
     const std::string& datasetName,
     const std::string& preintegrationTime,
-    const std::vector<TrajectoryValidator::TrajectoryPoint>& trajectory,
+    const std::vector<TrajectoryPoint>& trajectory,
     const std::vector<double>& neesValues) const {
     
     std::string filename = filterName + "_nees_" + datasetName + "_" + preintegrationTime + ".csv";
@@ -275,8 +271,8 @@ NEESResults EKFNEESEvaluator::processTimeWindowWithGal3EKF(
     const std::string& datasetName) const {
     
     vector<double> neesValues;
-    vector<TrajectoryValidator::TrajectoryPoint> groundTruthTrajectory;
-    vector<TrajectoryValidator::TrajectoryPoint> predictedTrajectory;
+    vector<TrajectoryPoint> groundTruthTrajectory;
+    vector<TrajectoryPoint> predictedTrajectory;
     vector<Vector9> errorTrajectory;
     
     const auto& states = dataset_.truth;
@@ -324,7 +320,8 @@ NEESResults EKFNEESEvaluator::processTimeWindowWithGal3EKF(
         /// FILL THE ENTIRE WINDOW with this prediction (piecewise constant)
         fillWindowPrediction(
             window, states,
-            createPredictedPointFromGal3(predictedGal3, navigationCovariance, window.endTime()),
+            createPredictedPointFromGal3(
+                predictedGal3, navigationCovariance, window.terminalTruth().timestamp),
             navigationError, predictedTrajectory, errorTrajectory);
         
         /// Compute NEES (only once per window)
@@ -358,8 +355,8 @@ NEESResults EKFNEESEvaluator::processTimeWindowWithNavStateEKF(
     const std::string& datasetName) const {
     
     vector<double> neesValues;
-    vector<TrajectoryValidator::TrajectoryPoint> groundTruthTrajectory;
-    vector<TrajectoryValidator::TrajectoryPoint> predictedTrajectory;
+    vector<TrajectoryPoint> groundTruthTrajectory;
+    vector<TrajectoryPoint> predictedTrajectory;
     vector<Vector9> errorTrajectory;
     
     const auto& states = dataset_.truth;
@@ -400,7 +397,8 @@ NEESResults EKFNEESEvaluator::processTimeWindowWithNavStateEKF(
         /// Fill entire window with constant prediction
         fillWindowPrediction(
             window, states,
-            createPredictedPointFromNavState(predicted, navigationCovariance, window.endTime()),
+            createPredictedPointFromNavState(
+                predicted, navigationCovariance, window.terminalTruth().timestamp),
             error, predictedTrajectory, errorTrajectory);
         
         auto nees = computeNEES(error, navigationCovariance);

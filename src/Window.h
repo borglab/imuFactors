@@ -25,23 +25,8 @@ namespace gtsam {
  */
 struct Window {
   const Dataset* dataset;  ///< Source dataset
-  size_t start;  ///< Initial state and IMU sample index
-  size_t end;    ///< Terminal state index
-
-  /// Number of integration steps in the window
-  size_t stepCount() const { return end - start; }
-
-  /// Window start time in seconds
-  double startTime() const { return initialTruth().timestamp; }
-
-  /// Window end time in seconds
-  double endTime() const { return terminalTruth().timestamp; }
-
-  /// Window duration in seconds
-  double duration() const { return endTime() - startTime(); }
-
-  /// Dataset timestep in seconds
-  double timestep() const { return dataset->timestep(); }
+  size_t start;            ///< Initial state and IMU sample index
+  size_t end;              ///< Terminal state index
 
   /// Initial state measurement
   const Dataset::Truth& initialTruth() const { return dataset->truth[start]; }
@@ -54,10 +39,9 @@ struct Window {
    * @param function Callable receiving `const Dataset::ImuMeasurement&`
    */
   template <typename Function>
-  void forEachImuMeasurement(Function&& function) const {
-    const auto& imuMeasurements = dataset->imu;
+  void forEachImuSample(Function&& function) const {
     for (size_t sampleIndex = start; sampleIndex < end; ++sampleIndex) {
-      function(imuMeasurements[sampleIndex]);
+      function(dataset->imu[sampleIndex]);
     }
   }
 
@@ -67,9 +51,8 @@ struct Window {
    */
   template <typename Integrator>
   void integrateMeasurements(Integrator& integrator) const {
-    const double dt = timestep();
-    forEachImuMeasurement([&integrator,
-                           dt](const Dataset::ImuMeasurement& measurement) {
+    const double dt = dataset->timestep();
+    forEachImuSample([&](const Dataset::ImuMeasurement& measurement) {
       integrator.integrateMeasurement(measurement.acc, measurement.omega, dt);
     });
   }
