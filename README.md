@@ -207,3 +207,67 @@ Use `evalReducedNeesWithPriorCovariance` for the normalized-NEES comparison
 with initial state/bias covariance folded into the analysis, and
 `evalQuadratureImuFactorDiagnostics` for the fuller NEES/error export over the
 same intervals and datasets.
+
+## Python Summary Viewer
+
+The repository now includes a small Dash-based summary viewer for the canonical
+CSV packages. The MVP is intentionally read-only and summary-focused.
+
+### One-time setup
+
+Use the `py312` conda environment for all Python tooling in this repository.
+
+```bash
+conda activate py312
+pip install dash
+```
+
+### Launch
+
+From the repository root:
+
+```bash
+python -m viewer.app
+```
+
+By default the viewer scans `build/results`. Override that with:
+
+```bash
+python -m viewer.app --results-root build/ui_probe
+```
+
+Optional flags:
+
+```bash
+python -m viewer.app --results-root build/results --host 127.0.0.1 --port 8050
+```
+
+### What The MVP Shows
+
+- a discovered run catalog from one results root
+- run metadata from `run_metadata.csv`
+- dataset membership from `datasets.csv`
+- `window_summaries.csv` when populated
+- `calibration_summaries.csv` when populated
+
+The app treats zero-byte, missing, or header-only CSVs as intentional empty
+states where possible, so incomplete result packages do not crash the UI.
+
+### Current MVP Limitations
+
+- single-run inspection only
+- summary tables only
+- no `window_metrics.csv` detail tables yet
+- no trajectory views from `trajectory_samples.csv` yet
+- no graphs yet
+- no write-back or package repair behavior
+
+## Viewer Roadmap
+
+Planned next steps for the Python viewer:
+
+- multi-run summary comparison across selected runs
+- detailed `window_metrics.csv` tables with additional filtering
+- trajectory tables with careful sampling and downsampling controls
+- Plotly charts for summaries and trajectory-derived metrics
+- richer validation and diagnostics for incomplete or partially written runs

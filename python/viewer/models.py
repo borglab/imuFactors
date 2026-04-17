@@ -1,0 +1,35 @@
+"""Data models for the Dash summary viewer."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+
+@dataclass(frozen=True)
+class RunCatalogEntry:
+    """Catalog entry for one discovered result package."""
+
+    app_name: str
+    run_id: str
+    path: Path
+    status: str
+    timestamp_utc: str = ""
+    cli_args: str = ""
+    output_root: str = ""
+    repo_version: str = ""
+    dataset_count: int = 0
+    dataset_group_label: str = ""
+    has_window_summaries: bool = False
+    has_calibration_summaries: bool = False
+
+
+@dataclass(frozen=True)
+class RunData:
+    """Loaded summary data for one run."""
+
+    entry: RunCatalogEntry
+    metadata: "pd.DataFrame"
+    datasets: "pd.DataFrame"
+    window_summaries: "pd.DataFrame"
+    calibration_summaries: "pd.DataFrame"
