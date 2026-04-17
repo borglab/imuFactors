@@ -22,15 +22,19 @@ namespace gtsam {
 namespace {
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kRadToDeg = 180.0 / kPi;
+constexpr double kCovarianceRegularization = 1e-12;
 }  // namespace
 
-std::optional<double> normalizedQuadraticForm(
-    const Vector& error,
-    const Matrix& covariance,
-    double degreesOfFreedom) {
+std::optional<double> normalizedNEES(const Vector& error,
+                                     const Matrix& covariance,
+                                     double degreesOfFreedom) {
   if (degreesOfFreedom <= 0.0) return std::nullopt;
   try {
-    return (error.transpose() * covariance.inverse() * error)(0, 0) / degreesOfFreedom;
+    const Matrix regularizedCovariance =
+        covariance + kCovarianceRegularization *
+                         Matrix::Identity(covariance.rows(), covariance.cols());
+    return (error.transpose() * regularizedCovariance.inverse() * error)(0, 0) /
+           degreesOfFreedom;
   } catch (...) {
     return std::nullopt;
   }
@@ -75,11 +79,13 @@ double computePercentile(const std::vector<double>& values, double percentile) {
   std::vector<double> sorted = values;
   std::sort(sorted.begin(), sorted.end());
   const double boundedPercentile = std::clamp(percentile, 0.0, 100.0) / 100.0;
-  const size_t index =
-      static_cast<size_t>(std::floor(boundedPercentile * static_cast<double>(sorted.size() - 1)));
+  const size_t index = static_cast<size_t>(
+      std::floor(boundedPercentile * static_cast<double>(sorted.size() - 1)));
   return sorted[index];
 }
 
-Vector3 radiansToDegrees(const Vector3& rpyRadians) { return rpyRadians * kRadToDeg; }
+Vector3 radiansToDegrees(const Vector3& rpyRadians) {
+  return rpyRadians * kRadToDeg;
+}
 
 }  // namespace gtsam

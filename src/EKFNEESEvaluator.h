@@ -100,10 +100,6 @@ class EKFNEESEvaluator {
       double preintegrationTime, double dt,
       const std::string& datasetName) const;
 
-  /// Helper functions
-  std::optional<double> computeNEES(const Vector& error,
-                                    const Matrix& covarianceMatrix) const;
-
   Gal3 convertToGal3(const NavState& navState, double time) const;
 
   Gal3ImuEKF initializeGal3EKF(

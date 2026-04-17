@@ -31,10 +31,6 @@ Vector NEESEvaluator::computeError(const NavState& predicted,
     return error;
 }
 
-std::optional<double> NEESEvaluator::computeNEES(const Vector& error, const Matrix& covMatrix) const {
-    return normalizedQuadraticForm(error, covMatrix, 15.0);
-}
-
 std::optional<double> NEESEvaluator::calculateWindowNEES(
     const std::shared_ptr<PreintegrationCombinedParams>& params,
     const Window& window) const {
@@ -46,7 +42,7 @@ std::optional<double> NEESEvaluator::calculateWindowNEES(
   const auto error = computeError(predicted, window.terminalTruth().navState,
                                   window.initialTruth().bias,
                                   window.terminalTruth().bias);
-  return computeNEES(error, pim.preintMeasCov());
+  return normalizedNEES(error, pim.preintMeasCov(), 15.0);
 }
 
 NEESResults NEESEvaluator::computeStatistics(const std::vector<double>& neesResults, double preintTime) {

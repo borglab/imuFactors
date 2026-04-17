@@ -53,7 +53,7 @@ constexpr double kAlpha = 8.4;
 constexpr double kSigmaGyro = kAlpha * 1.6968e-4;
 constexpr double kSigmaAcc = kAlpha * 2.0000e-3;
 
-// Summaries of the reduced-NEES distribution across all valid windows.
+// Summaries of the normalized-NEES distribution across all valid windows.
 struct NeesStats {
   double mean = 0.0;
   double median = 0.0;
@@ -76,7 +76,7 @@ struct Summary {
 
 // Raw per-window measurements before they are collapsed into medians.
 struct MethodSample {
-  double reducedNees = 0.0;
+  double normalizedNees = 0.0;
   double rotErrorNorm = 0.0;
   double rotPredSigma = 0.0;
   double posErrorNorm = 0.0;
@@ -113,35 +113,23 @@ shared_ptr<PreintegrationParams> createPreintegrationParams() {
   return params;
 }
 
-optional<double> computeReducedNees(const Vector9& error,
-                                    const Matrix9& covariance) {
-  // Light diagonal regularization avoids numerical issues in the quadratic
-  // form.
-  const Matrix9 regularizedCovariance =
-      covariance + 1e-12 * Matrix9::Identity();
-  const auto value = normalizedQuadraticForm(error, regularizedCovariance, 9.0);
-  if (!value || !std::isfinite(*value)) {
-    return nullopt;
-  }
-  return *value;
-}
-
 double covarianceBlockSigma(const Matrix9& covariance, int blockStart) {
   // Convert a 3x3 covariance block into a scalar sigma proxy via RMS variance.
   return std::sqrt(std::max(
       0.0, covariance.block<3, 3>(blockStart, blockStart).trace() / 3.0));
 }
 
-NeesStats summarizeNees(const vector<double>& reducedNeesValues) {
+NeesStats summarizeNormalizedNees(const vector<double>& normalizedNeesValues) {
   NeesStats stats;
-  if (reducedNeesValues.empty()) {
+  if (normalizedNeesValues.empty()) {
     return stats;
   }
-  // Report the same NEES distribution using several robust summary statistics.
-  stats.samples = reducedNeesValues.size();
-  stats.mean = computeMean(reducedNeesValues);
-  stats.median = computeMedian(reducedNeesValues);
-  stats.p95 = computePercentile(reducedNeesValues, 95.0);
+  // Report the same normalized-NEES distribution using several robust summary
+  // statistics.
+  stats.samples = normalizedNeesValues.size();
+  stats.mean = computeMean(normalizedNeesValues);
+  stats.median = computeMedian(normalizedNeesValues);
+  stats.p95 = computePercentile(normalizedNeesValues, 95.0);
   return stats;
 }
 
@@ -163,8 +151,9 @@ Summary MethodSamples::summarize(size_t nodeCount) const {
     return projectedValues;
   };
 
-  const vector<double> reducedNeesValues = project(&MethodSample::reducedNees);
-  summary.nees = summarizeNees(reducedNeesValues);
+  const vector<double> normalizedNeesValues =
+      project(&MethodSample::normalizedNees);
+  summary.nees = summarizeNormalizedNees(normalizedNeesValues);
   summary.rotErrorMedian =
       summarizeMedian(project(&MethodSample::rotErrorNorm));
   summary.rotPredSigmaMedian =
@@ -182,9 +171,9 @@ Summary MethodSamples::summarize(size_t nodeCount) const {
 }
 
 MethodSample makeMethodSample(const Vector9& error, const Matrix9& covariance,
-                              double reducedNees) {
+                              double normalizedNees) {
   MethodSample sample;
-  sample.reducedNees = reducedNees;
+  sample.normalizedNees = normalizedNees;
   sample.rotErrorNorm = error.head<3>().norm();
   sample.rotPredSigma = covarianceBlockSigma(covariance, 0);
   sample.posErrorNorm = error.segment<3>(3).norm();
@@ -212,11 +201,11 @@ optional<MethodSample> analyzeQuadratureWindow(
       window.terminalTruth().navState.pose(),
       window.terminalTruth().navState.velocity(), window.initialTruth().bias);
 
-  const auto reducedNees = computeReducedNees(error, covariance);
-  if (!reducedNees) {
+  const auto normalizedNees = normalizedNEES(error, covariance, 9.0);
+  if (!normalizedNees || !std::isfinite(*normalizedNees)) {
     return nullopt;
   }
-  return makeMethodSample(error, covariance, *reducedNees);
+  return makeMethodSample(error, covariance, *normalizedNees);
 }
 
 template <class PIMType>
@@ -234,11 +223,11 @@ optional<MethodSample> analyzeStandardWindow(
                                              window.initialTruth().bias);
   const Matrix9 covariance = preintegrated.preintMeasCov();
 
-  const auto reducedNees = computeReducedNees(error, covariance);
-  if (!reducedNees) {
+  const auto normalizedNees = normalizedNEES(error, covariance, 9.0);
+  if (!normalizedNees || !std::isfinite(*normalizedNees)) {
     return nullopt;
   }
-  return makeMethodSample(error, covariance, *reducedNees);
+  return makeMethodSample(error, covariance, *normalizedNees);
 }
 
 Summary runQuadratureNees(const vector<Window>& windows,
@@ -322,8 +311,9 @@ int main(int argc, char* argv[]) {
       }
     }
 
-    // Table 1 is the direct reduced-NEES comparison across the three methods.
-    cout << "\n## Table 1: NEES Median (full 9-DOF, reduced)\n\n";
+    // Table 1 is the direct normalized-NEES comparison across the three
+    // methods.
+    cout << "\n## Table 1: Normalized NEES Median (full 9-DOF)\n\n";
     cout << "| dataset | dt(s) | m | N | quad | manifold | tangent |\n";
     cout << "|---|---:|---:|---:|---:|---:|---:|\n";
     for (const auto& row : rows) {

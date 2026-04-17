@@ -135,6 +135,6 @@ Both quadrature analysis apps accept the same dataset-selection flags:
 --max-intervals <count> # use only the first N default intervals
 ```
 
-Use `evalReducedNeesWithPriorCovariance` for the reduced-NEES comparison table with
+Use `evalReducedNeesWithPriorCovariance` for the normalized-NEES comparison table with
 initial state/bias covariance folded into the comparison, and
 `evalQuadratureImuFactorDiagnostics` for the fuller NEES/error summary tables.

@@ -13,7 +13,7 @@
  *
  * This file centralizes equations that were previously duplicated across
  * evaluators, including:
- * - normalized quadratic forms used for NEES
+ * - normalized NEES evaluation
  * - basic descriptive statistics
  * - radians-to-degrees conversion for roll-pitch-yaw vectors
  */
@@ -28,17 +28,18 @@
 namespace gtsam {
 
 /**
- * @brief Compute normalized quadratic form x' * P^{-1} * x / d.
+ * @brief Compute normalized NEES x' * P^{-1} * x / d.
  *
- * This is the core equation used for normalized estimation error metrics
- * (e.g. NEES). Returns nullopt if matrix inversion fails.
+ * This is the canonical normalized-NEES helper used across the repository.
+ * The covariance is always regularized with a small diagonal term before
+ * inversion. Returns nullopt if the evaluation fails numerically.
  *
  * @param error Error vector x
  * @param covariance Covariance matrix P
  * @param degreesOfFreedom Normalization term d (must be > 0)
  * @return Normalized scalar value, or nullopt on numerical failure
  */
-std::optional<double> normalizedQuadraticForm(
+std::optional<double> normalizedNEES(
     const Vector& error,
     const Matrix& covariance,
     double degreesOfFreedom);

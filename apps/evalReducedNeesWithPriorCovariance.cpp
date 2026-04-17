@@ -9,7 +9,7 @@
 
 /**
  * @file   evalReducedNeesWithPriorCovariance.cpp
- * @brief  Compare reduced NEES for Quadrature, Manifold, and Tangent IMU
+ * @brief  Compare normalized NEES for Quadrature, Manifold, and Tangent IMU
  * preintegration
  */
 
@@ -48,18 +48,19 @@ using symbol_shorthand::X;
 
 namespace {
 
-// Scale the nominal sensor noise for the prior-aware reduced-NEES comparison.
+// Scale the nominal sensor noise for the prior-aware normalized-NEES
+// comparison.
 constexpr double kAlpha = 3.0;
 constexpr double kSigmaGyro = kAlpha * 1.6968e-4;
 constexpr double kSigmaAcc = kAlpha * 2.0000e-3;
 constexpr double kInitialStateCovariance = 5e-6;
 constexpr double kInitialBiasCovariance = 1e-1;
 
-// Only the reduced-NEES distribution is reported in this script.
+// Only the normalized-NEES distribution is reported in this script.
 struct Summary {
-  double reducedNeesMedian = 0.0;
-  double reducedNeesMean = 0.0;
-  double reducedNeesP95 = 0.0;
+  double normalizedNeesMedian = 0.0;
+  double normalizedNeesMean = 0.0;
+  double normalizedNeesP95 = 0.0;
   size_t sampleCount = 0;
 };
 
@@ -82,31 +83,18 @@ shared_ptr<PreintegrationParams> createPreintegrationParams() {
   return params;
 }
 
-optional<double> computeReducedNees(const Vector9& error,
-                                    const Matrix9& covariance) {
-  // Light diagonal regularization avoids numerical issues in the quadratic
-  // form.
-  const Matrix9 regularizedCovariance =
-      covariance + 1e-12 * Matrix9::Identity();
-  const auto nees = normalizedQuadraticForm(error, regularizedCovariance, 9.0);
-  if (!nees || !std::isfinite(*nees)) {
-    return nullopt;
-  }
-  return *nees;
-}
-
-Summary summarizeReducedNees(const vector<double>& reducedNeesValues) {
+Summary summarizeNormalizedNees(const vector<double>& normalizedNeesValues) {
   Summary summary;
-  if (reducedNeesValues.empty()) {
+  if (normalizedNeesValues.empty()) {
     return summary;
   }
 
-  // Report the reduced-NEES distribution using a few standard summary
+  // Report the normalized-NEES distribution using a few standard summary
   // statistics.
-  summary.sampleCount = reducedNeesValues.size();
-  summary.reducedNeesMean = computeMean(reducedNeesValues);
-  summary.reducedNeesMedian = computeMedian(reducedNeesValues);
-  summary.reducedNeesP95 = computePercentile(reducedNeesValues, 95.0);
+  summary.sampleCount = normalizedNeesValues.size();
+  summary.normalizedNeesMean = computeMean(normalizedNeesValues);
+  summary.normalizedNeesMedian = computeMedian(normalizedNeesValues);
+  summary.normalizedNeesP95 = computePercentile(normalizedNeesValues, 95.0);
   return summary;
 }
 
@@ -124,7 +112,7 @@ Vector9 computeQuadratureDeltaForBias(
   return delta;
 }
 
-optional<double> computeQuadratureReducedNeesForWindow(
+optional<double> computeQuadratureNormalizedNeesForWindow(
     const Window& window, const shared_ptr<PreintegrationParams>& params,
     size_t N) {
   const imuBias::ConstantBias& initialBias = window.initialTruth().bias;
@@ -164,11 +152,16 @@ optional<double> computeQuadratureReducedNeesForWindow(
       window.initialTruth().navState.velocity(),
       window.terminalTruth().navState.pose(),
       window.terminalTruth().navState.velocity(), initialBias);
-  return computeReducedNees(error, preintegrated.preintMeasCov());
+  const auto normalizedNees =
+      normalizedNEES(error, preintegrated.preintMeasCov(), 9.0);
+  if (!normalizedNees || !std::isfinite(*normalizedNees)) {
+    return nullopt;
+  }
+  return *normalizedNees;
 }
 
 template <class PIMType>
-optional<double> computeStandardReducedNeesForWindow(
+optional<double> computeStandardNormalizedNeesForWindow(
     const Window& window, const shared_ptr<PreintegrationParams>& params) {
   const imuBias::ConstantBias& initialBias = window.initialTruth().bias;
   // Start from the nominal standard preintegration at the ground-truth bias.
@@ -186,39 +179,44 @@ optional<double> computeStandardReducedNeesForWindow(
   const Vector9 error =
       factor.evaluateError(window.initialTruth().navState,
                            window.terminalTruth().navState, initialBias);
-  return computeReducedNees(error, preintegrated.preintMeasCov());
+  const auto normalizedNees =
+      normalizedNEES(error, preintegrated.preintMeasCov(), 9.0);
+  if (!normalizedNees || !std::isfinite(*normalizedNees)) {
+    return nullopt;
+  }
+  return *normalizedNees;
 }
 
-Summary runQuadratureReducedNees(const vector<Window>& windows,
-                                 size_t quadratureOrder) {
-  vector<double> reducedNeesValues;
+Summary runQuadratureNormalizedNees(const vector<Window>& windows,
+                                    size_t quadratureOrder) {
+  vector<double> normalizedNeesValues;
   const auto params = createPreintegrationParams();
 
-  // Score each valid window and keep only the reduced-NEES scalar.
+  // Score each valid window and keep only the normalized-NEES scalar.
   for (const auto& window : windows) {
-    const auto reducedNees =
-        computeQuadratureReducedNeesForWindow(window, params, quadratureOrder);
-    if (reducedNees) reducedNeesValues.push_back(*reducedNees);
+    const auto normalizedNees = computeQuadratureNormalizedNeesForWindow(
+        window, params, quadratureOrder);
+    if (normalizedNees) normalizedNeesValues.push_back(*normalizedNees);
   }
 
-  return summarizeReducedNees(reducedNeesValues);
+  return summarizeNormalizedNees(normalizedNeesValues);
 }
 
 template <class PIMType>
-Summary runStandardReducedNees(const vector<Window>& windows) {
-  vector<double> reducedNeesValues;
+Summary runStandardNormalizedNees(const vector<Window>& windows) {
+  vector<double> normalizedNeesValues;
   const auto params = createPreintegrationParams();
 
   // Score each valid window for the chosen standard preintegration method.
   for (const auto& window : windows) {
-    const auto reducedNees =
-        computeStandardReducedNeesForWindow<PIMType>(window, params);
-    if (reducedNees) {
-      reducedNeesValues.push_back(*reducedNees);
+    const auto normalizedNees =
+        computeStandardNormalizedNeesForWindow<PIMType>(window, params);
+    if (normalizedNees) {
+      normalizedNeesValues.push_back(*normalizedNees);
     }
   }
 
-  return summarizeReducedNees(reducedNeesValues);
+  return summarizeNormalizedNees(normalizedNeesValues);
 }
 }  // namespace
 
@@ -240,8 +238,8 @@ int main(int argc, char* argv[]) {
     const vector<double> intervals =
         selectIntervals(defaultIntervals, options.maxIntervals);
 
-    // Print a compact one-table summary comparing reduced NEES.
-    cout << "# Quadrature vs Manifold vs Tangent reduced NEES\n";
+    // Print a compact one-table summary comparing normalized NEES.
+    cout << "# Quadrature vs Manifold vs Tangent normalized NEES\n";
     cout << "# alpha=" << kAlpha << " sigma_gyro=" << kSigmaGyro
          << " sigma_acc=" << kSigmaAcc << "\n\n";
     cout << "| dataset | dt(s) | m | N | Quadrature | Manifold | Tangent |\n";
@@ -258,17 +256,18 @@ int main(int argc, char* argv[]) {
         const size_t N = max<size_t>(
             3, static_cast<size_t>(floor(sqrt(static_cast<double>(m)))));
 
-        // Compare the prior-aware reduced-NEES score across all three methods.
+        // Compare the prior-aware normalized-NEES score across all three
+        // methods.
         const auto windows = dataset.completeWindows(m);
-        const Summary quadrature = runQuadratureReducedNees(windows, N);
-        const Summary manifold = runStandardReducedNees<PIMManifold>(windows);
-        const Summary tangent = runStandardReducedNees<PIMTangent>(windows);
+        const Summary quadrature = runQuadratureNormalizedNees(windows, N);
+        const Summary manifold = runStandardNormalizedNees<PIMManifold>(windows);
+        const Summary tangent = runStandardNormalizedNees<PIMTangent>(windows);
 
         cout << "| " << datasetName << " | " << fixed << setprecision(1)
              << intervalSeconds << " | " << m << " | " << N << " | "
-             << setprecision(3) << quadrature.reducedNeesMedian << " | "
-             << manifold.reducedNeesMedian << " | " << tangent.reducedNeesMedian
-             << " |\n";
+             << setprecision(3) << quadrature.normalizedNeesMedian << " | "
+             << manifold.normalizedNeesMedian << " | "
+             << tangent.normalizedNeesMedian << " |\n";
       }
     }
     return 0;

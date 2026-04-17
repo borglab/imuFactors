@@ -107,14 +107,6 @@ NEESResults EKFNEESEvaluator::runNavStateImuEKF(
     return processTimeWindowWithNavStateEKF(params, interval, dt, datasetName);
 }
 
-std::optional<double> EKFNEESEvaluator::computeNEES(const Vector& error, 
-                                                     const Matrix& covarianceMatrix) const {
-    auto nees = normalizedQuadraticForm(
-        error, covarianceMatrix, static_cast<double>(error.size()));
-    if (!nees || *nees <= 0.0) return std::nullopt;
-    return nees;
-}
-
 Gal3 EKFNEESEvaluator::convertToGal3(const NavState& navState, double time) const {
     return Gal3(navState.pose().rotation(), 
                navState.pose().translation(),
@@ -325,7 +317,9 @@ NEESResults EKFNEESEvaluator::processTimeWindowWithGal3EKF(
             navigationError, predictedTrajectory, errorTrajectory);
         
         /// Compute NEES (only once per window)
-        auto nees = computeNEES(navigationError, navigationCovariance);
+        auto nees = normalizedNEES(
+            navigationError, navigationCovariance,
+            static_cast<double>(navigationError.size()));
         if (nees) {
             neesValues.push_back(*nees);
             if (windowIdx < 3) {
@@ -401,7 +395,8 @@ NEESResults EKFNEESEvaluator::processTimeWindowWithNavStateEKF(
                 predicted, navigationCovariance, window.terminalTruth().timestamp),
             error, predictedTrajectory, errorTrajectory);
         
-        auto nees = computeNEES(error, navigationCovariance);
+        auto nees = normalizedNEES(
+            error, navigationCovariance, static_cast<double>(error.size()));
         if (nees) {
             neesValues.push_back(*nees);
         }

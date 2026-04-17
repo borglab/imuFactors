@@ -49,11 +49,6 @@ private:
                        const imuBias::ConstantBias& biasPred,
                        const imuBias::ConstantBias& biasActual) const;
 
-    /// Compute normalized estimation error squared from an error/covariance
-    /// pair
-    std::optional<double> computeNEES(const Vector& error,
-                                      const Matrix& covMatrix) const;
-
     /// Evaluate one complete integration window
     std::optional<double> calculateWindowNEES(
         const std::shared_ptr<PreintegrationCombinedParams>& params,
