@@ -42,12 +42,12 @@ void propagateWindowMeasurements(
 
 void fillWindowPrediction(
     const Window& window,
-    const std::vector<Dataset::StateMeasurement>& states,
+    const std::vector<Dataset::Truth>& states,
     const TrajectoryValidator::TrajectoryPoint& predictedPoint,
     const Vector9& error,
     std::vector<TrajectoryValidator::TrajectoryPoint>& predictedTrajectory,
     std::vector<Vector9>& errorTrajectory) {
-  for (size_t sampleIndex = window.startIndex(); sampleIndex <= window.endIndex();
+  for (size_t sampleIndex = window.start; sampleIndex <= window.end;
        ++sampleIndex) {
     predictedTrajectory[sampleIndex] = predictedPoint;
     predictedTrajectory[sampleIndex].timestamp = states[sampleIndex].timestamp;
@@ -279,11 +279,11 @@ NEESResults EKFNEESEvaluator::processTimeWindowWithGal3EKF(
     vector<TrajectoryValidator::TrajectoryPoint> predictedTrajectory;
     vector<Vector9> errorTrajectory;
     
-    const auto& states = dataset_.getStates();
+    const auto& states = dataset_.truth;
     const int stepsPerWindow = static_cast<int>(dataset_.stepsForInterval(preintegrationTime));
     const auto windows = dataset_.completeWindows(static_cast<size_t>(stepsPerWindow));
     const int numCompleteWindows = static_cast<int>(windows.size());
-    const size_t actualEndIndex = windows.empty() ? 0 : windows.back().endIndex();
+    const size_t actualEndIndex = windows.empty() ? 0 : windows.back().end;
     
     /// Store COMPLETE ground truth trajectory (all points)
     std::cout << "Storing complete ground truth: " << states.size() << " points" << std::endl;
@@ -306,8 +306,8 @@ NEESResults EKFNEESEvaluator::processTimeWindowWithGal3EKF(
         const auto& window = windows[windowIdx];
         
         /// RESET: Initialize new EKF at window start
-        Gal3ImuEKF ekf = initializeGal3EKF(window.initialState(), params);
-        const imuBias::ConstantBias& windowBias = window.initialBias();
+        Gal3ImuEKF ekf = initializeGal3EKF(window.initialTruth().navState, params);
+        const imuBias::ConstantBias& windowBias = window.initialTruth().bias;
 
         propagateWindowMeasurements(window, windowBias, [&](const Vector3& omega,
                                                             const Vector3& acceleration) {
@@ -316,7 +316,7 @@ NEESResults EKFNEESEvaluator::processTimeWindowWithGal3EKF(
         
         /// Get end-of-window prediction
         const Gal3 predictedGal3 = ekf.state();
-        const NavState& groundTruthNavState = window.terminalState();
+        const NavState& groundTruthNavState = window.terminalTruth().navState;
         const Gal3 groundTruthGal3 = convertToGal3(groundTruthNavState, predictedGal3.time());
         const Vector9 navigationError = computeGal3Error(predictedGal3, groundTruthGal3);
         const Matrix9 navigationCovariance = extractNavigationCovariance(ekf);
@@ -362,11 +362,11 @@ NEESResults EKFNEESEvaluator::processTimeWindowWithNavStateEKF(
     vector<TrajectoryValidator::TrajectoryPoint> predictedTrajectory;
     vector<Vector9> errorTrajectory;
     
-    const auto& states = dataset_.getStates();
+    const auto& states = dataset_.truth;
     const int stepsPerWindow = static_cast<int>(dataset_.stepsForInterval(preintegrationTime));
     const auto windows = dataset_.completeWindows(static_cast<size_t>(stepsPerWindow));
     const int numCompleteWindows = static_cast<int>(windows.size());
-    const size_t actualEndIndex = windows.empty() ? 0 : windows.back().endIndex();
+    const size_t actualEndIndex = windows.empty() ? 0 : windows.back().end;
     
     /// Store complete ground truth
     for (size_t i = 0; i < states.size(); i++) {
@@ -384,8 +384,8 @@ NEESResults EKFNEESEvaluator::processTimeWindowWithNavStateEKF(
     errorTrajectory.resize(states.size());
     
     for (const auto& window : windows) {
-        NavStateImuEKF ekf = initializeNavStateEKF(window.initialState(), params);
-        const imuBias::ConstantBias& windowBias = window.initialBias();
+        NavStateImuEKF ekf = initializeNavStateEKF(window.initialTruth().navState, params);
+        const imuBias::ConstantBias& windowBias = window.initialTruth().bias;
 
         propagateWindowMeasurements(window, windowBias, [&](const Vector3& omega,
                                                             const Vector3& acceleration) {
@@ -393,7 +393,7 @@ NEESResults EKFNEESEvaluator::processTimeWindowWithNavStateEKF(
         });
         
         const NavState predicted = ekf.state();
-        const NavState& groundTruth = window.terminalState();
+        const NavState& groundTruth = window.terminalTruth().navState;
         const Vector9 error = groundTruth.logmap(predicted);
         const Matrix9 navigationCovariance = ekf.covariance();
         

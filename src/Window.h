@@ -21,56 +21,33 @@ namespace gtsam {
  *
  * A window references a source dataset and exposes the initial and terminal
  * states, biases, timestamps, and IMU measurements over the range
- * [startIndex, endIndex).
+ * [start, end).
  */
-class Window {
- public:
-  /**
-   * @brief Construct one dataset-backed integration window
-   * @param dataset Source dataset
-   * @param startIndex Initial state and IMU sample index
-   * @param endIndex Terminal state index, exclusive for IMU integration
-   */
-  Window(const Dataset& dataset, size_t startIndex, size_t endIndex);
-
-  /// Initial state and IMU sample index
-  size_t startIndex() const { return startIndex_; }
-
-  /// Terminal state index
-  size_t endIndex() const { return endIndex_; }
+struct Window {
+  const Dataset* dataset;  ///< Source dataset
+  size_t start;  ///< Initial state and IMU sample index
+  size_t end;    ///< Terminal state index
 
   /// Number of integration steps in the window
-  size_t stepCount() const { return endIndex_ - startIndex_; }
+  size_t stepCount() const { return end - start; }
 
   /// Window start time in seconds
-  double startTime() const;
+  double startTime() const { return initialTruth().timestamp; }
 
   /// Window end time in seconds
-  double endTime() const;
+  double endTime() const { return terminalTruth().timestamp; }
 
   /// Window duration in seconds
-  double duration() const;
+  double duration() const { return endTime() - startTime(); }
 
   /// Dataset timestep in seconds
-  double timestep() const;
+  double timestep() const { return dataset->timestep(); }
 
   /// Initial state measurement
-  const Dataset::StateMeasurement& initialStateMeasurement() const;
+  const Dataset::Truth& initialTruth() const { return dataset->truth[start]; }
 
   /// Terminal state measurement
-  const Dataset::StateMeasurement& terminalStateMeasurement() const;
-
-  /// Initial navigation state
-  const NavState& initialState() const;
-
-  /// Terminal navigation state
-  const NavState& terminalState() const;
-
-  /// Initial bias state
-  const imuBias::ConstantBias& initialBias() const;
-
-  /// Terminal bias state
-  const imuBias::ConstantBias& terminalBias() const;
+  const Dataset::Truth& terminalTruth() const { return dataset->truth[end]; }
 
   /**
    * @brief Call a function for each IMU measurement in the window
@@ -78,9 +55,8 @@ class Window {
    */
   template <typename Function>
   void forEachImuMeasurement(Function&& function) const {
-    const auto& imuMeasurements = dataset_->getImuData();
-    for (size_t sampleIndex = startIndex_; sampleIndex < endIndex_;
-         ++sampleIndex) {
+    const auto& imuMeasurements = dataset->imu;
+    for (size_t sampleIndex = start; sampleIndex < end; ++sampleIndex) {
       function(imuMeasurements[sampleIndex]);
     }
   }
@@ -97,11 +73,6 @@ class Window {
       integrator.integrateMeasurement(measurement.acc, measurement.omega, dt);
     });
   }
-
- private:
-  const Dataset* dataset_;
-  size_t startIndex_;
-  size_t endIndex_;
 };
 
 }  // namespace gtsam

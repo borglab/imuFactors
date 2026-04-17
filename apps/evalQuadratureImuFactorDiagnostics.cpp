@@ -158,16 +158,17 @@ optional<MethodSample> analyzeQuadratureWindow(
     const Window& window,
     const shared_ptr<PreintegrationParams>& params,
     size_t quadratureNodes) {
-  PIMQuadrature preintegrated(params, window.initialBias(), quadratureNodes);
+  PIMQuadrature preintegrated(params, window.initialTruth().bias, quadratureNodes);
   window.integrateMeasurements(preintegrated);
   preintegrated.endPreintegration(preintegrated.deltaTij());
 
   const Matrix9 covariance = preintegrated.preintMeasCov();
   QuadratureImuFactor factor(X(1), V(1), X(2), V(2), B(1), preintegrated);
   const Vector9 error = factor.evaluateError(
-      window.initialState().pose(), window.initialState().velocity(),
-      window.terminalState().pose(), window.terminalState().velocity(),
-      window.initialBias());
+      window.initialTruth().navState.pose(),
+      window.initialTruth().navState.velocity(),
+      window.terminalTruth().navState.pose(),
+      window.terminalTruth().navState.velocity(), window.initialTruth().bias);
 
   const auto reducedNees = computeReducedNees(error, covariance);
   if (!reducedNees) {
@@ -179,12 +180,13 @@ optional<MethodSample> analyzeQuadratureWindow(
 template <class PIMType>
 optional<MethodSample> analyzeStandardWindow(
     const Window& window, const shared_ptr<PreintegrationParams>& params) {
-  PIMType preintegrated(params, window.initialBias());
+  PIMType preintegrated(params, window.initialTruth().bias);
   window.integrateMeasurements(preintegrated);
 
   ImuFactor2T<PIMType> factor(X(1), X(2), B(1), preintegrated);
-  const Vector9 error =
-      factor.evaluateError(window.initialState(), window.terminalState(), window.initialBias());
+  const Vector9 error = factor.evaluateError(window.initialTruth().navState,
+                                             window.terminalTruth().navState,
+                                             window.initialTruth().bias);
   const Matrix9 covariance = preintegrated.preintMeasCov();
 
   const auto reducedNees = computeReducedNees(error, covariance);
@@ -282,8 +284,7 @@ int main(int argc, char* argv[]) {
       const string& datasetName = datasetEntry.first;
       const string& datasetPath = datasetEntry.second;
       Dataset dataset(datasetPath);
-      const auto& states = dataset.getStates();
-      if (states.size() < 2) {
+      if (dataset.truth.size() < 2) {
         continue;
       }
       for (double intervalSeconds : intervals) {

@@ -42,7 +42,7 @@ class Dataset {
   /**
    * @brief Ground truth state measurement with timestamp
    */
-  struct StateMeasurement {
+  struct Truth {
     double timestamp;   ///< Time of measurement in seconds
     NavState navState;  ///< Navigation state (position, velocity, rotation)
     imuBias::ConstantBias bias;  ///< IMU bias states
@@ -63,24 +63,6 @@ class Dataset {
    * @throw std::runtime_error if file cannot be opened or data is invalid
    */
   explicit Dataset(const std::string& filename);
-
-  /**
-   * @brief Get vector of ground truth state measurements
-   * @return Const reference to state measurements
-   */
-  const std::vector<StateMeasurement>& getStates() const { return states_; }
-
-  /**
-   * @brief Get vector of IMU measurements
-   * @return Const reference to IMU measurements
-   */
-  const std::vector<ImuMeasurement>& getImuData() const { return imuData_; }
-
-  /**
-   * @brief Get gravity constant used in the dataset
-   * @return Gravity value in m/s^2
-   */
-  double getGravity() const { return gravity_; }
 
   /**
    * @brief Get the dataset timestep from the synchronized state trajectory
@@ -131,10 +113,11 @@ class Dataset {
   std::shared_ptr<PreintegrationCombinedParams> configureImuParams(
       double alpha = 3.0) const;
 
+  std::vector<Truth> truth;
+  std::vector<ImuMeasurement> imu;
+  const double g = 9.81;
+
  private:
-  std::vector<StateMeasurement> states_;
-  std::vector<ImuMeasurement> imuData_;
-  const double gravity_ = 9.81;
 
   /// Compute noise parameters with uniform scaling
   /// @param alpha Scaling factor applied to all noise parameters

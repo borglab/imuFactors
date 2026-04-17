@@ -14,12 +14,13 @@
  */
 
 #include "Dataset.h"
-#include "Window.h"
 
 #include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <sstream>
+
+#include "Window.h"
 
 namespace gtsam {
 
@@ -51,12 +52,12 @@ void Dataset::setImuCovariances(
 }
 
 double Dataset::timestep() const {
-  if (states_.size() < 2) {
+  if (truth.size() < 2) {
     throw std::runtime_error(
         "Dataset must contain at least two state samples.");
   }
 
-  const double dt = states_[1].timestamp - states_[0].timestamp;
+  const double dt = truth[1].timestamp - truth[0].timestamp;
   if (dt <= 0.0) {
     throw std::runtime_error("Dataset timestep must be positive.");
   }
@@ -81,7 +82,7 @@ std::vector<Window> Dataset::completeWindows(size_t stepsPerWindow) const {
   for (size_t startIndex = 0; startIndex + stepsPerWindow < sampleCount;
        startIndex += stepsPerWindow) {
     const size_t endIndex = startIndex + stepsPerWindow;
-    windows.emplace_back(*this, startIndex, endIndex);
+    windows.push_back(Window{this, startIndex, endIndex});
   }
   return windows;
 }
@@ -93,16 +94,16 @@ std::vector<Window> Dataset::completeWindowsForInterval(
 
 std::shared_ptr<PreintegrationCombinedParams> Dataset::configureImuParams(
     double alpha) const {
-  auto params = PreintegrationCombinedParams::MakeSharedD(getGravity());
-  params->n_gravity = Vector3(0, 0, -getGravity());
+  auto params = PreintegrationCombinedParams::MakeSharedD(g);
+  params->n_gravity = Vector3(0, 0, -g);
   setImuCovariances(params, computeNoiseParams(alpha));
   return params;
 }
 
 std::shared_ptr<PreintegrationCombinedParams> Dataset::configureImuParams(
     double alphaGyro, double alphaAcc) const {
-  auto params = PreintegrationCombinedParams::MakeSharedD(getGravity());
-  params->n_gravity = Vector3(0, 0, -getGravity());
+  auto params = PreintegrationCombinedParams::MakeSharedD(g);
+  params->n_gravity = Vector3(0, 0, -g);
   setImuCovariances(params, computeNoiseParams(alphaGyro, alphaAcc));
   return params;
 }
@@ -148,21 +149,21 @@ Dataset::Dataset(const std::string& filename) {
     Vector3 accBias(row[14], row[15], row[16]);
     imuBias::ConstantBias bias(accBias, gyroBias);
 
-    states_.push_back({timestamp, navState, bias});
+    truth.push_back({timestamp, navState, bias});
 
     // Parse IMU measurement
     Vector3 omega(row[17], row[18], row[19]);
     Vector3 acc(row[20], row[21], row[22]);
-    imuData_.push_back({timestamp, omega, acc});
+    imu.push_back({timestamp, omega, acc});
   }
 
-  if (states_.empty() || imuData_.empty()) {
+  if (truth.empty() || imu.empty()) {
     throw std::runtime_error("No valid data found in file: " + filename);
   }
 }
 
 size_t Dataset::synchronizedSampleCount() const {
-  return std::min(states_.size(), imuData_.size());
+  return std::min(truth.size(), imu.size());
 }
 
 }  // namespace gtsam

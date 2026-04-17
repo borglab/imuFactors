@@ -38,12 +38,14 @@ std::optional<double> NEESEvaluator::computeNEES(const Vector& error, const Matr
 std::optional<double> NEESEvaluator::calculateWindowNEES(
     const std::shared_ptr<PreintegrationCombinedParams>& params,
     const Window& window) const {
-  PreintegratedCombinedMeasurements pim(params, window.initialBias());
+  PreintegratedCombinedMeasurements pim(params, window.initialTruth().bias);
   window.integrateMeasurements(pim);
 
-  const auto predicted = pim.predict(window.initialState(), window.initialBias());
-  const auto error = computeError(predicted, window.terminalState(),
-                                  window.initialBias(), window.terminalBias());
+  const auto predicted =
+      pim.predict(window.initialTruth().navState, window.initialTruth().bias);
+  const auto error = computeError(predicted, window.terminalTruth().navState,
+                                  window.initialTruth().bias,
+                                  window.terminalTruth().bias);
   return computeNEES(error, pim.preintMeasCov());
 }
 

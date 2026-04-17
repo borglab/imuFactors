@@ -94,18 +94,18 @@ void exportGroundTruthTrajectory(const Dataset& dataset, const std::string& data
     
     file << "timestamp,px,py,pz,vx,vy,vz,roll,pitch,yaw\n";
     file << std::fixed << std::setprecision(6);
-    
-    const auto& states = dataset.getStates();
-    for (const auto& state : states) {
-        const NavState& navState = state.navState;
-        Vector3 rpy = navState.attitude().rpy() * 180.0 / M_PI;
-        
-        file << state.timestamp << ","
-             << navState.position().x() << "," << navState.position().y() << "," << navState.position().z() << ","
-             << navState.velocity().x() << "," << navState.velocity().y() << "," << navState.velocity().z() << ","
-             << rpy.x() << "," << rpy.y() << "," << rpy.z() << "\n";
+
+    for (const auto& truth : dataset.truth) {
+      const NavState& trueState = truth.navState;
+      Vector3 rpy = trueState.attitude().rpy() * 180.0 / M_PI;
+
+      file << truth.timestamp << "," << trueState.position().x() << ","
+           << trueState.position().y() << "," << trueState.position().z() << ","
+           << trueState.velocity().x() << "," << trueState.velocity().y() << ","
+           << trueState.velocity().z() << "," << rpy.x() << "," << rpy.y()
+           << "," << rpy.z() << "\n";
     }
-    
+
     file.close();
     std::cout << "  ✓ Exported ground truth: " << filename << "\n";
 }

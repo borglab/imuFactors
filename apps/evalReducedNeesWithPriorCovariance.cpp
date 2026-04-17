@@ -131,7 +131,7 @@ optional<double> computeQuadratureReducedNeesForWindow(
     const Window& window,
     const shared_ptr<PreintegrationParams>& params,
     size_t quadratureOrder) {
-  const imuBias::ConstantBias& initialBias = window.initialBias();
+  const imuBias::ConstantBias& initialBias = window.initialTruth().bias;
   auto preintegrated =
       buildQuadraturePreintegrated(window, params, quadratureOrder, initialBias);
 
@@ -158,15 +158,16 @@ optional<double> computeQuadratureReducedNeesForWindow(
 
   QuadratureImuFactor factor(X(1), V(1), X(2), V(2), B(1), preintegrated);
   const Vector9 error = factor.evaluateError(
-      window.initialState().pose(), window.initialState().velocity(),
-      window.terminalState().pose(), window.terminalState().velocity(), initialBias);
+      window.initialTruth().navState.pose(), window.initialTruth().navState.velocity(),
+      window.terminalTruth().navState.pose(), window.terminalTruth().navState.velocity(),
+      initialBias);
   return computeReducedNees(error, preintegrated.preintMeasCov());
 }
 
 template <class PIMType>
 optional<double> computeStandardReducedNeesForWindow(
     const Window& window, const shared_ptr<PreintegrationParams>& params) {
-  const imuBias::ConstantBias& initialBias = window.initialBias();
+  const imuBias::ConstantBias& initialBias = window.initialTruth().bias;
   auto preintegrated = buildStandardPreintegrated<PIMType>(window, params, initialBias);
 
   Matrix96 biasJacobian;
@@ -177,8 +178,8 @@ optional<double> computeStandardReducedNeesForWindow(
   preintegrated.setPreintMeasCov(totalCovariance);
 
   ImuFactor2T<PIMType> factor(X(1), X(2), B(1), preintegrated);
-  const Vector9 error =
-      factor.evaluateError(window.initialState(), window.terminalState(), initialBias);
+  const Vector9 error = factor.evaluateError(
+      window.initialTruth().navState, window.terminalTruth().navState, initialBias);
   return computeReducedNees(error, preintegrated.preintMeasCov());
 }
 
@@ -241,7 +242,7 @@ int main(int argc, char* argv[]) {
       const string& datasetPath = datasetEntry.second;
       Dataset dataset(datasetPath);
 
-      const auto& states = dataset.getStates();
+      const auto& states = dataset.truth;
       if (states.size() < 2) {
         continue;
       }
