@@ -2,6 +2,9 @@
 
 Evaluation code for preintegrated IMU factors and EKF-based NEES studies on EuRoC-format CSV data.
 
+All analysis apps now write a shared canonical CSV result package so downstream
+Python tooling can load every run through the same schema.
+
 ## Current Repository Structure
 
 ```text
@@ -14,6 +17,11 @@ imuFactors/
 │   ├── Dataset.h / Dataset.cpp
 │   ├── NEESEvaluator.h / NEESEvaluator.cpp
 │   ├── EKFNEESEvaluator.h / EKFNEESEvaluator.cpp
+│   ├── PIMs.h
+│   ├── ResultsSchema.h
+│   ├── ResultsWriter.h / ResultsWriter.cpp
+│   ├── ResultsAdapters.h
+│   ├── QuadratureRunner.h
 │   ├── TrajectoryValidator.h / TrajectoryValidator.cpp
 │   ├── NoiseCalibration.h
 │   └── nees.h / nees.cpp
@@ -26,7 +34,8 @@ imuFactors/
 ├── tests/
 │   ├── CMakeLists.txt
 │   ├── testImuNEES.cpp
-│   └── testDatasetSanity.cpp
+│   ├── testDatasetSanity.cpp
+│   └── testResultsWriter.cpp
 ├── integration/
 │   ├── CMakeLists.txt
 │   ├── testImuFactorMC.cpp
@@ -41,8 +50,13 @@ imuFactors/
 
 - `src/Dataset.*`: Loads EuRoC CSV files and builds `NavState` + bias + IMU measurement vectors. Also creates preintegration parameter objects from fixed noise baselines and scaling factors.
 - `src/NEESEvaluator.*`: Computes 15-DOF NEES statistics for preintegrated IMU windows.
-- `src/EKFNEESEvaluator.*`: Compares `Gal3ImuEKF` and `NavStateImuEKF`, computes windowed NEES, and exports trajectory/NEES CSV files.
-- `src/TrajectoryValidator.*`: CSV export helpers and RMS error summaries for 9D navigation error vectors.
+- `src/EKFNEESEvaluator.*`: Compares `Gal3ImuEKF` and `NavStateImuEKF`, computes windowed NEES, and produces canonical trajectory/window artifacts.
+- `src/PIMs.h`: Shared preintegration helpers and shared window-evaluation types.
+- `src/ResultsSchema.h`: Canonical row definitions and fixed CSV column order for all apps.
+- `src/ResultsWriter.*`: Shared run-directory creation and canonical CSV writing.
+- `src/ResultsAdapters.h`: Thin adapters that translate evaluator outputs into canonical row writes.
+- `src/QuadratureRunner.h`: Shared quadrature runner and dataset-app bootstrap helpers.
+- `src/TrajectoryValidator.*`: 9D navigation error and covariance utilities used by EKF export paths.
 - `src/NoiseCalibration.h`: Header-only calibration utilities for dataset discovery and alpha-grid search.
 - `src/AppUtils.h`: Shared CLI parsing and dataset/interval selection helpers for dataset-driven apps.
 - `src/nees.*`: Shared, documented equations for NEES and descriptive statistics.
@@ -82,11 +96,13 @@ ctest -N
 
 - `tests/testImuNEES.cpp` -> `testImuNEES` -> `testImuNEES.run`
 - `tests/testDatasetSanity.cpp` -> `testDatasetSanity` -> `testDatasetSanity.run`
+- `tests/testResultsWriter.cpp` -> `testResultsWriter` -> `testResultsWriter.run`
 
 ```bash
 cd build
 make -j6 testImuNEES.run
 make -j6 testDatasetSanity.run
+make -j6 testResultsWriter.run
 ```
 
 ### Monte Carlo tests (`integration/`, opt-in)
@@ -102,12 +118,41 @@ make -j6 testAHRSFactorMC.run
 
 ## Running Apps
 
+From the build directory, every app writes results to:
+
+```text
+./results/<app-name>/<run-id>/
+```
+
+Each run directory contains the same file set:
+
+```text
+run_metadata.csv
+datasets.csv
+window_metrics.csv
+window_summaries.csv
+trajectory_samples.csv
+calibration_trials.csv
+calibration_summaries.csv
+```
+
+Unused files are still created with headers and zero rows so downstream loaders
+can assume a fixed package shape.
+
+The shared method labels are:
+
+- `quadrature`
+- `manifold`
+- `tangent`
+- `gal3_imu_ekf`
+- `navstate_imu_ekf`
+
 From the build directory:
 
 ```bash
 cd build
-./evalGal3NavStateImuEKFNEES
-./evalNoiseCalibration [dataset_type] [search_mode]
+./evalGal3NavStateImuEKFNEES [--data-dir <path>] [--output-root <path>] [--dataset <name>]
+./evalNoiseCalibration [--output-root <path>] [dataset_type] [search_mode]
 ./evalExportTrajectories [options]
 ./evalReducedNeesWithPriorCovariance [options]
 ./evalQuadratureImuFactorDiagnostics [options]
@@ -117,24 +162,48 @@ Examples:
 
 ```bash
 cd build
+./evalGal3NavStateImuEKFNEES --dataset MH01 --output-root ./results
 ./evalNoiseCalibration machine_hall coarse
-./evalNoiseCalibration all both
-./evalExportTrajectories --dataset-type vicon
+./evalNoiseCalibration --output-root ./results all both
+./evalExportTrajectories --dataset-type vicon --output-root ./results
 ./evalExportTrajectories --best-gyro 13.0 --best-acc 9.4 --worst-gyro 0.5 --worst-acc 0.5
 ./evalReducedNeesWithPriorCovariance --dataset MH01 --max-intervals 1
 ./evalQuadratureImuFactorDiagnostics --dataset MH01 --max-intervals 1
 ```
 
+### Canonical CSV Package
+
+The canonical export contract is intended for one Python loader and one
+visualization stack across all apps.
+
+- `run_metadata.csv`: one row per app invocation with run id, app name, CLI
+  args, output root, timestamp, and repo version if available.
+- `datasets.csv`: dataset membership for the run, including source path and
+  dataset-group label.
+- `window_metrics.csv`: long-form per-window metrics shared by quadrature and
+  EKF windowed analyses.
+- `window_summaries.csv`: per-dataset, per-method summary statistics for those
+  window metrics.
+- `trajectory_samples.csv`: canonical trajectory export with GT state,
+  predicted state, 9D error components, sigma summaries, and flattened 9x9
+  covariance.
+- `calibration_trials.csv`: one row per dataset per calibration trial.
+- `calibration_summaries.csv`: best/worst summary rows for each calibration
+  study.
+
 ### Quadrature Analysis Apps
 
-Both quadrature analysis apps accept the same dataset-selection flags:
+Both quadrature analysis apps accept the same dataset-selection flags and write
+the same canonical package:
 
 ```bash
 --data-dir <path>       # dataset directory, default ../data/euroc/
+--output-root <path>    # results root directory, default ./results
 --dataset <name>        # restrict to one dataset, e.g. MH01 or euroc_MH01.csv
 --max-intervals <count> # use only the first N default intervals
 ```
 
-Use `evalReducedNeesWithPriorCovariance` for the normalized-NEES comparison table with
-initial state/bias covariance folded into the comparison, and
-`evalQuadratureImuFactorDiagnostics` for the fuller NEES/error summary tables.
+Use `evalReducedNeesWithPriorCovariance` for the normalized-NEES comparison
+with initial state/bias covariance folded into the analysis, and
+`evalQuadratureImuFactorDiagnostics` for the fuller NEES/error export over the
+same intervals and datasets.

@@ -76,12 +76,22 @@ inline std::vector<double> defaultQuadratureIntervals() {
 }
 
 /**
+ * Label the effective dataset selection for result metadata.
+ */
+inline std::string resolvedDatasetGroupLabel(
+    const ResolvedDatasetCli& datasetCli) {
+  return datasetCli.options.datasetName ? *datasetCli.options.datasetName
+                                        : "all";
+}
+
+/**
  * Print common usage help for dataset-driven analysis apps.
  * @param programName Executable name from argv[0]
  */
 inline void printDatasetAppUsage(const char* programName) {
-  std::cout << "Usage: " << programName
-            << " [--data-dir <path>] [--output-root <path>] [--dataset <name>]\n";
+  std::cout
+      << "Usage: " << programName
+      << " [--data-dir <path>] [--output-root <path>] [--dataset <name>]\n";
   std::cout << "  --data-dir <path>       Dataset directory (default: "
                "../data/euroc/)\n";
   std::cout << "  --output-root <path>    Results root directory (default: "
@@ -292,6 +302,15 @@ inline size_t parseMaxIntervalsArgument(
     throw std::runtime_error("Unknown argument: " + argument);
   }
   return maxIntervals;
+}
+
+/**
+ * Print common usage help for quadrature analysis apps.
+ */
+inline void printQuadratureAppUsage(const char* programName) {
+  printDatasetAppUsage(programName);
+  std::cout
+      << "  --max-intervals <count> Restrict to first N default intervals\n";
 }
 
 /**

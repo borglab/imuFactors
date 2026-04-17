@@ -12,14 +12,10 @@
  * @brief  Canonical EKF export for Gal3 and NavState IMU EKF variants
  */
 
-#include <iostream>
-#include <string>
-#include <vector>
-
 #include "AppUtils.h"
 #include "EKFNEESEvaluator.h"
+#include "QuadratureRunner.h"
 #include "ResultsAdapters.h"
-#include "ResultsWriter.h"
 
 using namespace gtsam;
 using namespace std;
@@ -67,11 +63,6 @@ struct RunForDataset {
   }
 };
 
-string datasetGroupLabel(const ResolvedDatasetCli& datasetCli) {
-  return datasetCli.options.datasetName ? *datasetCli.options.datasetName
-                                        : "all";
-}
-
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -80,17 +71,11 @@ int main(int argc, char* argv[]) {
       parseAppArguments(datasetCli.remainingArgs, argv[0]);
   (void)appOptions;
 
-  ResultsWriter writer(argv[0], datasetCli.options.outputRoot);
-  writeCanonicalRunMetadata(&writer, argc, argv);
-  const string datasetGroup = datasetGroupLabel(datasetCli);
-
-  RunForDataset runner(&writer);
-  runner.datasetGroup = datasetGroup;
-  const int status = runForDatasets(datasetCli, runner);
-  if (status != 0) {
-    return status;
-  }
-
-  cout << "Results written to " << writer.runDirectory() << "\n";
-  return 0;
+  return runDatasetApp(
+      datasetCli, argc, argv,
+      [&](ResultsWriter* writer, const std::string& datasetGroup) {
+        RunForDataset runner(writer);
+        runner.datasetGroup = datasetGroup;
+        return runner;
+      });
 }

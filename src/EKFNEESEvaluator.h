@@ -36,18 +36,6 @@ namespace gtsam {
 class EKFNEESEvaluator {
  public:
   /**
-   * @brief One window-level EKF result with timing and sample bounds.
-   */
-  struct WindowEvaluation {
-    size_t windowIndex = 0;
-    size_t startSample = 0;
-    size_t endSample = 0;
-    double startTime = 0.0;
-    double endTime = 0.0;
-    WindowResult metrics;
-  };
-
-  /**
    * @brief One trajectory sample with GT, prediction, and 9D error.
    */
   struct TrajectorySample {

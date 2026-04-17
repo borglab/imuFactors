@@ -45,6 +45,18 @@ struct WindowResultSummary {
 };
 
 /**
+ * @brief One evaluated window with sample/time bounds plus reduced metrics.
+ */
+struct WindowEvaluation {
+  size_t windowIndex = 0;
+  size_t startSample = 0;
+  size_t endSample = 0;
+  double startTime = 0.0;
+  double endTime = 0.0;
+  WindowResult metrics;
+};
+
+/**
  * Optional prior covariance to fold into the preintegrated covariance.
  */
 struct InitialCovarianceOptions {
@@ -186,9 +198,8 @@ std::optional<WindowResult> evaluateWindow(
 inline Vector9 quadratureDeltaForBias(
     const Window& window, const std::shared_ptr<PreintegrationParams>& params,
     size_t quadratureOrder, const imuBias::ConstantBias& bias) {
-  const auto preintegrated =
-      buildPreintegrated<PreintegratedImuMeasurementsQ>(
-          window, params, bias, quadratureOrder);
+  const auto preintegrated = buildPreintegrated<PreintegratedImuMeasurementsQ>(
+      window, params, bias, quadratureOrder);
 
   Vector9 delta;
   delta << preintegrated.deltaRij().logmap(Rot3()), preintegrated.deltaPij(),
@@ -200,7 +211,8 @@ inline Vector9 quadratureDeltaForBias(
  * Evaluate one window for quadrature preintegration.
  */
 template <>
-inline std::optional<WindowResult> evaluateWindow<PreintegratedImuMeasurementsQ>(
+inline std::optional<WindowResult>
+evaluateWindow<PreintegratedImuMeasurementsQ>(
     const Window& window, const std::shared_ptr<PreintegrationParams>& params,
     std::optional<InitialCovarianceOptions> initialCovariance,
     size_t quadratureOrder) {
@@ -228,10 +240,10 @@ inline std::optional<WindowResult> evaluateWindow<PreintegratedImuMeasurementsQ>
           (deltaPlus - deltaMinus) / (2.0 * kBiasPerturbation);
     }
 
-    preintegrated.setInitialCovariance(
-        initialCovariance->navCovariance +
-        biasJacobian * initialCovariance->biasCovariance *
-            biasJacobian.transpose());
+    preintegrated.setInitialCovariance(initialCovariance->navCovariance +
+                                       biasJacobian *
+                                           initialCovariance->biasCovariance *
+                                           biasJacobian.transpose());
   }
 
   ImuFactorT<PreintegratedImuMeasurementsQ> factor(

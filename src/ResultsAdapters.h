@@ -23,18 +23,6 @@
 namespace gtsam {
 
 /**
- * @brief Shared window record with timing/sample bounds plus metrics.
- */
-struct WindowEvaluationRecord {
-  size_t windowIndex = 0;
-  size_t startSample = 0;
-  size_t endSample = 0;
-  double startTime = 0.0;
-  double endTime = 0.0;
-  WindowResult metrics;
-};
-
-/**
  * @brief Build a dataset row for one processed dataset.
  */
 inline DatasetRow makeDatasetRow(const ResultsWriter& writer,
@@ -52,7 +40,8 @@ inline DatasetRow makeDatasetRow(const ResultsWriter& writer,
                                  const std::string& datasetName,
                                  const Dataset& dataset,
                                  const std::string& datasetGroup) {
-  return makeDatasetRow(writer, datasetName, dataset.sourcePath(), datasetGroup);
+  return makeDatasetRow(writer, datasetName, dataset.sourcePath(),
+                        datasetGroup);
 }
 
 /**
@@ -60,26 +49,27 @@ inline DatasetRow makeDatasetRow(const ResultsWriter& writer,
  */
 inline void writeCanonicalRunMetadata(ResultsWriter* writer, int argc,
                                       char* argv[]) {
-  writer->writeRunMetadata(
-      {writer->runId(), writer->appName(), writer->timestampUtc(),
-       joinCommandLineArguments(argc, argv), writer->outputRoot().string(), ""});
+  writer->writeRunMetadata({writer->runId(), writer->appName(),
+                            writer->timestampUtc(),
+                            joinCommandLineArguments(argc, argv),
+                            writer->outputRoot().string(), ""});
 }
 
 /**
  * @brief Evaluate a set of windows for one PIM type.
  */
 template <class PIMType>
-inline std::vector<WindowEvaluationRecord> collectWindowEvaluations(
+inline std::vector<WindowEvaluation> collectWindowEvaluations(
     const std::vector<Window>& windows,
     const std::shared_ptr<PreintegrationParams>& params,
     std::optional<InitialCovarianceOptions> initialCovariance = std::nullopt,
     size_t quadratureOrder = 0) {
-  std::vector<WindowEvaluationRecord> evaluations;
+  std::vector<WindowEvaluation> evaluations;
   evaluations.reserve(windows.size());
   for (size_t windowIndex = 0; windowIndex < windows.size(); ++windowIndex) {
     const auto& window = windows[windowIndex];
-    const auto result = evaluateWindow<PIMType>(window, params, initialCovariance,
-                                                quadratureOrder);
+    const auto result = evaluateWindow<PIMType>(
+        window, params, initialCovariance, quadratureOrder);
     if (!result) {
       continue;
     }
@@ -130,7 +120,7 @@ inline void writeWindowRows(ResultsWriter* writer,
                             const std::string& configLabel,
                             double intervalSeconds, size_t samplesPerWindow,
                             size_t quadratureNodes,
-                            const std::vector<WindowEvaluationRecord>& evaluations) {
+                            const std::vector<WindowEvaluation>& evaluations) {
   std::vector<WindowResult> results;
   results.reserve(evaluations.size());
   for (const auto& evaluation : evaluations) {
@@ -224,17 +214,9 @@ inline void writeEkfArtifacts(ResultsWriter* writer,
                               const std::string& method,
                               const std::string& configLabel,
                               const EKFNEESEvaluator::RunArtifacts& artifacts) {
-  std::vector<WindowEvaluationRecord> evaluations;
-  evaluations.reserve(artifacts.windowEvaluations.size());
-  for (const auto& evaluation : artifacts.windowEvaluations) {
-    evaluations.push_back({evaluation.windowIndex, evaluation.startSample,
-                           evaluation.endSample, evaluation.startTime,
-                           evaluation.endTime, evaluation.metrics});
-  }
-
   writeWindowRows(writer, datasetName, method, configLabel,
                   artifacts.preintegrationTime, artifacts.samplesPerWindow, 0,
-                  evaluations);
+                  artifacts.windowEvaluations);
 
   for (const auto& sample : artifacts.trajectorySamples) {
     writer->writeTrajectorySample(makeTrajectorySampleRow(
