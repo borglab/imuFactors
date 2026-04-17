@@ -27,3 +27,4 @@ endfunction()
 
 imufactors_add_local_test(testImuNEES testImuNEES.cpp)
 imufactors_add_local_test(testDatasetSanity testDatasetSanity.cpp)
+imufactors_add_local_test(testAppUtils testAppUtils.cpp)

@@ -94,8 +94,8 @@ Summary summarizeNormalizedNees(const vector<double>& normalizedNeesValues) {
 optional<double> computeQuadratureNormalizedNeesForWindow(
     const Window& window, const shared_ptr<PreintegrationParams>& params,
     size_t N) {
-  const InitialCovarianceOptions initialCovariance{
-      initialNavCovariance(), initialBiasCovariance()};
+  const InitialCovarianceOptions initialCovariance{initialNavCovariance(),
+                                                   initialBiasCovariance()};
   const auto result =
       evaluateWindow<PIMQuadrature>(window, params, initialCovariance, N);
   return result ? optional<double>(result->normalizedNees) : nullopt;
@@ -104,9 +104,10 @@ optional<double> computeQuadratureNormalizedNeesForWindow(
 template <class PIMType>
 optional<double> computeStandardNormalizedNeesForWindow(
     const Window& window, const shared_ptr<PreintegrationParams>& params) {
-  const InitialCovarianceOptions initialCovariance{
-      initialNavCovariance(), initialBiasCovariance()};
-  const auto result = evaluateWindow<PIMType>(window, params, initialCovariance);
+  const InitialCovarianceOptions initialCovariance{initialNavCovariance(),
+                                                   initialBiasCovariance()};
+  const auto result =
+      evaluateWindow<PIMType>(window, params, initialCovariance);
   return result ? optional<double>(result->normalizedNees) : nullopt;
 }
 
@@ -141,61 +142,102 @@ Summary runStandardNormalizedNees(const vector<Window>& windows) {
 
   return summarizeNormalizedNees(normalizedNeesValues);
 }
+
+struct AppOptions {
+  size_t maxIntervals = 0;
+};
+
+struct Row {
+  string dataset;
+  double interval = 0.0;
+  size_t samplesPerWindow = 0;
+  size_t quadratureNodes = 0;
+  Summary quadrature;
+  Summary manifold;
+  Summary tangent;
+};
+
+void printUsage(const char* programName) {
+  cout << "Usage: " << programName
+       << " [--data-dir <path>] [--dataset <name>] [--max-intervals <count>]\n";
+  cout << "  --data-dir <path>       Dataset directory (default: "
+          "../data/euroc/)\n";
+  cout << "  --dataset <name>        Restrict to one dataset (e.g. MH01 or "
+          "euroc_MH01.csv)\n";
+  cout << "  --max-intervals <count> Restrict to first N default intervals\n";
+}
+
+AppOptions parseAppArguments(const vector<string>& arguments,
+                             const char* programName) {
+  for (const string& argument : arguments) {
+    if (isHelpArgument(argument)) {
+      printUsage(programName);
+      std::exit(0);
+    }
+  }
+  return {parseMaxIntervalsArgument(arguments)};
+}
+
+struct RunForDataset {
+  explicit RunForDataset(vector<double> intervals)
+      : intervals(std::move(intervals)) {}
+
+  vector<double> intervals;
+  vector<Row> rows;
+
+  void operator()(const string& datasetName, const Dataset& dataset) {
+    for (double intervalSeconds : intervals) {
+      const size_t m = dataset.stepsForInterval(intervalSeconds);
+      const size_t N = max<size_t>(
+          3, static_cast<size_t>(floor(sqrt(static_cast<double>(m)))));
+
+      // Compare the prior-aware normalized-NEES score across all three
+      // methods.
+      const auto windows = dataset.completeWindows(m);
+      Row row;
+      row.dataset = datasetName;
+      row.interval = intervalSeconds;
+      row.samplesPerWindow = m;
+      row.quadratureNodes = N;
+      row.quadrature = runQuadratureNormalizedNees(windows, N);
+      row.manifold = runStandardNormalizedNees<PIMManifold>(windows);
+      row.tangent = runStandardNormalizedNees<PIMTangent>(windows);
+      rows.push_back(row);
+    }
+  }
+};
 }  // namespace
 
 int main(int argc, char* argv[]) {
-  try {
-    // Resolve the datasets and interval subset requested on the command line.
-    const AppCliOptions options = parseDatasetAppCliOptions(argc, argv);
-    const vector<pair<string, string>> discoveredDatasets =
-        discoverFilteredDatasets(options.dataDirectory, DatasetFilters::all);
-    const vector<pair<string, string>> datasets =
-        selectDatasets(discoveredDatasets, options.datasetName);
+  // Resolve the datasets and interval subset requested on the command line.
+  const auto datasetCli = resolveDatasetAppCli(argc, argv);
+  const AppOptions appOptions =
+      parseAppArguments(datasetCli.remainingArgs, argv[0]);
 
-    if (datasets.empty()) {
-      cerr << "No datasets found in " << options.dataDirectory << "\n";
-      return 1;
-    }
+  const vector<double> defaultIntervals = defaultQuadratureIntervals();
+  const vector<double> intervals =
+      selectIntervals(defaultIntervals, appOptions.maxIntervals);
 
-    const vector<double> defaultIntervals = defaultQuadratureIntervals();
-    const vector<double> intervals =
-        selectIntervals(defaultIntervals, options.maxIntervals);
+  // Print a compact one-table summary comparing normalized NEES.
+  cout << "# Quadrature vs Manifold vs Tangent normalized NEES\n";
+  cout << "# alpha=" << kAlpha << " sigma_gyro=" << kSigmaGyro
+       << " sigma_acc=" << kSigmaAcc << "\n\n";
+  cout << "| dataset | dt(s) | m | N | Quadrature | Manifold | Tangent |\n";
+  cout << "|---|---:|---:|---:|---:|---:|---:|\n";
 
-    // Print a compact one-table summary comparing normalized NEES.
-    cout << "# Quadrature vs Manifold vs Tangent normalized NEES\n";
-    cout << "# alpha=" << kAlpha << " sigma_gyro=" << kSigmaGyro
-         << " sigma_acc=" << kSigmaAcc << "\n\n";
-    cout << "| dataset | dt(s) | m | N | Quadrature | Manifold | Tangent |\n";
-    cout << "|---|---:|---:|---:|---:|---:|---:|\n";
-
-    for (const auto& datasetEntry : datasets) {
-      const string& datasetPath = datasetEntry.second;
-      Dataset dataset(datasetPath);
-      if (dataset.truth.size() < 2) continue;
-      const string& datasetName = datasetEntry.first;
-
-      for (double intervalSeconds : intervals) {
-        const size_t m = dataset.stepsForInterval(intervalSeconds);
-        const size_t N = max<size_t>(
-            3, static_cast<size_t>(floor(sqrt(static_cast<double>(m)))));
-
-        // Compare the prior-aware normalized-NEES score across all three
-        // methods.
-        const auto windows = dataset.completeWindows(m);
-        const Summary quadrature = runQuadratureNormalizedNees(windows, N);
-        const Summary manifold = runStandardNormalizedNees<PIMManifold>(windows);
-        const Summary tangent = runStandardNormalizedNees<PIMTangent>(windows);
-
-        cout << "| " << datasetName << " | " << fixed << setprecision(1)
-             << intervalSeconds << " | " << m << " | " << N << " | "
-             << setprecision(3) << quadrature.normalizedNeesMedian << " | "
-             << manifold.normalizedNeesMedian << " | "
-             << tangent.normalizedNeesMedian << " |\n";
-      }
-    }
-    return 0;
-  } catch (const exception& error) {
-    cerr << "Error: " << error.what() << "\n";
-    return 1;
+  RunForDataset runner(intervals);
+  const int status = runForDatasets(datasetCli, runner);
+  if (status != 0) {
+    return status;
   }
+
+  for (const auto& row : runner.rows) {
+    cout << "| " << row.dataset << " | " << fixed << setprecision(1)
+         << row.interval << " | " << row.samplesPerWindow << " | "
+         << row.quadratureNodes << " | " << setprecision(3)
+         << row.quadrature.normalizedNeesMedian << " | "
+         << row.manifold.normalizedNeesMedian << " | "
+         << row.tangent.normalizedNeesMedian << " |\n";
+  }
+  return 0;
 }
