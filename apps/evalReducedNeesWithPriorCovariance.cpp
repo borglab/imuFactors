@@ -14,10 +14,8 @@
  */
 
 #include <gtsam/base/Vector.h>
-#include <gtsam/inference/Symbol.h>
 #include <gtsam/navigation/ImuFactor.h>
 #include <gtsam/navigation/ManifoldPreintegration.h>
-#include <gtsam/navigation/QuadratureImuFactor.h>
 #include <gtsam/navigation/TangentPreintegration.h>
 
 #include <cmath>
@@ -38,13 +36,8 @@ using namespace gtsam;
 using namespace std;
 
 using PIMQuadrature = PreintegratedImuMeasurementsQ;
-using QuadratureImuFactor = ImuFactorT<PreintegratedImuMeasurementsQ>;
 using PIMTangent = PreintegratedImuMeasurementsT<TangentPreintegration>;
 using PIMManifold = PreintegratedImuMeasurementsT<ManifoldPreintegration>;
-
-using symbol_shorthand::B;
-using symbol_shorthand::V;
-using symbol_shorthand::X;
 
 namespace {
 
@@ -98,93 +91,23 @@ Summary summarizeNormalizedNees(const vector<double>& normalizedNeesValues) {
   return summary;
 }
 
-Vector9 computeQuadratureDeltaForBias(
-    const Window& window, const shared_ptr<PreintegrationParams>& params,
-    size_t quadratureOrder, const imuBias::ConstantBias& bias) {
-  // Convert quadrature's preintegrated state into the 9D residual space used by
-  // NEES.
-  const auto preintegrated =
-      buildPreintegrated<PIMQuadrature>(window, params, bias, quadratureOrder);
-
-  Vector9 delta;
-  delta << preintegrated.deltaRij().logmap(Rot3()), preintegrated.deltaPij(),
-      preintegrated.deltaVij();
-  return delta;
-}
-
 optional<double> computeQuadratureNormalizedNeesForWindow(
     const Window& window, const shared_ptr<PreintegrationParams>& params,
     size_t N) {
-  const imuBias::ConstantBias& initialBias = window.initialTruth().bias;
-  // Start from the nominal quadrature preintegration at the ground-truth bias.
-  auto preintegrated =
-      buildPreintegrated<PIMQuadrature>(window, params, initialBias, N);
-
-  // Approximate the bias Jacobian numerically because the quadrature path does
-  // not expose it.
-  constexpr double kBiasPerturbation = 1e-5;
-  Matrix96 biasJacobian;
-  const Vector6 biasVector = initialBias.vector();
-  for (int column = 0; column < 6; ++column) {
-    Vector6 plusBias = biasVector;
-    Vector6 minusBias = biasVector;
-    plusBias(column) += kBiasPerturbation;
-    minusBias(column) -= kBiasPerturbation;
-
-    const Vector9 deltaPlus = computeQuadratureDeltaForBias(
-        window, params, N,
-        imuBias::ConstantBias(plusBias.head<3>(), plusBias.tail<3>()));
-    const Vector9 deltaMinus = computeQuadratureDeltaForBias(
-        window, params, N,
-        imuBias::ConstantBias(minusBias.head<3>(), minusBias.tail<3>()));
-    biasJacobian.col(column) =
-        (deltaPlus - deltaMinus) / (2.0 * kBiasPerturbation);
-  }
-
-  // Fold initial state and bias cov into covariance before scoring NEES.
-  preintegrated.setInitialCovariance(initialNavCovariance() +
-                                     biasJacobian * initialBiasCovariance() *
-                                         biasJacobian.transpose());
-
-  QuadratureImuFactor factor(X(1), V(1), X(2), V(2), B(1), preintegrated);
-  const Vector9 error = factor.evaluateError(
-      window.initialTruth().navState.pose(),
-      window.initialTruth().navState.velocity(),
-      window.terminalTruth().navState.pose(),
-      window.terminalTruth().navState.velocity(), initialBias);
-  const auto normalizedNees =
-      normalizedNEES(error, preintegrated.preintMeasCov(), 9.0);
-  if (!normalizedNees || !std::isfinite(*normalizedNees)) {
-    return nullopt;
-  }
-  return *normalizedNees;
+  const InitialCovarianceOptions initialCovariance{
+      initialNavCovariance(), initialBiasCovariance()};
+  const auto result =
+      evaluateWindow<PIMQuadrature>(window, params, initialCovariance, N);
+  return result ? optional<double>(result->normalizedNees) : nullopt;
 }
 
 template <class PIMType>
 optional<double> computeStandardNormalizedNeesForWindow(
     const Window& window, const shared_ptr<PreintegrationParams>& params) {
-  const imuBias::ConstantBias& initialBias = window.initialTruth().bias;
-  // Start from the nominal standard preintegration at the ground-truth bias.
-  auto preintegrated = buildPreintegrated<PIMType>(window, params, initialBias);
-
-  // Standard preintegration provides the bias Jacobian directly.
-  Matrix96 biasJacobian;
-  preintegrated.biasCorrectedDelta(initialBias, biasJacobian);
-  const Matrix9 totalCovariance =
-      preintegrated.preintMeasCov() + initialNavCovariance() +
-      biasJacobian * initialBiasCovariance() * biasJacobian.transpose();
-  preintegrated.setPreintMeasCov(totalCovariance);
-
-  ImuFactor2T<PIMType> factor(X(1), X(2), B(1), preintegrated);
-  const Vector9 error =
-      factor.evaluateError(window.initialTruth().navState,
-                           window.terminalTruth().navState, initialBias);
-  const auto normalizedNees =
-      normalizedNEES(error, preintegrated.preintMeasCov(), 9.0);
-  if (!normalizedNees || !std::isfinite(*normalizedNees)) {
-    return nullopt;
-  }
-  return *normalizedNees;
+  const InitialCovarianceOptions initialCovariance{
+      initialNavCovariance(), initialBiasCovariance()};
+  const auto result = evaluateWindow<PIMType>(window, params, initialCovariance);
+  return result ? optional<double>(result->normalizedNees) : nullopt;
 }
 
 Summary runQuadratureNormalizedNees(const vector<Window>& windows,

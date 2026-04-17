@@ -14,10 +14,8 @@
  */
 
 #include <gtsam/base/Vector.h>
-#include <gtsam/inference/Symbol.h>
 #include <gtsam/navigation/ImuFactor.h>
 #include <gtsam/navigation/ManifoldPreintegration.h>
-#include <gtsam/navigation/QuadratureImuFactor.h>
 #include <gtsam/navigation/TangentPreintegration.h>
 
 #include <cmath>
@@ -38,13 +36,8 @@ using namespace gtsam;
 using namespace std;
 
 using PIMQuadrature = PreintegratedImuMeasurementsQ;
-using QuadratureImuFactor = ImuFactorT<PreintegratedImuMeasurementsQ>;
 using PIMTangent = PreintegratedImuMeasurementsT<TangentPreintegration>;
 using PIMManifold = PreintegratedImuMeasurementsT<ManifoldPreintegration>;
-
-using symbol_shorthand::B;
-using symbol_shorthand::V;
-using symbol_shorthand::X;
 
 namespace {
 
@@ -74,22 +67,11 @@ struct Summary {
   size_t nodeCount = 0;
 };
 
-// Raw per-window measurements before they are collapsed into medians.
-struct MethodSample {
-  double normalizedNees = 0.0;
-  double rotErrorNorm = 0.0;
-  double rotPredSigma = 0.0;
-  double posErrorNorm = 0.0;
-  double posPredSigma = 0.0;
-  double velErrorNorm = 0.0;
-  double velPredSigma = 0.0;
-};
-
 // Hold all samples for one method and summarize them in one place.
 struct MethodSamples {
-  vector<MethodSample> values;
+  vector<WindowResult> values;
 
-  void append(const MethodSample& sample) { values.push_back(sample); }
+  void append(const WindowResult& sample) { values.push_back(sample); }
 
   Summary summarize(size_t nodeCount = 0) const;
 };
@@ -111,12 +93,6 @@ shared_ptr<PreintegrationParams> createPreintegrationParams() {
   params->gyroscopeCovariance = I_3x3 * kSigmaGyro * kSigmaGyro;
   params->integrationCovariance = I_3x3 * 1e-8;
   return params;
-}
-
-double covarianceBlockSigma(const Matrix9& covariance, int blockStart) {
-  // Convert a 3x3 covariance block into a scalar sigma proxy via RMS variance.
-  return std::sqrt(std::max(
-      0.0, covariance.block<3, 3>(blockStart, blockStart).trace() / 3.0));
 }
 
 NeesStats summarizeNormalizedNees(const vector<double>& normalizedNeesValues) {
@@ -152,82 +128,22 @@ Summary MethodSamples::summarize(size_t nodeCount) const {
   };
 
   const vector<double> normalizedNeesValues =
-      project(&MethodSample::normalizedNees);
+      project(&WindowResult::normalizedNees);
   summary.nees = summarizeNormalizedNees(normalizedNeesValues);
   summary.rotErrorMedian =
-      summarizeMedian(project(&MethodSample::rotErrorNorm));
+      summarizeMedian(project(&WindowResult::rotErrorNorm));
   summary.rotPredSigmaMedian =
-      summarizeMedian(project(&MethodSample::rotPredSigma));
+      summarizeMedian(project(&WindowResult::rotPredSigma));
   summary.posErrorMedian =
-      summarizeMedian(project(&MethodSample::posErrorNorm));
+      summarizeMedian(project(&WindowResult::posErrorNorm));
   summary.posPredSigmaMedian =
-      summarizeMedian(project(&MethodSample::posPredSigma));
+      summarizeMedian(project(&WindowResult::posPredSigma));
   summary.velErrorMedian =
-      summarizeMedian(project(&MethodSample::velErrorNorm));
+      summarizeMedian(project(&WindowResult::velErrorNorm));
   summary.velPredSigmaMedian =
-      summarizeMedian(project(&MethodSample::velPredSigma));
+      summarizeMedian(project(&WindowResult::velPredSigma));
   summary.samples = summary.nees.samples;
   return summary;
-}
-
-MethodSample makeMethodSample(const Vector9& error, const Matrix9& covariance,
-                              double normalizedNees) {
-  MethodSample sample;
-  sample.normalizedNees = normalizedNees;
-  sample.rotErrorNorm = error.head<3>().norm();
-  sample.rotPredSigma = covarianceBlockSigma(covariance, 0);
-  sample.posErrorNorm = error.segment<3>(3).norm();
-  sample.posPredSigma = covarianceBlockSigma(covariance, 3);
-  sample.velErrorNorm = error.tail<3>().norm();
-  sample.velPredSigma = covarianceBlockSigma(covariance, 6);
-  return sample;
-}
-
-optional<MethodSample> analyzeQuadratureWindow(
-    const Window& window, const shared_ptr<PreintegrationParams>& params,
-    size_t N) {
-  // Run quadrature preintegration on one window and close the integration
-  // interval.
-  const PIMQuadrature preintegrated = buildPreintegrated<PIMQuadrature>(
-      window, params, window.initialTruth().bias, N);
-
-  // Evaluate the factor at ground truth to get the residual and predicted
-  // covariance.
-  const Matrix9 covariance = preintegrated.preintMeasCov();
-  QuadratureImuFactor factor(X(1), V(1), X(2), V(2), B(1), preintegrated);
-  const Vector9 error = factor.evaluateError(
-      window.initialTruth().navState.pose(),
-      window.initialTruth().navState.velocity(),
-      window.terminalTruth().navState.pose(),
-      window.terminalTruth().navState.velocity(), window.initialTruth().bias);
-
-  const auto normalizedNees = normalizedNEES(error, covariance, 9.0);
-  if (!normalizedNees || !std::isfinite(*normalizedNees)) {
-    return nullopt;
-  }
-  return makeMethodSample(error, covariance, *normalizedNees);
-}
-
-template <class PIMType>
-optional<MethodSample> analyzeStandardWindow(
-    const Window& window, const shared_ptr<PreintegrationParams>& params) {
-  // Run the standard manifold or tangent preintegration on one window.
-  const PIMType preintegrated =
-      buildPreintegrated<PIMType>(window, params, window.initialTruth().bias);
-
-  // The standard factor exposes the same 9D residual, so we summarize it
-  // identically.
-  ImuFactor2T<PIMType> factor(X(1), X(2), B(1), preintegrated);
-  const Vector9 error = factor.evaluateError(window.initialTruth().navState,
-                                             window.terminalTruth().navState,
-                                             window.initialTruth().bias);
-  const Matrix9 covariance = preintegrated.preintMeasCov();
-
-  const auto normalizedNees = normalizedNEES(error, covariance, 9.0);
-  if (!normalizedNees || !std::isfinite(*normalizedNees)) {
-    return nullopt;
-  }
-  return makeMethodSample(error, covariance, *normalizedNees);
 }
 
 Summary runQuadratureNees(const vector<Window>& windows,
@@ -237,8 +153,8 @@ Summary runQuadratureNees(const vector<Window>& windows,
 
   // Accumulate one sample per valid window for the quadrature method.
   for (const auto& window : windows) {
-    const auto sample =
-        analyzeQuadratureWindow(window, params, quadratureNodes);
+    const auto sample = evaluateWindow<PIMQuadrature>(
+        window, params, std::nullopt, quadratureNodes);
     if (sample) samples.append(*sample);
   }
 
@@ -252,7 +168,7 @@ Summary runStandardNees(const vector<Window>& windows) {
 
   // Accumulate one sample per valid window for the chosen standard method.
   for (const auto& window : windows) {
-    const auto sample = analyzeStandardWindow<PIMType>(window, params);
+    const auto sample = evaluateWindow<PIMType>(window, params);
     if (sample) samples.append(*sample);
   }
 
