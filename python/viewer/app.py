@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 from pathlib import Path
 from typing import Any
 
@@ -172,6 +173,12 @@ WINDOW_COMPARISON_INDEX_COLUMNS = [
     ("sample_count", "Sample Count"),
 ]
 
+WINDOW_METRICS_CLOSE_TO_ONE = {
+    "normalized_nees_mean",
+    "normalized_nees_median",
+    "normalized_nees_p95",
+}
+
 
 def _method_sort_key(method: str) -> tuple[int, str]:
     preferred_order = {
@@ -188,15 +195,40 @@ def _pretty_method_name(method: str) -> str:
     return method.replace("_", " ").title()
 
 
+def _format_significant_digits(value: Any, digits: int = 4) -> Any:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if pd.isna(value):
+        return ""
+    if isinstance(value, (int, float)):
+        return format(float(value), f".{digits}g")
+    return value
+
+
+def _metric_score(metric: str, value: Any) -> float | None:
+    if value is None or pd.isna(value):
+        return None
+    numeric_value = float(value)
+    if metric in WINDOW_METRICS_CLOSE_TO_ONE:
+        return abs(numeric_value - 1.0)
+    return numeric_value
+
+
+def _is_same_score(left: float, right: float) -> bool:
+    return math.isclose(left, right, rel_tol=1e-9, abs_tol=1e-12)
+
+
 def _build_window_method_comparison(
     rows: list[dict[str, Any]], metric_group: str
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     if not rows:
-        return [], []
+        return [], [], []
 
     frame = pd.DataFrame(rows)
     if frame.empty or "method" not in frame.columns:
-        return [], []
+        return [], [], []
 
     metrics = [
         metric
@@ -204,20 +236,20 @@ def _build_window_method_comparison(
         if metric in frame.columns
     ]
     if not metrics:
-        return [], []
+        return [], [], []
 
     index_columns = [column for column, _label in WINDOW_COMPARISON_INDEX_COLUMNS if column in frame.columns]
     if not index_columns:
-        return [], []
+        return [], [], []
 
     method_names = sorted(frame["method"].dropna().unique().tolist(), key=_method_sort_key)
     if not method_names:
-        return [], []
+        return [], [], []
 
     grouped = frame[index_columns + ["method", *metrics]].copy()
     pivot = grouped.pivot_table(index=index_columns, columns="method", values=metrics, aggfunc="first")
     if pivot.empty:
-        return [], []
+        return [], [], []
 
     columns: list[dict[str, Any]] = []
     for column, label in WINDOW_COMPARISON_INDEX_COLUMNS:
@@ -232,23 +264,54 @@ def _build_window_method_comparison(
                 {
                     "name": [metric_label, _pretty_method_name(method_name)],
                     "id": column_id,
-                    "type": "numeric",
                 }
             )
 
     comparison_rows: list[dict[str, Any]] = []
+    style_rules: list[dict[str, Any]] = []
     for index_values, series in pivot.iterrows():
         if not isinstance(index_values, tuple):
             index_values = (index_values,)
         row: dict[str, Any] = {
             index_columns[index]: index_values[index] for index in range(len(index_columns))
         }
+        row_index = len(comparison_rows)
         for metric in metrics:
+            metric_scores: list[tuple[str, float]] = []
             for method_name in method_names:
-                row[f"{metric}__{method_name}"] = series.get((metric, method_name))
+                column_id = f"{metric}__{method_name}"
+                value = series.get((metric, method_name))
+                row[column_id] = _format_significant_digits(value)
+                score = _metric_score(metric, value)
+                if score is not None:
+                    metric_scores.append((column_id, score))
+
+            if metric_scores:
+                best_score = min(score for _column_id, score in metric_scores)
+                second_best_score = next(
+                    (
+                        score
+                        for score in sorted(score for _column_id, score in metric_scores)
+                        if not _is_same_score(score, best_score)
+                    ),
+                    None,
+                )
+                for column_id, score in metric_scores:
+                    if _is_same_score(score, best_score):
+                        style_rules.append(
+                            {"if": {"row_index": row_index, "column_id": column_id}, "fontWeight": "700"}
+                        )
+                    elif second_best_score is not None and _is_same_score(score, second_best_score):
+                        style_rules.append(
+                            {
+                                "if": {"row_index": row_index, "column_id": column_id},
+                                "textDecoration": "underline",
+                                "textDecorationThickness": "2px",
+                            }
+                        )
         comparison_rows.append(row)
 
-    return columns, comparison_rows
+    return columns, comparison_rows, style_rules
 
 
 def _resolve_compare_paths(selected_path: str | None, compare_paths: list[str] | None) -> list[str]:
@@ -445,6 +508,7 @@ def create_dash_app(results_root: str | Path = "build/results") -> Dash:
         Output("window-comparison-message", "children"),
         Output("window-method-compare-table", "columns"),
         Output("window-method-compare-table", "data"),
+        Output("window-method-compare-table", "style_data_conditional"),
         Input("selected-run-store", "data"),
         Input("window-comparison-metric-set", "value"),
         Input("window-dataset-filter", "value"),
@@ -459,17 +523,17 @@ def create_dash_app(results_root: str | Path = "build/results") -> Dash:
         selected_methods: list[Any] | None,
         selected_configs: list[Any] | None,
         selected_intervals: list[Any] | None,
-    ) -> tuple[Any, Any, Any, Any, Any, Any, Any, Any]:
+    ) -> tuple[Any, Any, Any, Any, Any, Any, Any, Any, Any]:
         if not run_payload:
             message = empty_state("Select a run to inspect window summaries.")
-            return [], [], [], [], message, message, [], []
+            return [], [], [], [], message, message, [], [], []
 
         rows = run_payload["window_rows"]
         if not rows:
             message = empty_state(
                 "This run has no populated window summary rows. Detailed views and graphs are planned next."
             )
-            return [], [], [], [], message, message, [], []
+            return [], [], [], [], message, message, [], [], []
 
         filtered_rows = _filter_rows(
             rows,
@@ -480,7 +544,7 @@ def create_dash_app(results_root: str | Path = "build/results") -> Dash:
                 "interval_seconds": selected_intervals or [],
             },
         )
-        comparison_columns, comparison_rows = _build_window_method_comparison(
+        comparison_columns, comparison_rows, comparison_styles = _build_window_method_comparison(
             filtered_rows, comparison_metric_set
         )
 
@@ -506,6 +570,7 @@ def create_dash_app(results_root: str | Path = "build/results") -> Dash:
             comparison_message,
             comparison_columns,
             comparison_rows,
+            comparison_styles,
         )
 
     @callback(

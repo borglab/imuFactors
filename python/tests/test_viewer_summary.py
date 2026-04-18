@@ -238,6 +238,7 @@ class ViewerSummaryTests(unittest.TestCase):
                 "sample_count": 400,
                 "method": "quadrature",
                 "normalized_nees_mean": 0.0240659,
+                "normalized_nees_median": 0.0187926,
                 "rot_error_median": 0.0011,
                 "pos_error_median": 0.0022,
                 "vel_error_median": 0.0033,
@@ -250,6 +251,7 @@ class ViewerSummaryTests(unittest.TestCase):
                 "sample_count": 400,
                 "method": "manifold",
                 "normalized_nees_mean": 0.0189061,
+                "normalized_nees_median": 0.0151347,
                 "rot_error_median": 0.0010,
                 "pos_error_median": 0.0021,
                 "vel_error_median": 0.0031,
@@ -262,19 +264,30 @@ class ViewerSummaryTests(unittest.TestCase):
                 "sample_count": 400,
                 "method": "tangent",
                 "normalized_nees_mean": 0.0189061,
+                "normalized_nees_median": 0.0151347,
                 "rot_error_median": 0.0010,
                 "pos_error_median": 0.0021,
                 "vel_error_median": 0.0031,
             },
         ]
 
-        columns, comparison_rows = _build_window_method_comparison(rows, "core")
+        columns, comparison_rows, style_rules = _build_window_method_comparison(rows, "core")
         self.assertEqual(comparison_rows[0]["dataset"], "V102")
         self.assertIn("normalized_nees_mean__quadrature", comparison_rows[0])
         self.assertIn("normalized_nees_mean__manifold", comparison_rows[0])
         self.assertIn("normalized_nees_mean__tangent", comparison_rows[0])
         self.assertEqual(columns[0]["name"], ["Dataset", ""])
         self.assertEqual(columns[5]["name"], ["Normalized NEES Mean", "Quadrature"])
+        self.assertEqual(comparison_rows[0]["normalized_nees_mean__quadrature"], "0.02407")
+        self.assertEqual(comparison_rows[0]["rot_error_median__manifold"], "0.001")
+        self.assertIn(
+            {"if": {"row_index": 0, "column_id": "rot_error_median__manifold"}, "fontWeight": "700"},
+            style_rules,
+        )
+        self.assertIn(
+            {"if": {"row_index": 0, "column_id": "normalized_nees_mean__quadrature"}, "fontWeight": "700"},
+            style_rules,
+        )
 
 
 if __name__ == "__main__":
