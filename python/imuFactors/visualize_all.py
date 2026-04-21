@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
 """
-Comprehensive visualization script for imuFactors trajectory and NEES analysis.
-Generates interactive 3D trajectory plots, time series comparisons across preintegration times,
-and noise calibration analysis with best/worst alpha parameter comparisons.
+Complete Visualization Suite for imuFactors Trajectory Analysis
+
+Generates comprehensive visualizations for every discovered dataset:
+  - Static PNGs  (matplotlib)  → <output_dir>/<dataset>/
+  - Interactive HTML (Plotly)  → <output_dir>/<dataset>/html/
+
+The HTML figures support per-trace toggling via the legend so you can
+selectively show/hide individual preintegration intervals or ground truth.
 
 Usage:
-    python generate_all_visualizations.py [--build-dir PATH] [--output-dir PATH] [--datasets DATASET1 DATASET2 ...]
+    python generate_visualizations.py --build-dir ./build --output-dir ./visualizations
+    python generate_visualizations.py --datasets MH01 V202 --build-dir ./build
+    python generate_visualizations.py --no-png   # HTML only
+    python generate_visualizations.py --no-html  # PNG only
 """
 
 import os
@@ -13,550 +21,308 @@ import sys
 import argparse
 from pathlib import Path
 from typing import Optional, List, Dict
+import json
+import traceback
 
-# Add parent directories to path for imports
-project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
-# Import visualization functions
-try:
-    from imuFactors.vis import (
-        plot_3d_trajectory,
-        plot_position_timeseries,
-        plot_velocity_timeseries,
-        plot_orientation_timeseries,
-        plot_frequency_spectrum,
-        plot_displacement_timeseries,
-        plot_position_timeseries_from_build,
-        plot_3d_trajectory_from_build,
-        plot_best_worst_comparison,
-        plot_nees_timeseries,
-        plot_all_intervals_comparison,
-        plot_nees_comparison_matplotlib,
-        plot_alpha_parameters,
-        plot_nees_ratio,
-        generate_noise_calibration_report,
-    )
-    from imuFactors.vis.plotly_3d import (
-        plot_3d_trajectory as plot_3d_trajectory_plotly,
-        plot_position_timeseries_from_build as plot_position_timeseries_plotly,
-        plot_best_worst_comparison_plotly,
-        plot_nees_timeseries_plotly,
-        create_nees_summary_figure,
-    )
-    from imuFactors.vis.trajectory_loader import (
-        load_trajectory,
-        load_nees_summary,
-        discover_all_datasets,
-        discover_intervals,
-        TrajectoryData,
-        DEFAULT_BUILD_DIR,
-    )
-except ImportError as e:
-    print(f"Error: Could not import imuFactors visualization modules: {e}")
-    print("Make sure imuFactors is installed and PYTHONPATH is configured correctly.")
-    sys.exit(1)
+sys.path.insert(0, os.path.dirname(__file__))
+
+from imuFactors.vis.trajectory_loader import (
+    load_trajectory_from_build,
+    discover_all_datasets,
+    discover_intervals,
+    DEFAULT_BUILD_DIR,
+)
+
+from imuFactors.vis.matplotlib_visualizer import (
+    plot_position_multi_interval,
+    plot_velocity_multi_interval,
+    plot_acceleration_multi_interval,
+    plot_orientation_multi_interval,
+    plot_displacement_multi_interval,
+    plot_3d_trajectory_multi_interval,
+)
+
+from imuFactors.vis.plotly_3d import (
+    plot_3d_trajectory_multi_interval       as plotly_3d,
+    plot_position_timeseries_multi_interval  as plotly_position,
+    plot_velocity_timeseries_multi_interval  as plotly_velocity,
+    plot_acceleration_timeseries_multi_interval as plotly_acceleration,
+    plot_orientation_timeseries_multi_interval as plotly_orientation,
+    plot_displacement_timeseries_multi_interval as plotly_displacement,
+    save_html,
+)
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 
-class TrajectoryVisualizer:
-    """Main class for generating comprehensive trajectory and NEES visualizations."""
-    
-    def __init__(self, build_dir: str = DEFAULT_BUILD_DIR, output_dir: str = "."):
-        """
-        Initialize visualizer.
-        
-        Args:
-            build_dir: Path to build directory containing CSV files
-            output_dir: Directory to save output files
-        """
-        self.build_dir = build_dir
-        self.output_dir = output_dir
-        self.filter_name = "gal3"  # Default filter
-        
-        # Create output directory if it doesn't exist
-        Path(self.output_dir).mkdir(parents=True, exist_ok=True)
-        
-        print(f"✓ Output directory: {self.output_dir}")
-    
+# ---------------------------------------------------------------------------
+# Visualisation catalogue
+# ---------------------------------------------------------------------------
+
+# Each entry: (short_name, matplotlib_func, plotly_func)
+_VIS_CATALOGUE = [
+    ("3d_trajectory",       plot_3d_trajectory_multi_interval,    plotly_3d),
+    ("position",            plot_position_multi_interval,          plotly_position),
+    ("velocity",            plot_velocity_multi_interval,          plotly_velocity),
+    ("acceleration",        plot_acceleration_multi_interval,      plotly_acceleration),
+    ("orientation",         plot_orientation_multi_interval,       plotly_orientation),
+    ("displacement",        plot_displacement_multi_interval,      plotly_displacement),
+]
+
+
+# ---------------------------------------------------------------------------
+# Suite
+# ---------------------------------------------------------------------------
+
+class VisualizationSuite:
+    """Generate comprehensive trajectory visualizations (PNG + interactive HTML)."""
+
+    def __init__(
+        self,
+        build_dir: str = DEFAULT_BUILD_DIR,
+        output_dir: str = "visualizations",
+        generate_png: bool = True,
+        generate_html: bool = True,
+    ):
+        self.build_dir     = build_dir
+        self.output_dir    = Path(output_dir)
+        self.generate_png  = generate_png
+        self.generate_html = generate_html
+        self.filter_name   = "gal3"
+
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        self.results: Dict = {
+            "datasets": {},
+            "errors":   [],
+            "summary":  {"total": 0, "successful": 0, "failed": 0},
+        }
+
+        print("\n" + "=" * 80)
+        print("🚀  IMU FACTORS TRAJECTORY VISUALIZATION SUITE")
+        print("=" * 80)
+        print(f"  Build dir : {self.build_dir}")
+        print(f"  Output dir: {self.output_dir}")
+        print(f"  PNG        : {'yes' if generate_png  else 'no'}")
+        print(f"  HTML       : {'yes' if generate_html else 'no'}")
+        print()
+
+    # ------------------------------------------------------------------
     def discover_datasets(self) -> Dict[str, List[str]]:
-        """Discover all available datasets."""
+        print("📊 Discovering datasets …")
         datasets = discover_all_datasets(self.build_dir)
-        print(f"\n📊 Discovered datasets:")
-        for filter_name, dataset_list in datasets.items():
-            print(f"  {filter_name}: {', '.join(dataset_list)}")
+        for fn, ds_list in datasets.items():
+            if ds_list:
+                print(f"   ✓ {fn}: {', '.join(ds_list)}")
         return datasets
-    
-    def visualize_single_trajectory(
+
+    # ------------------------------------------------------------------
+    def visualize_dataset(
         self,
         dataset_name: str,
-        interval: str = "2s",
-        include_frequency: bool = True
-    ) -> Dict[str, str]:
+        intervals: Optional[List[str]] = None,
+    ) -> Dict[str, Dict[str, str]]:
         """
-        Generate all static matplotlib plots for a single trajectory.
-        
-        Args:
-            dataset_name: Name of dataset (e.g., "MH01")
-            interval: Preintegration interval (e.g., "2s", "5s", "10s")
-            include_frequency: Include frequency spectrum analysis
-            
+        Generate all PNG and/or HTML visualizations for one dataset.
+
         Returns:
-            Dict mapping plot type to file path
+            Dict  { vis_name: { "png": path, "html": path } }
         """
-        print(f"\n🔄 Processing {dataset_name} ({interval})...")
-        
-        # Load trajectory
-        traj = load_trajectory(
-            os.path.join(self.build_dir, f"{self.filter_name}_trajectory_{dataset_name}_{interval}.csv")
-        )
-        
-        if traj is None:
-            print(f"  ⚠ Could not load trajectory for {dataset_name}")
+        available = discover_intervals(dataset_name, self.filter_name, self.build_dir)
+        if not available:
+            print(f"  ⚠  No interval files found for {dataset_name}")
             return {}
-        
-        results = {}
-        
-        # Position time series
-        print(f"  ├─ Position time series...", end=" ", flush=True)
-        try:
-            save_path = os.path.join(
-                self.output_dir, 
-                f"position_timeseries_{dataset_name}_{interval}.png"
-            )
-            plot_position_timeseries(traj, save_path=save_path)
-            results['position'] = save_path
-            print("✓")
-        except Exception as e:
-            print(f"✗ ({e})")
-        
-        # Velocity time series
-        print(f"  ├─ Velocity time series...", end=" ", flush=True)
-        try:
-            save_path = os.path.join(
-                self.output_dir,
-                f"velocity_timeseries_{dataset_name}_{interval}.png"
-            )
-            plot_velocity_timeseries(traj, save_path=save_path)
-            results['velocity'] = save_path
-            print("✓")
-        except Exception as e:
-            print(f"✗ ({e})")
-        
-        # Orientation (RPY) time series
-        print(f"  ├─ Orientation (RPY) time series...", end=" ", flush=True)
-        try:
-            save_path = os.path.join(
-                self.output_dir,
-                f"orientation_timeseries_{dataset_name}_{interval}.png"
-            )
-            plot_orientation_timeseries(traj, save_path=save_path)
-            results['orientation'] = save_path
-            print("✓")
-        except Exception as e:
-            print(f"✗ ({e})")
-        
-        # Displacement (delta position)
-        print(f"  ├─ Displacement time series...", end=" ", flush=True)
-        try:
-            save_path = os.path.join(
-                self.output_dir,
-                f"displacement_timeseries_{dataset_name}_{interval}.png"
-            )
-            plot_displacement_timeseries(traj, save_path=save_path)
-            results['displacement'] = save_path
-            print("✓")
-        except Exception as e:
-            print(f"✗ ({e})")
-        
-        # Frequency spectrum
-        if include_frequency:
-            print(f"  ├─ Frequency spectrum...", end=" ", flush=True)
-            try:
-                save_path = os.path.join(
-                    self.output_dir,
-                    f"frequency_spectrum_{dataset_name}_{interval}.png"
-                )
-                plot_frequency_spectrum(traj, save_path=save_path)
-                results['frequency'] = save_path
-                print("✓")
-            except Exception as e:
-                print(f"✗ ({e})")
-        
+
+        ivs = intervals if intervals is not None else available
+
+        # Output directories
+        ds_dir      = self.output_dir / dataset_name
+        html_dir    = ds_dir / "html"
+        ds_dir.mkdir(exist_ok=True)
+        if self.generate_html:
+            html_dir.mkdir(exist_ok=True)
+
+        print(f"\n{'─' * 80}")
+        print(f"📈 Visualizing: {dataset_name}  (intervals: {', '.join(ivs)})")
+        print(f"{'─' * 80}")
+
+        results: Dict[str, Dict[str, str]] = {}
+
+        for short_name, mpl_func, plotly_func in _VIS_CATALOGUE:
+            entry: Dict[str, str] = {}
+
+            # ── PNG (matplotlib) ─────────────────────────────────────
+            if self.generate_png:
+                png_path = str(ds_dir / f"{short_name}.png")
+                label    = short_name.replace("_", " ").title()
+                print(f"  ├─ [PNG ] {label} …", end=" ", flush=True)
+                try:
+                    fig = mpl_func(
+                        dataset_name,
+                        filter_name=self.filter_name,
+                        build_dir=self.build_dir,
+                        intervals=ivs,
+                        save_path=png_path,
+                    )
+                    plt.close(fig)
+                    entry["png"] = png_path
+                    print("✓")
+                except Exception as exc:
+                    print("✗")
+                    self._record_error(dataset_name, f"PNG/{short_name}", exc)
+
+            # ── HTML (Plotly) ─────────────────────────────────────────
+            if self.generate_html:
+                html_path = str(html_dir / f"{short_name}.html")
+                label     = short_name.replace("_", " ").title()
+                print(f"  ├─ [HTML] {label} …", end=" ", flush=True)
+                try:
+                    fig = plotly_func(
+                        dataset_name,
+                        filter_name=self.filter_name,
+                        build_dir=self.build_dir,
+                        intervals=ivs,
+                        save_path=html_path,
+                    )
+                    entry["html"] = html_path
+                    print("✓")
+                except Exception as exc:
+                    print("✗")
+                    self._record_error(dataset_name, f"HTML/{short_name}", exc)
+
+            if entry:
+                results[short_name] = entry
+
         return results
-    
-    def visualize_multi_interval_comparison(
-        self,
-        dataset_name: str,
-        intervals: Optional[List[str]] = None
-    ) -> Dict[str, str]:
-        """
-        Generate comparison plots across multiple preintegration intervals.
-        
-        Args:
-            dataset_name: Dataset name
-            intervals: List of intervals to compare (default: ["2s", "5s", "10s"])
-            
-        Returns:
-            Dict mapping plot type to file path
-        """
-        if intervals is None:
-            intervals = ["2s", "5s", "10s"]
-        
-        print(f"\n📈 Multi-interval comparison for {dataset_name}...")
-        
-        results = {}
-        
-        # Position comparison across intervals
-        print(f"  ├─ Position comparison ({', '.join(intervals)})...", end=" ", flush=True)
-        try:
-            save_path = os.path.join(
-                self.output_dir,
-                f"position_comparison_{dataset_name}.png"
-            )
-            plot_position_timeseries_from_build(
-                dataset_name,
-                self.filter_name,
-                self.build_dir,
-                intervals=intervals,
-                save_path=save_path
-            )
-            results['position_multi'] = save_path
-            print("✓")
-        except Exception as e:
-            print(f"✗ ({e})")
-        
-        # All intervals comparison
-        print(f"  └─ All interval comparisons...", end=" ", flush=True)
-        try:
-            figs = plot_all_intervals_comparison(
-                dataset_name,
-                self.filter_name,
-                self.build_dir,
-                save_dir=self.output_dir
-            )
-            results['all_intervals'] = len(figs)
-            print(f"✓ ({len(figs)} figures)")
-        except Exception as e:
-            print(f"✗ ({e})")
-        
-        return results
-    
-    def visualize_best_worst_comparison(
-        self,
-        dataset_name: str
-    ) -> Dict[str, str]:
-        """
-        Generate best vs worst noise calibration comparison.
-        
-        Args:
-            dataset_name: Dataset name
-            
-        Returns:
-            Dict mapping plot type to file path
-        """
-        print(f"\n🎯 Best vs Worst comparison for {dataset_name}...", end=" ", flush=True)
-        
-        try:
-            save_path = os.path.join(
-                self.output_dir,
-                f"best_worst_comparison_{dataset_name}.png"
-            )
-            plot_best_worst_comparison(
-                dataset_name,
-                self.filter_name,
-                self.build_dir,
-                save_path=save_path
-            )
-            print("✓")
-            return {'best_worst': save_path}
-        except Exception as e:
-            print(f"✗ ({e})")
-            return {}
-    
-    def visualize_nees_timeseries(
-        self,
-        dataset_name: str,
-        intervals: Optional[List[str]] = None
-    ) -> Dict[str, str]:
-        """
-        Generate NEES time series plots.
-        
-        Args:
-            dataset_name: Dataset name
-            intervals: List of intervals (default: ["2s", "5s", "10s"])
-            
-        Returns:
-            Dict mapping plot type to file path
-        """
-        if intervals is None:
-            intervals = ["2s", "5s", "10s"]
-        
-        print(f"\n📉 NEES time series for {dataset_name}...")
-        
-        results = {}
-        
-        for interval in intervals:
-            print(f"  ├─ NEES timeseries ({interval})...", end=" ", flush=True)
-            try:
-                save_path = os.path.join(
-                    self.output_dir,
-                    f"nees_timeseries_{dataset_name}_{interval}.png"
-                )
-                plot_nees_timeseries(
-                    dataset_name,
-                    self.filter_name,
-                    interval,
-                    self.build_dir,
-                    save_path=save_path
-                )
-                results[f'nees_{interval}'] = save_path
-                print("✓")
-            except Exception as e:
-                print(f"✗ ({e})")
-        
-        return results
-    
-    def generate_noise_calibration_report(
-        self,
-        nees_csv: str = "nees_summary.csv"
-    ) -> Dict[str, str]:
-        """
-        Generate noise calibration analysis report across all datasets.
-        
-        Args:
-            nees_csv: Path to NEES summary CSV
-            
-        Returns:
-            Dict mapping plot type to file path
-        """
-        print(f"\n🔬 Noise calibration analysis...")
-        
-        nees_summary = load_nees_summary(nees_csv)
-        
-        if nees_summary is None:
-            print(f"  ⚠ Could not load NEES summary from {nees_csv}")
-            return {}
-        
-        results = {}
-        
-        # NEES comparison
-        print(f"  ├─ NEES comparison...", end=" ", flush=True)
-        try:
-            save_path = os.path.join(self.output_dir, "nees_comparison.png")
-            plot_nees_comparison_matplotlib(nees_summary, save_path=save_path)
-            results['nees_comparison'] = save_path
-            print("✓")
-        except Exception as e:
-            print(f"✗ ({e})")
-        
-        # Alpha parameters
-        print(f"  ├─ Alpha parameters...", end=" ", flush=True)
-        try:
-            save_path = os.path.join(self.output_dir, "alpha_parameters.png")
-            plot_alpha_parameters(nees_summary, save_path=save_path)
-            results['alpha_parameters'] = save_path
-            print("✓")
-        except Exception as e:
-            print(f"✗ ({e})")
-        
-        # NEES ratio
-        print(f"  └─ NEES ratio (worst/best)...", end=" ", flush=True)
-        try:
-            save_path = os.path.join(self.output_dir, "nees_ratio.png")
-            plot_nees_ratio(nees_summary, save_path=save_path)
-            results['nees_ratio'] = save_path
-            print("✓")
-        except Exception as e:
-            print(f"✗ ({e})")
-        
-        return results
-    
-    def generate_plotly_visualizations(
-        self,
-        dataset_name: str,
-        intervals: Optional[List[str]] = None
-    ) -> Dict[str, str]:
-        """
-        Generate interactive Plotly HTML visualizations.
-        
-        Args:
-            dataset_name: Dataset name
-            intervals: List of intervals to compare
-            
-        Returns:
-            Dict mapping plot type to file path
-        """
-        if intervals is None:
-            intervals = ["2s", "5s", "10s"]
-        
-        print(f"\n🌐 Interactive Plotly visualizations for {dataset_name}...")
-        
-        results = {}
-        
-        # 3D trajectory comparison
-        print(f"  ├─ 3D trajectory comparison (interactive)...", end=" ", flush=True)
-        try:
-            fig = plot_position_timeseries_plotly(
-                dataset_name,
-                self.filter_name,
-                self.build_dir,
-                intervals=intervals,
-                title=f'Position Time Series @ 200Hz - {self.filter_name.upper()} - {dataset_name}'
-            )
-            save_path = os.path.join(
-                self.output_dir,
-                f"3d_trajectory_comparison_{dataset_name}_interactive.html"
-            )
-            fig.write_html(save_path)
-            results['3d_interactive'] = save_path
-            print("✓")
-        except Exception as e:
-            print(f"✗ ({e})")
-        
-        # Best/worst comparison (Plotly)
-        print(f"  ├─ Best vs worst comparison (interactive)...", end=" ", flush=True)
-        try:
-            fig = plot_best_worst_comparison_plotly(
-                dataset_name,
-                self.filter_name,
-                self.build_dir
-            )
-            save_path = os.path.join(
-                self.output_dir,
-                f"best_worst_comparison_{dataset_name}_interactive.html"
-            )
-            fig.write_html(save_path)
-            results['best_worst_interactive'] = save_path
-            print("✓")
-        except Exception as e:
-            print(f"✗ ({e})")
-        
-        # NEES time series (Plotly) for each interval
-        for interval in intervals:
-            print(f"  ├─ NEES time series - {interval} (interactive)...", end=" ", flush=True)
-            try:
-                fig = plot_nees_timeseries_plotly(
-                    dataset_name,
-                    self.filter_name,
-                    interval,
-                    self.build_dir
-                )
-                save_path = os.path.join(
-                    self.output_dir,
-                    f"nees_timeseries_{dataset_name}_{interval}_interactive.html"
-                )
-                fig.write_html(save_path)
-                results[f'nees_interactive_{interval}'] = save_path
-                print("✓")
-            except Exception as e:
-                print(f"✗ ({e})")
-        
-        return results
-    
-    def generate_comprehensive_report(
-        self,
-        datasets: Optional[List[str]] = None,
-        nees_csv: str = "nees_summary.csv"
-    ) -> None:
-        """
-        Generate complete visualization report for all datasets.
-        
-        Args:
-            datasets: List of datasets to visualize (auto-discover if None)
-            nees_csv: Path to NEES summary CSV
-        """
-        print("\n" + "="*80)
-        print("🚀 IMU FACTORS COMPREHENSIVE VISUALIZATION SUITE")
-        print("="*80)
-        
-        # Discover datasets if not provided
+
+    # ------------------------------------------------------------------
+    def generate_all(self, datasets: Optional[List[str]] = None) -> None:
         if datasets is None:
             discovered = self.discover_datasets()
-            datasets = discovered.get(self.filter_name, [])
-        
+            datasets   = discovered.get(self.filter_name, [])
+
         if not datasets:
-            print("⚠ No datasets found. Exiting.")
+            print("\n⚠  No datasets found.")
             return
-        
-        # Generate noise calibration report first
-        print("\n" + "-"*80)
-        calib_results = self.generate_noise_calibration_report(nees_csv)
-        
-        # Process each dataset
-        for i, dataset in enumerate(datasets, 1):
-            print("\n" + "-"*80)
-            print(f"DATASET {i}/{len(datasets)}: {dataset}")
-            print("-"*80)
-            
-            # Static matplotlib visualizations
-            self.visualize_single_trajectory(dataset, interval="2s")
-            self.visualize_multi_interval_comparison(dataset)
-            self.visualize_best_worst_comparison(dataset)
-            self.visualize_nees_timeseries(dataset)
-            
-            # Interactive Plotly visualizations
-            self.generate_plotly_visualizations(dataset)
-        
-        # Summary
-        print("\n" + "="*80)
-        print("✅ REPORT GENERATION COMPLETE!")
-        print("="*80)
-        print(f"\n📁 Output files saved to: {self.output_dir}")
-        print(f"\n📊 Generated visualizations:")
-        print(f"  • Static matplotlib plots (PNG)")
-        print(f"  • Interactive 3D trajectories (Plotly HTML)")
-        print(f"  • NEES time series analysis")
-        print(f"  • Noise calibration reports (best/worst alpha parameters)")
-        print(f"  • Frequency spectrum analysis")
-        print(f"  • Multi-interval comparisons across {len(datasets)} datasets")
-        print("\n")
+
+        self.results["summary"]["total"] = len(datasets)
+
+        for dataset_name in datasets:
+            try:
+                ds_results = self.visualize_dataset(dataset_name)
+                if ds_results:
+                    self.results["datasets"][dataset_name] = ds_results
+                    self.results["summary"]["successful"] += 1
+                else:
+                    self.results["summary"]["failed"] += 1
+            except Exception as exc:
+                self.results["summary"]["failed"] += 1
+                self._record_error(dataset_name, "dataset", exc)
+
+        self._print_summary()
+        self._save_manifest()
+
+    # ------------------------------------------------------------------
+    def _record_error(self, dataset: str, context: str, exc: Exception) -> None:
+        msg = f"{dataset}/{context}: {exc}"
+        self.results["errors"].append(msg)
+        print(f"     ↳ Error: {exc}")
+        traceback.print_exc()
+
+    # ------------------------------------------------------------------
+    def _print_summary(self) -> None:
+        s = self.results["summary"]
+        print("\n" + "=" * 80)
+        print("✅  VISUALIZATION COMPLETE")
+        print("=" * 80)
+        print(f"  Total:      {s['total']}")
+        print(f"  Successful: {s['successful']}")
+        print(f"  Failed:     {s['failed']}")
+
+        if self.results["datasets"]:
+            print("\n📁 Generated files:")
+            for ds, vis_dict in self.results["datasets"].items():
+                print(f"\n  {ds}:")
+                for vis_name, paths in vis_dict.items():
+                    for fmt, path in paths.items():
+                        print(f"    ✓ {vis_name} [{fmt.upper()}]")
+
+        if self.results["errors"]:
+            print(f"\n⚠  Errors ({len(self.results['errors'])}):")
+            for e in self.results["errors"]:
+                print(f"  • {e}")
+
+        print(f"\n📂 Output directory: {self.output_dir}\n")
+
+    # ------------------------------------------------------------------
+    def _save_manifest(self) -> None:
+        manifest_path = self.output_dir / "MANIFEST.json"
+        payload = {
+            "summary":    self.results["summary"],
+            "datasets":   self.results["datasets"],
+            "errors":     self.results["errors"],
+            "output_dir": str(self.output_dir),
+            "build_dir":  str(self.build_dir),
+        }
+        try:
+            with open(manifest_path, "w") as fh:
+                json.dump(payload, fh, indent=2)
+            print(f"✓ Manifest saved: {manifest_path}")
+        except Exception as exc:
+            print(f"✗ Could not save manifest: {exc}")
 
 
-def main():
-    """CLI entry point."""
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Generate comprehensive IMU trajectory and NEES visualizations",
+        description="Generate trajectory visualizations (PNG + interactive HTML)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Generate visualizations for all datasets
-  python generate_all_visualizations.py --build-dir ./build --output-dir ./plots
-  
-  # Visualize specific datasets
-  python generate_all_visualizations.py --datasets MH01 V202 --output-dir ./plots
-  
-  # Custom NEES summary file
-  python generate_all_visualizations.py --nees-csv results/nees_summary.csv
-        """
+  # All datasets, both PNG and HTML
+  python generate_visualizations.py --build-dir ./build --output-dir ./vis
+
+  # Specific datasets only
+  python generate_visualizations.py --datasets MH01 V202 --build-dir ./build
+
+  # Interactive HTML only (faster, no matplotlib dependency at runtime)
+  python generate_visualizations.py --no-png
+
+  # Static PNG only
+  python generate_visualizations.py --no-html
+        """,
     )
-    
-    parser.add_argument(
-        "--build-dir",
-        default=DEFAULT_BUILD_DIR,
-        help=f"Path to build directory (default: {DEFAULT_BUILD_DIR})"
-    )
-    parser.add_argument(
-        "--output-dir",
-        default="./trajectory_visualizations",
-        help="Directory to save visualizations (default: ./trajectory_visualizations)"
-    )
-    parser.add_argument(
-        "--datasets",
-        nargs="+",
-        help="Specific datasets to visualize (auto-discover if not provided)"
-    )
-    parser.add_argument(
-        "--nees-csv",
-        default="nees_summary.csv",
-        help="Path to NEES summary CSV (default: nees_summary.csv)"
-    )
-    
+
+    parser.add_argument("--build-dir",  default=DEFAULT_BUILD_DIR,
+                        help=f"Build directory (default: {DEFAULT_BUILD_DIR})")
+    parser.add_argument("--output-dir", default="visualizations",
+                        help="Output directory (default: visualizations)")
+    parser.add_argument("--datasets",   nargs="+",
+                        help="Specific datasets to visualize (auto-discover if omitted)")
+    parser.add_argument("--intervals",  nargs="+", default=None,
+                        help="Override intervals (default: auto-discover per dataset)")
+    parser.add_argument("--no-png",     action="store_true",
+                        help="Skip static PNG generation")
+    parser.add_argument("--no-html",    action="store_true",
+                        help="Skip interactive HTML generation")
+
     args = parser.parse_args()
-    
-    # Create visualizer
-    visualizer = TrajectoryVisualizer(args.build_dir, args.output_dir)
-    
-    # Generate report
-    visualizer.generate_comprehensive_report(args.datasets, args.nees_csv)
+
+    if args.no_png and args.no_html:
+        parser.error("--no-png and --no-html cannot both be set")
+
+    suite = VisualizationSuite(
+        build_dir=args.build_dir,
+        output_dir=args.output_dir,
+        generate_png=not args.no_png,
+        generate_html=not args.no_html,
+    )
+    suite.generate_all(datasets=args.datasets)
 
 
 if __name__ == "__main__":

@@ -16,7 +16,6 @@ from ..vis.trajectory_loader import (
     discover_trajectories,
     load_trajectory_from_build,
     load_best_worst_trajectories,
-    load_nees_timeseries,
     discover_intervals,
     load_nees_summary,
     DEFAULT_BUILD_DIR,
@@ -759,64 +758,6 @@ def plot_best_worst_comparison_plotly(
     fig.update_yaxes(title_text='Error (m)', row=1, col=2)
     fig.update_xaxes(title_text='X (m)', row=2, col=2)
     fig.update_yaxes(title_text='Y (m)', row=2, col=2, scaleanchor='x', scaleratio=1)
-    
-    return fig
-
-
-def plot_nees_timeseries_plotly(
-    dataset_name: str,
-    filter_name: str = "gal3",
-    interval: str = "2s",
-    build_dir: str = DEFAULT_BUILD_DIR,
-    title: Optional[str] = None
-) -> go.Figure:
-    """
-    Create interactive NEES time series plot.
-    
-    Args:
-        dataset_name: Dataset name
-        filter_name: Filter name
-        interval: Time interval
-        build_dir: Build directory
-        title: Optional custom title
-        
-    Returns:
-        Plotly Figure
-    """
-    nees_df = load_nees_timeseries(dataset_name, filter_name, interval, build_dir)
-    
-    if nees_df is None:
-        print(f"Warning: Could not load NEES data for {filter_name}_{dataset_name}_{interval}")
-        return go.Figure()
-    
-    if title is None:
-        title = f'NEES Time Series - {filter_name.upper()} - {dataset_name} ({interval})'
-    
-    fig = go.Figure()
-    
-    fig.add_trace(go.Scatter(
-        x=nees_df['timestamp'],
-        y=nees_df['nees'],
-        mode='lines',
-        name='NEES',
-        line=dict(color='#E63946', width=2),
-        hovertemplate='Time: %{x:.2f}s<br>NEES: %{y:.4f}<extra></extra>'
-    ))
-    
-    # Reference lines
-    fig.add_hline(y=1.0, line_dash="dash", line_color="green", 
-                  annotation_text="Optimal (NEES=1)")
-    fig.add_hline(y=3.0, line_dash="dash", line_color="orange", 
-                  annotation_text="Threshold (NEES=3)")
-    
-    fig.update_layout(
-        title=title,
-        xaxis_title='Time (s)',
-        yaxis_title='NEES',
-        height=500,
-        template='plotly_white',
-        hovermode='x unified'
-    )
     
     return fig
 
