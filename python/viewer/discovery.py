@@ -93,6 +93,8 @@ def _make_catalog_entry(run_dir: Path) -> RunCatalogEntry:
         repo_version=metadata.get("repo_version", ""),
         dataset_count=dataset_count,
         dataset_group_label=dataset_group_label,
+        has_window_metrics=_csv_has_rows(run_dir / "window_metrics.csv"),
+        has_trajectory_samples=_csv_has_rows(run_dir / "trajectory_samples.csv"),
         has_window_summaries=_csv_has_rows(run_dir / "window_summaries.csv"),
         has_calibration_summaries=_csv_has_rows(run_dir / "calibration_summaries.csv"),
     )

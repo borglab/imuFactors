@@ -228,18 +228,21 @@ From the repository root:
 
 ```bash
 python -m viewer.app
+python -m viewer.nees_app
 ```
 
 By default the viewer scans `build/results`. Override that with:
 
 ```bash
 python -m viewer.app --results-root build/ui_probe
+python -m viewer.nees_app --results-root build/ui_probe
 ```
 
 Optional flags:
 
 ```bash
 python -m viewer.app --results-root build/results --host 127.0.0.1 --port 8050
+python -m viewer.nees_app --results-root build/results --host 127.0.0.1 --port 8051
 ```
 
 ### What The MVP Shows
@@ -255,6 +258,13 @@ python -m viewer.app --results-root build/results --host 127.0.0.1 --port 8050
 
 The app treats zero-byte, missing, or header-only CSVs as intentional empty
 states where possible, so incomplete result packages do not crash the UI.
+
+The NEES diagnostics viewer adds:
+
+- normalized-NEES scatter and distribution views from `window_metrics.csv`
+- outlier-window selection for interval drill-down within one run
+- interval-detail plots from `trajectory_samples.csv` when a method exports rich trajectory diagnostics
+- covariance/correlation heatmaps and whitened 2D residual projections for the active interval
 
 ### Current MVP Limitations
 
