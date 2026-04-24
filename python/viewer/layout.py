@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from dash import dash_table, dcc, html
 
@@ -115,13 +116,17 @@ def build_data_table(table_id: str, merge_duplicate_headers: bool = False) -> da
     )
 
 
-def build_shell(catalog: list[RunCatalogEntry], results_root: Path) -> html.Div:
+def build_shell(
+    catalog: list[RunCatalogEntry],
+    results_root: Path,
+    catalog_data: list[dict[str, Any]] | None = None,
+) -> html.Div:
     options = [format_run_option(entry) for entry in catalog]
     default_value = options[0]["value"] if options else None
 
     return html.Div(
         [
-            dcc.Store(id="catalog-store"),
+            dcc.Store(id="catalog-store", data=catalog_data or []),
             dcc.Store(id="selected-run-store"),
             html.Div(
                 [

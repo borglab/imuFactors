@@ -384,7 +384,7 @@ def create_dash_app(results_root: str | Path = "build/results") -> Dash:
     catalog = discover_runs(results_root_path)
 
     app = Dash(__name__, title="imuFactors Summary Viewer")
-    app.layout = build_shell(catalog, results_root_path)
+    app.layout = build_shell(catalog, results_root_path, _serialize_catalog(catalog))
 
     @callback(
         Output("catalog-store", "data"),
