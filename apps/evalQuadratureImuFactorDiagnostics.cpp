@@ -26,21 +26,22 @@ using namespace std;
 
 namespace {
 
-constexpr double kAlpha = 8.4;
-constexpr double kSigmaGyro = kAlpha * 1.6968e-4;
-constexpr double kSigmaAcc = kAlpha * 2.0000e-3;
+constexpr double kDefaultAlpha = 8.4;
 }  // namespace
 
 int main(int argc, char* argv[]) {
   const auto datasetCli = resolveDatasetAppCli(argc, argv);
   const QuadratureAppOptions appOptions =
-      parseQuadratureAppArguments(datasetCli.remainingArgs, argv[0]);
+      parseQuadratureAppArguments(datasetCli.remainingArgs, argv[0],
+                                  kDefaultAlpha);
 
   return runDatasetApp(
       datasetCli, argc, argv,
       [&](ResultsWriter* writer, const std::string& datasetGroup) {
         return QuadratureRunner(appOptions, writer, datasetGroup,
-                                makePreintegrationParams(kSigmaGyro, kSigmaAcc),
+                                makePreintegrationParams(
+                                    appOptions.alpha * 1.6968e-4,
+                                    appOptions.alpha * 2.0000e-3),
                                 std::nullopt);
       });
 }
