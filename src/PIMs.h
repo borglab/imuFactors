@@ -87,8 +87,7 @@ inline PreintegratedImuMeasurementsQ
 buildPreintegrated<PreintegratedImuMeasurementsQ>(
     const Window& window, const std::shared_ptr<PreintegrationParams>& params,
     const imuBias::ConstantBias& bias, size_t N) {
-  (void)N;  // N is no longer used in constructor
-  PreintegratedImuMeasurementsQ preintegrated(params, bias);
+  PreintegratedImuMeasurementsQ preintegrated(params, bias, N);
   window.integrateMeasurements(preintegrated);
   preintegrated.endPreintegration(window.terminalTruth().timestamp -
                                   window.initialTruth().timestamp);
@@ -178,9 +177,7 @@ std::optional<WindowResult> evaluateWindow(
         preintegrated.preintMeasCov() + initialCovariance->navCovariance +
         biasJacobian * initialCovariance->biasCovariance *
             biasJacobian.transpose();
-    // Note: setPreintMeasCov removed in newer GTSAM
-    // Create new PIM with updated covariance using the constructor
-    preintegrated = PIMType(preintegrated, totalCovariance);
+    preintegrated.setPreintMeasCov(totalCovariance);
   }
 
   ImuFactor2T<PIMType> factor(symbol_shorthand::X(1), symbol_shorthand::X(2),
