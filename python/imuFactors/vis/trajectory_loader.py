@@ -70,7 +70,7 @@ def compute_acceleration(velocity: np.ndarray, timestamp: np.ndarray) -> np.ndar
         timestamp: N timestamp array
         
     Returns:
-        (N-2)x3 acceleration array
+        (N-1)x3 acceleration array
     """
     if len(velocity) < 2:
         return np.array([])

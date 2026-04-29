@@ -48,6 +48,9 @@ python -m imuFactors.visualize_all --build-dir ./build --output-dir ./visualizat
 # Specific datasets only
 python -m imuFactors.visualize_all --datasets MH01 V202 V203 --build-dir ./build
 
+# Specific intervals only
+python -m imuFactors.visualize_all --datasets MH01 --intervals 2s 5s --build-dir ./build
+
 # Interactive HTML only (no matplotlib required at runtime)
 python -m imuFactors.visualize_all --no-png
 
