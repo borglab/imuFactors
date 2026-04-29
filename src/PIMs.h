@@ -89,7 +89,8 @@ buildPreintegrated<PreintegratedImuMeasurementsQ>(
     const imuBias::ConstantBias& bias, size_t N) {
   PreintegratedImuMeasurementsQ preintegrated(params, bias, N);
   window.integrateMeasurements(preintegrated);
-  preintegrated.endPreintegration(preintegrated.deltaTij());
+  preintegrated.endPreintegration(window.terminalTruth().timestamp -
+                                  window.initialTruth().timestamp);
   return preintegrated;
 }
 
@@ -206,13 +207,8 @@ evaluateWindow<PreintegratedImuMeasurementsQ>(
       window, params, initialBias, quadratureOrder);
 
   if (initialCovariance) {
-    Matrix96 biasJacobian;
-    preintegrated.biasCorrectedDelta(initialBias, biasJacobian);
-
-    preintegrated.setInitialCovariance(initialCovariance->navCovariance +
-                                       biasJacobian *
-                                           initialCovariance->biasCovariance *
-                                           biasJacobian.transpose());
+    preintegrated.setInitialCovariances(initialCovariance->navCovariance,
+                                        initialCovariance->biasCovariance);
   }
 
   ImuFactorT<PreintegratedImuMeasurementsQ> factor(
