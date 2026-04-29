@@ -49,6 +49,8 @@ def _serialize_entry(entry: RunCatalogEntry) -> dict[str, Any]:
         "repo_version": entry.repo_version,
         "dataset_count": entry.dataset_count,
         "dataset_group_label": entry.dataset_group_label,
+        "has_window_metrics": entry.has_window_metrics,
+        "has_trajectory_samples": entry.has_trajectory_samples,
         "has_window_summaries": entry.has_window_summaries,
         "has_calibration_summaries": entry.has_calibration_summaries,
     }
@@ -62,6 +64,10 @@ def _serialize_run_data(run_data: RunData) -> dict[str, Any]:
         "metadata_rows": run_data.metadata.to_dict("records"),
         "datasets_columns": list(run_data.datasets.columns),
         "datasets_rows": run_data.datasets.to_dict("records"),
+        "window_metric_columns": list(run_data.window_metrics.columns),
+        "window_metric_rows": run_data.window_metrics.to_dict("records"),
+        "trajectory_index_columns": list(run_data.trajectory_index.columns),
+        "trajectory_index_rows": run_data.trajectory_index.to_dict("records"),
         "window_columns": list(run_data.window_summaries.columns),
         "window_rows": run_data.window_summaries.to_dict("records"),
         "calibration_columns": list(run_data.calibration_summaries.columns),
@@ -81,6 +87,8 @@ def _deserialize_entry(payload: dict[str, Any]) -> RunCatalogEntry:
         repo_version=payload.get("repo_version", ""),
         dataset_count=payload.get("dataset_count", 0),
         dataset_group_label=payload.get("dataset_group_label", ""),
+        has_window_metrics=payload.get("has_window_metrics", False),
+        has_trajectory_samples=payload.get("has_trajectory_samples", False),
         has_window_summaries=payload.get("has_window_summaries", False),
         has_calibration_summaries=payload.get("has_calibration_summaries", False),
     )
@@ -376,7 +384,7 @@ def create_dash_app(results_root: str | Path = "build/results") -> Dash:
     catalog = discover_runs(results_root_path)
 
     app = Dash(__name__, title="imuFactors Summary Viewer")
-    app.layout = build_shell(catalog, results_root_path)
+    app.layout = build_shell(catalog, results_root_path, _serialize_catalog(catalog))
 
     @callback(
         Output("catalog-store", "data"),

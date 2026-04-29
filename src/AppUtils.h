@@ -124,6 +124,21 @@ inline bool isHelpArgument(const std::string& argument) {
 }
 
 /**
+ * Parse a positive floating-point CLI option value.
+ * @param optionName Option name used in diagnostics
+ * @param value User-supplied value
+ * @return Parsed positive value
+ */
+inline double parsePositiveDoubleOption(const std::string& optionName,
+                                        const std::string& value) {
+  const double parsedValue = std::stod(value);
+  if (parsedValue <= 0.0) {
+    throw std::runtime_error(optionName + " must be positive.");
+  }
+  return parsedValue;
+}
+
+/**
  * Parse shared dataset-analysis CLI flags and preserve trailing app-specific
  * arguments.
  * @param arguments Command-line arguments excluding argv[0]
@@ -307,10 +322,13 @@ inline size_t parseMaxIntervalsArgument(
 /**
  * Print common usage help for quadrature analysis apps.
  */
-inline void printQuadratureAppUsage(const char* programName) {
+inline void printQuadratureAppUsage(const char* programName,
+                                    double defaultAlpha = 3.0) {
   printDatasetAppUsage(programName);
   std::cout
       << "  --max-intervals <count> Restrict to first N default intervals\n";
+  std::cout << "  --alpha <value>         Noise scaling factor (default: "
+            << defaultAlpha << ")\n";
 }
 
 /**
