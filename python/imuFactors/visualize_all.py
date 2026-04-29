@@ -10,10 +10,10 @@ The HTML figures support per-trace toggling via the legend so you can
 selectively show/hide individual preintegration intervals or ground truth.
 
 Usage:
-    python generate_visualizations.py --build-dir ./build --output-dir ./visualizations
-    python generate_visualizations.py --datasets MH01 V202 --build-dir ./build
-    python generate_visualizations.py --no-png   # HTML only
-    python generate_visualizations.py --no-html  # PNG only
+    python -m imuFactors.visualize_all --build-dir ./build --output-dir ./visualizations
+    python -m imuFactors.visualize_all --datasets MH01 V202 --build-dir ./build
+    python -m imuFactors.visualize_all --no-png   # HTML only
+    python -m imuFactors.visualize_all --no-html  # PNG only
 """
 
 import os
@@ -24,7 +24,9 @@ from typing import Optional, List, Dict
 import json
 import traceback
 
-sys.path.insert(0, os.path.dirname(__file__))
+PACKAGE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PACKAGE_DIR not in sys.path:
+    sys.path.insert(0, PACKAGE_DIR)
 
 from imuFactors.vis.trajectory_loader import (
     load_trajectory_from_build,
@@ -198,7 +200,7 @@ class VisualizationSuite:
         return results
 
     # ------------------------------------------------------------------
-    def generate_all(self, datasets: Optional[List[str]] = None) -> None:
+    def generate_all(self, datasets: Optional[List[str]] = None, intervals: Optional[List[str]] = None) -> None:
         if datasets is None:
             discovered = self.discover_datasets()
             datasets   = discovered.get(self.filter_name, [])
@@ -211,7 +213,7 @@ class VisualizationSuite:
 
         for dataset_name in datasets:
             try:
-                ds_results = self.visualize_dataset(dataset_name)
+                ds_results = self.visualize_dataset(dataset_name, intervals=intervals)
                 if ds_results:
                     self.results["datasets"][dataset_name] = ds_results
                     self.results["summary"]["successful"] += 1
@@ -285,16 +287,16 @@ def main() -> None:
         epilog="""
 Examples:
   # All datasets, both PNG and HTML
-  python generate_visualizations.py --build-dir ./build --output-dir ./vis
+  python -m imuFactors.visualize_all --build-dir ./build --output-dir ./vis
 
   # Specific datasets only
-  python generate_visualizations.py --datasets MH01 V202 --build-dir ./build
+  python -m imuFactors.visualize_all --datasets MH01 V202 --build-dir ./build
 
   # Interactive HTML only (faster, no matplotlib dependency at runtime)
-  python generate_visualizations.py --no-png
+  python -m imuFactors.visualize_all --no-png
 
   # Static PNG only
-  python generate_visualizations.py --no-html
+  python -m imuFactors.visualize_all --no-html
         """,
     )
 
@@ -322,7 +324,7 @@ Examples:
         generate_png=not args.no_png,
         generate_html=not args.no_html,
     )
-    suite.generate_all(datasets=args.datasets)
+    suite.generate_all(datasets=args.datasets, intervals=args.intervals)
 
 
 if __name__ == "__main__":

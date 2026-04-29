@@ -90,7 +90,8 @@ buildPreintegrated<PreintegratedImuMeasurementsQ>(
   (void)N;  // N is no longer used in constructor
   PreintegratedImuMeasurementsQ preintegrated(params, bias);
   window.integrateMeasurements(preintegrated);
-  preintegrated.resetIntegration();
+  preintegrated.endPreintegration(window.terminalTruth().timestamp -
+                                  window.initialTruth().timestamp);
   return preintegrated;
 }
 
@@ -196,21 +197,6 @@ std::optional<WindowResult> evaluateWindow(
 }
 
 /**
- * Convert quadrature preintegration output into the shared 9D residual space.
- */
-inline Vector9 quadratureDeltaForBias(
-    const Window& window, const std::shared_ptr<PreintegrationParams>& params,
-    size_t quadratureOrder, const imuBias::ConstantBias& bias) {
-  const auto preintegrated = buildPreintegrated<PreintegratedImuMeasurementsQ>(
-      window, params, bias, quadratureOrder);
-
-  Vector9 delta;
-  delta << preintegrated.deltaRij().logmap(Rot3()), preintegrated.deltaPij(),
-      preintegrated.deltaVij();
-  return delta;
-}
-
-/**
  * Evaluate one window for quadrature preintegration.
  */
 template <>
@@ -224,27 +210,8 @@ evaluateWindow<PreintegratedImuMeasurementsQ>(
       window, params, initialBias, quadratureOrder);
 
   if (initialCovariance) {
-    constexpr double kBiasPerturbation = 1e-5;
-    Matrix96 biasJacobian;
-    const Vector6 biasVector = initialBias.vector();
-    for (int column = 0; column < 6; ++column) {
-      Vector6 plusBias = biasVector;
-      Vector6 minusBias = biasVector;
-      plusBias(column) += kBiasPerturbation;
-      minusBias(column) -= kBiasPerturbation;
-
-      const Vector9 deltaPlus = quadratureDeltaForBias(
-          window, params, quadratureOrder,
-          imuBias::ConstantBias(plusBias.head<3>(), plusBias.tail<3>()));
-      const Vector9 deltaMinus = quadratureDeltaForBias(
-          window, params, quadratureOrder,
-          imuBias::ConstantBias(minusBias.head<3>(), minusBias.tail<3>()));
-      biasJacobian.col(column) =
-          (deltaPlus - deltaMinus) / (2.0 * kBiasPerturbation);
-    }
-
-    // Note: setInitialCovariance removed in newer GTSAM
-    // The preintegrated covariance is computed during integration
+    preintegrated.setInitialCovariances(initialCovariance->navCovariance,
+                                        initialCovariance->biasCovariance);
   }
 
   ImuFactorT<PreintegratedImuMeasurementsQ> factor(

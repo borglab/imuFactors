@@ -213,12 +213,15 @@ def plot_3d_trajectory_comparison(
         color, dash, label = colors.get(suffix, ('#888888', 'solid', suffix))
         
         # Filter valid predictions
+        if traj.pred_position is None:
+            continue
+
         valid_mask = (
-            (traj.position[:, 0] != 0) | 
-            (traj.position[:, 1] != 0) | 
-            (traj.position[:, 2] != 0)
+            (traj.pred_position[:, 0] != 0) | 
+            (traj.pred_position[:, 1] != 0) | 
+            (traj.pred_position[:, 2] != 0)
         )
-        valid_traj = traj.position[valid_mask]
+        valid_traj = traj.pred_position[valid_mask]
         
         if len(valid_traj) > 0:
             fig.add_trace(go.Scatter3d(

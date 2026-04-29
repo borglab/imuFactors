@@ -29,17 +29,32 @@ using PIMManifold = PreintegratedImuMeasurementsT<ManifoldPreintegration>;
 
 struct QuadratureAppOptions {
   size_t maxIntervals = 0;
+  double alpha = 3.0;
 };
 
 inline QuadratureAppOptions parseQuadratureAppArguments(
-    const std::vector<std::string>& arguments, const char* programName) {
-  for (const std::string& argument : arguments) {
+    const std::vector<std::string>& arguments, const char* programName,
+    double defaultAlpha = 3.0) {
+  QuadratureAppOptions options;
+  options.alpha = defaultAlpha;
+  std::vector<std::string> intervalArguments;
+  for (size_t index = 0; index < arguments.size(); ++index) {
+    const std::string& argument = arguments[index];
     if (isHelpArgument(argument)) {
-      printQuadratureAppUsage(programName);
+      printQuadratureAppUsage(programName, defaultAlpha);
       std::exit(0);
     }
+    if (argument == "--alpha") {
+      if (index + 1 >= arguments.size()) {
+        throw std::runtime_error("Missing value for --alpha");
+      }
+      options.alpha = parsePositiveDoubleOption("--alpha", arguments[++index]);
+      continue;
+    }
+    intervalArguments.push_back(argument);
   }
-  return {parseMaxIntervalsArgument(arguments)};
+  options.maxIntervals = parseMaxIntervalsArgument(intervalArguments);
+  return options;
 }
 
 inline std::shared_ptr<PreintegrationParams> makePreintegrationParams(

@@ -22,7 +22,6 @@ from imuFactors.vis import (
     load_trajectory_from_build,
     plot_3d_trajectory_multi_interval,
     plot_position_timeseries_multi_interval,
-    plot_nees_comparison,
 )
 
 # Interactive 3-D plot comparing all preintegration intervals — opens in browser
@@ -40,20 +39,20 @@ fig = plot_position_timeseries_multi_interval(
 
 ## Generating All Visualizations
 
-The `generate_visualizations.py` script auto-discovers every dataset in the build folder and writes both PNG and HTML outputs.
+The `imuFactors.visualize_all` script auto-discovers every dataset in the build folder and writes both PNG and HTML outputs.
 
 ```bash
 # PNG + HTML for all datasets
-python generate_visualizations.py --build-dir ./build --output-dir ./visualizations
+python -m imuFactors.visualize_all --build-dir ./build --output-dir ./visualizations
 
 # Specific datasets only
-python generate_visualizations.py --datasets MH01 V202 V203 --build-dir ./build
+python -m imuFactors.visualize_all --datasets MH01 V202 V203 --build-dir ./build
 
 # Interactive HTML only (no matplotlib required at runtime)
-python generate_visualizations.py --no-png
+python -m imuFactors.visualize_all --no-png
 
 # Static PNG only
-python generate_visualizations.py --no-html
+python -m imuFactors.visualize_all --no-html
 ```
 
 ### Output structure
@@ -76,7 +75,7 @@ visualizations/
         └── displacement.html
 ```
 
-Each HTML file is fully self-contained (Plotly loaded from CDN). Open in any browser — no server required.
+Each HTML file is a standalone HTML document that does not require a local server; Plotly is loaded from the CDN. Open in any browser.
 
 ---
 
@@ -195,7 +194,6 @@ fig = plot_best_worst_comparison_plotly(
     "MH01",
     filter_name="gal3",
     build_dir="./build",
-    nees_summary_path="./build/nees_summary.csv",
     save_path="./vis/MH01/html/best_worst.html",
 )
 
@@ -205,19 +203,6 @@ fig = plot_comparison(
     best_nees=0.42, worst_nees=3.71,
     save_path="./vis/MH01/html/comparison.html",
 )
-```
-
-#### NEES summary
-
-```python
-from imuFactors.vis import create_nees_summary_figure, create_nees_summary_from_build
-
-# Build summary from per-dataset NEES CSVs in build folder
-summary_df = create_nees_summary_from_build("./build", output_path="nees_summary.csv")
-
-# Grouped bar chart (log-y scale)
-fig = create_nees_summary_figure(summary_df, save_path="nees_summary.html")
-fig.show()
 ```
 
 #### Saving HTML manually
@@ -265,30 +250,6 @@ plot_3d_trajectory_multi_interval_matplotlib("MH01", build_dir="./build",
 
 ---
 
-### `noise_calibration` — Noise parameter analysis
-
-```python
-from imuFactors.vis import (
-    plot_nees_comparison,
-    plot_nees_comparison_matplotlib,
-    plot_alpha_parameters,
-    plot_nees_ratio,
-    generate_noise_calibration_report,
-    quick_nees_plot,
-)
-
-nees_summary = load_nees_summary("nees_summary.csv")
-
-plot_nees_comparison(nees_summary, save_path="nees.html")         # Plotly
-plot_nees_comparison_matplotlib(nees_summary, save_path="nees.png")  # Matplotlib
-plot_alpha_parameters(nees_summary, save_path="alpha.png")
-plot_nees_ratio(nees_summary, save_path="ratio.png")
-
-# Full report: generates all noise calibration plots in one call
-generate_noise_calibration_report(nees_summary, output_dir="./plots")
-```
-
----
 
 ## Expected CSV Formats
 
@@ -306,21 +267,6 @@ pred_vx,pred_vy,pred_vz,
 pred_roll,pred_pitch,pred_yaw
 ```
 
-### NEES summary CSV (`nees_summary.csv`)
-
-Output of `evalNoiseCalibration.cpp`:
-
-```
-dataset,best_nees,worst_nees,nees_ratio,
-best_alpha_gyro,best_alpha_acc,
-worst_alpha_gyro,worst_alpha_acc
-```
-
-### Per-dataset NEES timeseries (`gal3_nees_<DATASET>_<INTERVAL>.csv`)
-
-```
-timestamp,nees
-```
 
 ---
 
