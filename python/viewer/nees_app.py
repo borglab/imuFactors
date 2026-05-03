@@ -196,16 +196,22 @@ def _method_sort_key(method: str) -> tuple[int, str]:
     return preferred_order.get(method, 99), method
 
 
-def _build_data_table(table_id: str, *, row_selectable: str | bool = False, page_size: int = 12) -> dash_table.DataTable:
+def _build_data_table(table_id: str, *, row_selectable: str | bool = False) -> dash_table.DataTable:
     return dash_table.DataTable(
         id=table_id,
-        page_size=page_size,
+        page_action="none",
         sort_action="native",
-        filter_action="native",
+        filter_action="none",
+        fixed_rows={"headers": True},
         row_selectable=row_selectable,
         selected_rows=[],
         style_as_list_view=False,
-        style_table={"overflowX": "auto"},
+        virtualization=True,
+        style_table={
+            "height": "560px",
+            "overflowX": "auto",
+            "overflowY": "auto",
+        },
         style_header={
             "backgroundColor": "#efe7db",
             "border": f"1px solid {PANEL_BORDER}",
@@ -221,7 +227,9 @@ def _build_data_table(table_id: str, *, row_selectable: str | bool = False, page
             "fontFamily": "Menlo, Monaco, Consolas, monospace",
             "fontSize": "12px",
             "maxWidth": 260,
-            "whiteSpace": "normal",
+            "overflow": "hidden",
+            "textOverflow": "ellipsis",
+            "whiteSpace": "nowrap",
         },
     )
 
@@ -356,7 +364,7 @@ def _build_shell(catalog: list[RunCatalogEntry], results_root: Path) -> html.Div
                     html.Div(
                         [
                             html.H3("Outlier Windows", style={"color": TEXT, "marginBottom": "12px"}),
-                            _build_data_table("outlier-table", row_selectable="single", page_size=10),
+                            _build_data_table("outlier-table", row_selectable="single"),
                         ],
                         style={"marginTop": "24px"},
                     ),

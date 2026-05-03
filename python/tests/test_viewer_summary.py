@@ -17,7 +17,7 @@ from python.viewer.app import (
     create_dash_app,
 )
 from python.viewer.discovery import discover_runs
-from python.viewer.layout import format_local_timestamp, format_run_option
+from python.viewer.layout import build_data_table, format_local_timestamp, format_run_option
 from python.viewer.loading import load_run_data
 from python.viewer.models import RunCatalogEntry
 
@@ -34,6 +34,15 @@ def make_run(root: Path, app_name: str, run_id: str) -> Path:
 
 
 class ViewerSummaryTests(unittest.TestCase):
+    def test_shared_data_table_uses_scroll_instead_of_pagination(self) -> None:
+        table = build_data_table("summary-table")
+
+        self.assertEqual(table.page_action, "none")
+        self.assertEqual(table.filter_action, "none")
+        self.assertTrue(table.virtualization)
+        self.assertEqual(table.fixed_rows, {"headers": True})
+        self.assertEqual(table.style_table["overflowY"], "auto")
+
     def test_format_local_timestamp_uses_process_timezone(self) -> None:
         previous_timezone = os.environ.get("TZ")
         try:

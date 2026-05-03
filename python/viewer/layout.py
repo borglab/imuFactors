@@ -107,12 +107,18 @@ def build_filter_dropdown(component_id: str, label: str) -> html.Div:
 def build_data_table(table_id: str, merge_duplicate_headers: bool = False) -> dash_table.DataTable:
     return dash_table.DataTable(
         id=table_id,
-        page_size=12,
+        page_action="none",
         sort_action="native",
-        filter_action="native",
+        filter_action="none",
+        fixed_rows={"headers": True},
         merge_duplicate_headers=merge_duplicate_headers,
         style_as_list_view=False,
-        style_table={"overflowX": "auto"},
+        virtualization=True,
+        style_table={
+            "height": "560px",
+            "overflowX": "auto",
+            "overflowY": "auto",
+        },
         style_header={
             "backgroundColor": "#efe7db",
             "border": f"1px solid {PANEL_BORDER}",
@@ -128,7 +134,9 @@ def build_data_table(table_id: str, merge_duplicate_headers: bool = False) -> da
             "fontFamily": "Menlo, Monaco, Consolas, monospace",
             "fontSize": "12px",
             "maxWidth": 320,
-            "whiteSpace": "normal",
+            "overflow": "hidden",
+            "textOverflow": "ellipsis",
+            "whiteSpace": "nowrap",
         },
     )
 

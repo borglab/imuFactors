@@ -11,6 +11,7 @@ import numpy as np
 from python.viewer.discovery import discover_runs
 from python.viewer.loading import load_run_data, load_trajectory_samples
 from python.viewer.nees_app import (
+    _build_data_table,
     _build_outlier_rows,
     _load_active_window_frame,
     _resolve_active_window,
@@ -117,6 +118,16 @@ def make_identity_covariance_row() -> dict[str, float]:
 
 
 class ViewerNeesTests(unittest.TestCase):
+    def test_nees_data_table_uses_scroll_instead_of_pagination(self) -> None:
+        table = _build_data_table("outlier-table", row_selectable="single")
+
+        self.assertEqual(table.page_action, "none")
+        self.assertEqual(table.filter_action, "none")
+        self.assertTrue(table.virtualization)
+        self.assertEqual(table.fixed_rows, {"headers": True})
+        self.assertEqual(table.style_table["overflowY"], "auto")
+        self.assertEqual(table.row_selectable, "single")
+
     def test_load_run_data_includes_window_metrics_and_trajectory_index(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
