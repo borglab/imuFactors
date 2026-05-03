@@ -103,34 +103,35 @@ class QuadratureRunner {
           3, static_cast<size_t>(
                  std::floor(std::sqrt(static_cast<double>(samplesPerWindow)))));
       const auto windows = dataset.completeWindows(samplesPerWindow);
-      const auto quadratureEvaluations = collectWindowEvaluations<PIMQuadrature>(
-          windows, params_, initialCovariance_, quadratureNodes);
+      const auto quadratureEvaluations =
+          collectWindowEvaluations<PIMQuadrature>(
+              windows, params_, initialCovariance_, quadratureNodes);
       const auto manifoldEvaluations = collectWindowEvaluations<PIMManifold>(
           windows, params_, initialCovariance_);
       const auto tangentEvaluations = collectWindowEvaluations<PIMTangent>(
           windows, params_, initialCovariance_);
 
-      writeWindowRows(
-          writer_, datasetName, "quadrature", configLabel_, intervalSeconds,
-          samplesPerWindow, quadratureNodes, quadratureEvaluations);
+      writeWindowRows(writer_, datasetName, "quadrature", configLabel_,
+                      intervalSeconds, samplesPerWindow, quadratureNodes,
+                      quadratureEvaluations);
       writeWindowRows(writer_, datasetName, "manifold", configLabel_,
                       intervalSeconds, samplesPerWindow, 0,
                       manifoldEvaluations);
       writeWindowRows(writer_, datasetName, "tangent", configLabel_,
-                      intervalSeconds, samplesPerWindow, 0,
-                      tangentEvaluations);
+                      intervalSeconds, samplesPerWindow, 0, tangentEvaluations);
 
-      intervalSummaries.push_back(
-          {intervalSeconds, samplesPerWindow, windows.size(),
-           quadratureEvaluations.size(), manifoldEvaluations.size(),
-           tangentEvaluations.size()});
+      intervalSummaries.push_back({intervalSeconds, samplesPerWindow,
+                                   windows.size(), quadratureEvaluations.size(),
+                                   manifoldEvaluations.size(),
+                                   tangentEvaluations.size()});
     }
 
     std::cout << "Finished dataset " << datasetName << ":\n";
     for (const auto& summary : intervalSummaries) {
       std::cout << "  interval " << summary.intervalSeconds << "s ("
-                << summary.samplesPerWindow << " samples/window): "
-                << summary.candidateWindows << " candidate windows, evaluated "
+                << summary.samplesPerWindow
+                << " samples/window): " << summary.candidateWindows
+                << " candidate windows, evaluated "
                 << summary.quadratureEvaluated << " quadrature, "
                 << summary.manifoldEvaluated << " manifold, "
                 << summary.tangentEvaluated << " tangent\n";

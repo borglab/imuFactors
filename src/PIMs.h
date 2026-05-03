@@ -150,6 +150,31 @@ inline WindowResult makeWindowResult(const Vector9& error,
 }
 
 /**
+ * Reduce predict-vs-ground-truth state differences into reporting metrics while
+ * keeping NEES tied to the factor residual.
+ */
+template <class PIMType>
+WindowResult makePredictionWindowResult(
+    const PIMType& preintegrated, const Window& window,
+    const imuBias::ConstantBias& initialBias, const Matrix9& covariance,
+    double normalizedNees) {
+  const NavState predicted =
+      preintegrated.predict(window.initialTruth().navState, initialBias);
+  const NavState& groundTruth = window.terminalTruth().navState;
+  const Pose3 poseError = groundTruth.pose().between(predicted.pose());
+
+  WindowResult result;
+  result.normalizedNees = normalizedNees;
+  result.rotErrorNorm = Rot3::Logmap(poseError.rotation()).norm();
+  result.rotPredSigma = covarianceBlockSigma(covariance, 0);
+  result.posErrorNorm = poseError.translation().norm();
+  result.posPredSigma = covarianceBlockSigma(covariance, 3);
+  result.velErrorNorm = (predicted.velocity() - groundTruth.velocity()).norm();
+  result.velPredSigma = covarianceBlockSigma(covariance, 6);
+  return result;
+}
+
+/**
  * @brief Summarize a collection of per-window results.
  */
 inline WindowResultSummary summarizeWindowResults(
@@ -214,7 +239,8 @@ std::optional<WindowResult> evaluateWindow(
   if (!normalizedNees || !std::isfinite(*normalizedNees)) {
     return std::nullopt;
   }
-  return makeWindowResult(error, covariance, *normalizedNees);
+  return makePredictionWindowResult(preintegrated, window, initialBias,
+                                    covariance, *normalizedNees);
 }
 
 }  // namespace gtsam

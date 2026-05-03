@@ -63,6 +63,23 @@ bool hasNonDecreasingPredictedSigma(const WindowResult& baseline,
          withPrior.velPredSigma >= baseline.velPredSigma;
 }
 
+template <class PIMType>
+Vector3 predictErrorNorms(const Window& window,
+                          const shared_ptr<PreintegrationParams>& params,
+                          size_t quadratureOrder = 0) {
+  const imuBias::ConstantBias& initialBias = window.initialTruth().bias;
+  const auto preintegrated =
+      buildPreintegrated<PIMType>(window, params, initialBias, quadratureOrder);
+  const NavState predicted =
+      preintegrated.predict(window.initialTruth().navState, initialBias);
+  const NavState& groundTruth = window.terminalTruth().navState;
+  const Pose3 poseError = groundTruth.pose().between(predicted.pose());
+
+  return Vector3(Rot3::Logmap(poseError.rotation()).norm(),
+                 poseError.translation().norm(),
+                 (predicted.velocity() - groundTruth.velocity()).norm());
+}
+
 }  // namespace
 
 /**
@@ -137,6 +154,18 @@ TEST(ImuFactor, WindowEvaluation) {
 
     EXPECT(hasNonDecreasingPredictedSigma(*manifold, *manifoldWithPrior));
     EXPECT(hasNonDecreasingPredictedSigma(*quadrature, *quadratureWithPrior));
+
+    const Vector3 manifoldPredictError =
+        predictErrorNorms<PIMManifold>(window, params);
+    DOUBLES_EQUAL(manifoldPredictError.x(), manifold->rotErrorNorm, 1e-12);
+    DOUBLES_EQUAL(manifoldPredictError.y(), manifold->posErrorNorm, 1e-12);
+    DOUBLES_EQUAL(manifoldPredictError.z(), manifold->velErrorNorm, 1e-12);
+
+    const Vector3 quadraturePredictError =
+        predictErrorNorms<PIMQuadrature>(window, params, 3);
+    DOUBLES_EQUAL(quadraturePredictError.x(), quadrature->rotErrorNorm, 1e-12);
+    DOUBLES_EQUAL(quadraturePredictError.y(), quadrature->posErrorNorm, 1e-12);
+    DOUBLES_EQUAL(quadraturePredictError.z(), quadrature->velErrorNorm, 1e-12);
   } catch (const exception& e) {
     FAIL(e.what());
   }
