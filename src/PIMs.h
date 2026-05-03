@@ -95,6 +95,36 @@ buildPreintegrated<PreintegratedImuMeasurementsQ>(
 }
 
 /**
+ * Fold optional initial uncertainty into PIM types that expose mutable
+ * preintegrated measurement covariance.
+ */
+template <class PIMType>
+void applyInitialCovariance(PIMType* preintegrated,
+                            const imuBias::ConstantBias& initialBias,
+                            const InitialCovarianceOptions& initialCovariance) {
+  Matrix96 biasJacobian;
+  preintegrated->biasCorrectedDelta(initialBias, biasJacobian);
+  const Matrix9 totalCovariance =
+      preintegrated->preintMeasCov() + initialCovariance.navCovariance +
+      biasJacobian * initialCovariance.biasCovariance *
+          biasJacobian.transpose();
+  preintegrated->setPreintMeasCov(totalCovariance);
+}
+
+/**
+ * Fold optional initial uncertainty into quadrature PIMs via their cache-aware
+ * covariance API.
+ */
+inline void applyInitialCovariance(
+    PreintegratedImuMeasurementsQ* preintegrated,
+    const imuBias::ConstantBias& initialBias,
+    const InitialCovarianceOptions& initialCovariance) {
+  (void)initialBias;
+  preintegrated->setInitialCovariances(initialCovariance.navCovariance,
+                                       initialCovariance.biasCovariance);
+}
+
+/**
  * Convert a 3x3 covariance block into an RMS sigma proxy.
  */
 inline double covarianceBlockSigma(const Matrix9& covariance, int blockStart) {
@@ -166,18 +196,12 @@ std::optional<WindowResult> evaluateWindow(
     const Window& window, const std::shared_ptr<PreintegrationParams>& params,
     std::optional<InitialCovarianceOptions> initialCovariance = std::nullopt,
     size_t quadratureOrder = 0) {
-  (void)quadratureOrder;
   const imuBias::ConstantBias& initialBias = window.initialTruth().bias;
-  auto preintegrated = buildPreintegrated<PIMType>(window, params, initialBias);
+  auto preintegrated =
+      buildPreintegrated<PIMType>(window, params, initialBias, quadratureOrder);
 
   if (initialCovariance) {
-    Matrix96 biasJacobian;
-    preintegrated.biasCorrectedDelta(initialBias, biasJacobian);
-    const Matrix9 totalCovariance =
-        preintegrated.preintMeasCov() + initialCovariance->navCovariance +
-        biasJacobian * initialCovariance->biasCovariance *
-            biasJacobian.transpose();
-    preintegrated.setPreintMeasCov(totalCovariance);
+    applyInitialCovariance(&preintegrated, initialBias, *initialCovariance);
   }
 
   ImuFactor2T<PIMType> factor(symbol_shorthand::X(1), symbol_shorthand::X(2),
@@ -185,40 +209,6 @@ std::optional<WindowResult> evaluateWindow(
   const Vector9 error =
       factor.evaluateError(window.initialTruth().navState,
                            window.terminalTruth().navState, initialBias);
-  const Matrix9 covariance = preintegrated.preintMeasCov();
-  const auto normalizedNees = normalizedNEES(error, covariance, 9.0);
-  if (!normalizedNees || !std::isfinite(*normalizedNees)) {
-    return std::nullopt;
-  }
-  return makeWindowResult(error, covariance, *normalizedNees);
-}
-
-/**
- * Evaluate one window for quadrature preintegration.
- */
-template <>
-inline std::optional<WindowResult>
-evaluateWindow<PreintegratedImuMeasurementsQ>(
-    const Window& window, const std::shared_ptr<PreintegrationParams>& params,
-    std::optional<InitialCovarianceOptions> initialCovariance,
-    size_t quadratureOrder) {
-  const imuBias::ConstantBias& initialBias = window.initialTruth().bias;
-  auto preintegrated = buildPreintegrated<PreintegratedImuMeasurementsQ>(
-      window, params, initialBias, quadratureOrder);
-
-  if (initialCovariance) {
-    preintegrated.setInitialCovariances(initialCovariance->navCovariance,
-                                        initialCovariance->biasCovariance);
-  }
-
-  ImuFactorT<PreintegratedImuMeasurementsQ> factor(
-      symbol_shorthand::X(1), symbol_shorthand::V(1), symbol_shorthand::X(2),
-      symbol_shorthand::V(2), symbol_shorthand::B(1), preintegrated);
-  const Vector9 error = factor.evaluateError(
-      window.initialTruth().navState.pose(),
-      window.initialTruth().navState.velocity(),
-      window.terminalTruth().navState.pose(),
-      window.terminalTruth().navState.velocity(), initialBias);
   const Matrix9 covariance = preintegrated.preintMeasCov();
   const auto normalizedNees = normalizedNEES(error, covariance, 9.0);
   if (!normalizedNees || !std::isfinite(*normalizedNees)) {
