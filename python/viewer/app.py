@@ -11,7 +11,14 @@ import pandas as pd
 from dash import Dash, Input, Output, State, callback, html
 
 from .discovery import discover_runs
-from .layout import build_shell, empty_state, metadata_card, status_badge
+from .layout import (
+    build_shell,
+    empty_state,
+    format_local_timestamp,
+    format_run_option,
+    metadata_card,
+    status_badge,
+)
 from .loading import load_run_data
 from .models import RunCatalogEntry, RunData
 
@@ -104,8 +111,19 @@ def _deserialize_catalog(payload: list[dict[str, Any]] | None) -> list[RunCatalo
     return [_deserialize_entry(entry_payload) for entry_payload in payload]
 
 
+ROTATION_ERROR_DISPLAY_COLUMNS = {"rot_error_median"}
+
+
+def _display_column_label(column: str) -> str:
+    if column in ROTATION_ERROR_DISPLAY_COLUMNS:
+        return f"{column} (deg)"
+    if column == "timestamp_utc":
+        return "Timestamp (Local)"
+    return column
+
+
 def _table_columns(columns: list[str]) -> list[dict[str, str]]:
-    return [{"name": column, "id": column} for column in columns]
+    return [{"name": _display_column_label(column), "id": column} for column in columns]
 
 
 def _filter_rows(rows: list[dict[str, Any]], filters: dict[str, list[Any]]) -> list[dict[str, Any]]:
@@ -165,7 +183,7 @@ WINDOW_METRIC_LABELS = {
     "normalized_nees_median": "Normalized NEES Median",
     "normalized_nees_p95": "Normalized NEES P95",
     "normalized_nees_variance": "Normalized NEES Variance",
-    "rot_error_median": "Rotation Error Median",
+    "rot_error_median": "Rotation Error Median (deg)",
     "rot_pred_sigma_median": "Rotation Sigma Median",
     "pos_error_median": "Position Error Median",
     "pos_pred_sigma_median": "Position Sigma Median",
@@ -213,6 +231,35 @@ def _format_significant_digits(value: Any, digits: int = 4) -> Any:
     if isinstance(value, (int, float)):
         return format(float(value), f".{digits}g")
     return value
+
+
+def _radians_to_degrees(value: Any) -> Any:
+    if value is None or isinstance(value, str) or pd.isna(value):
+        return value
+    try:
+        return math.degrees(float(value))
+    except (TypeError, ValueError):
+        return value
+
+
+def _display_metric_value(metric: str, value: Any) -> Any:
+    display_value = (
+        _radians_to_degrees(value)
+        if metric in ROTATION_ERROR_DISPLAY_COLUMNS
+        else value
+    )
+    return _format_significant_digits(display_value)
+
+
+def _display_window_summary_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    display_rows: list[dict[str, Any]] = []
+    for row in rows:
+        display_row = dict(row)
+        for column in ROTATION_ERROR_DISPLAY_COLUMNS:
+            if column in display_row:
+                display_row[column] = _radians_to_degrees(display_row[column])
+        display_rows.append(display_row)
+    return display_rows
 
 
 def _metric_score(metric: str, value: Any) -> float | None:
@@ -289,7 +336,7 @@ def _build_window_method_comparison(
             for method_name in method_names:
                 column_id = f"{metric}__{method_name}"
                 value = series.get((metric, method_name))
-                row[column_id] = _format_significant_digits(value)
+                row[column_id] = _display_metric_value(metric, value)
                 score = _metric_score(metric, value)
                 if score is not None:
                     metric_scores.append((column_id, score))
@@ -331,7 +378,7 @@ def _resolve_compare_paths(selected_path: str | None, compare_paths: list[str] |
 
 
 def _load_payload_for_entry(entry: RunCatalogEntry) -> dict[str, Any]:
-    return _serialize_run_data(load_run_data(entry))
+    return _serialize_run_data(load_run_data(entry, include_trajectory_index=False))
 
 
 def _load_compare_payloads(
@@ -369,7 +416,7 @@ def _comparison_rows(run_payloads: list[dict[str, Any]], row_key: str) -> tuple[
                     "run_label": f"{entry.app_name} | {entry.run_id}",
                     "app_name": entry.app_name,
                     "run_id": entry.run_id,
-                    "timestamp_utc": entry.timestamp_utc,
+                    "timestamp_utc": format_local_timestamp(entry.timestamp_utc),
                     "status": entry.status,
                     **payload_row,
                 }
@@ -403,15 +450,7 @@ def create_dash_app(results_root: str | Path = "build/results") -> Dash:
         current_compare: list[str] | None,
     ) -> tuple[Any, Any, Any, Any, Any, Any]:
         refreshed_catalog = discover_runs(results_root_path)
-        options = [
-            {
-                "label": f"{entry.app_name} | {entry.run_id} | "
-                f"{entry.dataset_group_label or (f'{entry.dataset_count} datasets' if entry.dataset_count else 'No dataset info')} | "
-                f"{entry.timestamp_utc or 'Unknown timestamp'}",
-                "value": str(entry.path),
-            }
-            for entry in refreshed_catalog
-        ]
+        options = [format_run_option(entry) for entry in refreshed_catalog]
         values = {option["value"] for option in options}
         selected_value = current_run if current_run in values else (options[0]["value"] if options else None)
         compare_values = [path for path in (current_compare or []) if path in values]
@@ -495,7 +534,7 @@ def create_dash_app(results_root: str | Path = "build/results") -> Dash:
 
         metadata_grid = [
             metadata_card("Run ID", entry.run_id),
-            metadata_card("Timestamp", entry.timestamp_utc or "Unknown"),
+            metadata_card("Timestamp", format_local_timestamp(entry.timestamp_utc)),
             metadata_card("Output Root", entry.output_root or str(entry.path.parent.parent)),
             metadata_card("Repo Version", entry.repo_version or "Unknown"),
         ]
@@ -609,7 +648,7 @@ def create_dash_app(results_root: str | Path = "build/results") -> Dash:
                 "interval_seconds": intervals or [],
             },
         )
-        return _table_columns(run_payload["window_columns"]), rows
+        return _table_columns(run_payload["window_columns"]), _display_window_summary_rows(rows)
 
     @callback(
         Output("calibration-study-filter", "options"),

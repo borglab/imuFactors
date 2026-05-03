@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
 from python.viewer.app import (
     _build_window_method_comparison,
     _comparison_rows,
+    _display_window_summary_rows,
+    _load_payload_for_entry,
     _resolve_compare_paths,
     create_dash_app,
 )
 from python.viewer.discovery import discover_runs
+from python.viewer.layout import format_local_timestamp, format_run_option
 from python.viewer.loading import load_run_data
+from python.viewer.models import RunCatalogEntry
 
 
 def write_text(path: Path, contents: str) -> None:
@@ -28,6 +34,70 @@ def make_run(root: Path, app_name: str, run_id: str) -> Path:
 
 
 class ViewerSummaryTests(unittest.TestCase):
+    def test_format_local_timestamp_uses_process_timezone(self) -> None:
+        previous_timezone = os.environ.get("TZ")
+        try:
+            os.environ["TZ"] = "America/New_York"
+            time.tzset()
+            self.assertEqual(
+                format_local_timestamp("2026-04-17T00:00:00.000Z"),
+                "2026-04-16 20:00:00 EDT",
+            )
+        finally:
+            if previous_timezone is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = previous_timezone
+            time.tzset()
+
+    def test_format_run_option_displays_local_timestamp(self) -> None:
+        previous_timezone = os.environ.get("TZ")
+        try:
+            os.environ["TZ"] = "America/New_York"
+            time.tzset()
+            option = format_run_option(
+                RunCatalogEntry(
+                    app_name="evalFoo",
+                    run_id="run-a",
+                    path=Path("/tmp/evalFoo/run-a"),
+                    status="ready",
+                    timestamp_utc="2026-04-17T00:00:00.000Z",
+                )
+            )
+            self.assertIn("2026-04-16 20:00:00 EDT", option["label"])
+        finally:
+            if previous_timezone is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = previous_timezone
+            time.tzset()
+
+    def test_summary_payload_skips_trajectory_index(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            run_dir = make_run(root, "evalFoo", "20260417T000000000Z")
+            write_text(
+                run_dir / "run_metadata.csv",
+                "run_id,app_name,timestamp_utc,cli_args,output_root,repo_version\n"
+                "20260417T000000000Z,evalFoo,2026-04-17T00:00:00.000Z,./evalFoo,./results,\n",
+            )
+            write_text(
+                run_dir / "trajectory_samples.csv",
+                "dataset,method,config_label,interval_seconds,timestamp\n"
+                "MH01,quadrature,default,0.2,0.0\n",
+            )
+            entry = RunCatalogEntry(
+                app_name="evalFoo",
+                run_id="20260417T000000000Z",
+                path=run_dir,
+                status="ready",
+                has_trajectory_samples=True,
+            )
+
+            payload = _load_payload_for_entry(entry)
+
+            self.assertEqual(payload["trajectory_index_rows"], [])
+
     def test_discover_runs_complete_and_header_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -313,7 +383,9 @@ class ViewerSummaryTests(unittest.TestCase):
         self.assertEqual(columns[0]["name"], ["Dataset", ""])
         self.assertEqual(columns[5]["name"], ["Normalized NEES Mean", "Quadrature"])
         self.assertEqual(comparison_rows[0]["normalized_nees_mean__quadrature"], "0.02407")
-        self.assertEqual(comparison_rows[0]["rot_error_median__manifold"], "0.001")
+        self.assertEqual(columns[11]["name"], ["Rotation Error Median (deg)", "Quadrature"])
+        self.assertEqual(comparison_rows[0]["rot_error_median__manifold"], "0.0573")
+        self.assertEqual(comparison_rows[0]["pos_error_median__manifold"], "0.0021")
         self.assertIn(
             {"if": {"row_index": 0, "column_id": "rot_error_median__manifold"}, "fontWeight": "700"},
             style_rules,
@@ -322,6 +394,16 @@ class ViewerSummaryTests(unittest.TestCase):
             {"if": {"row_index": 0, "column_id": "normalized_nees_mean__quadrature"}, "fontWeight": "700"},
             style_rules,
         )
+
+    def test_display_window_summary_rows_converts_rotation_errors_only(self) -> None:
+        rows = [{"rot_error_median": 0.1, "pos_error_median": 0.2, "vel_error_median": 0.3}]
+
+        display_rows = _display_window_summary_rows(rows)
+
+        self.assertAlmostEqual(display_rows[0]["rot_error_median"], 5.7295779513)
+        self.assertEqual(display_rows[0]["pos_error_median"], 0.2)
+        self.assertEqual(display_rows[0]["vel_error_median"], 0.3)
+        self.assertEqual(rows[0]["rot_error_median"], 0.1)
 
 
 if __name__ == "__main__":

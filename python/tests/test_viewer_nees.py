@@ -11,6 +11,7 @@ import numpy as np
 from python.viewer.discovery import discover_runs
 from python.viewer.loading import load_run_data, load_trajectory_samples
 from python.viewer.nees_app import (
+    _build_outlier_rows,
     _load_active_window_frame,
     _resolve_active_window,
     _selection_has_trajectory_data,
@@ -297,6 +298,19 @@ class ViewerNeesTests(unittest.TestCase):
             self.assertEqual(skipped_count, 0)
             self.assertIn("sample_nees", frame.columns)
             self.assertTrue(set(NORMALIZED_COMPONENT_COLUMNS).issubset(frame.columns))
+
+    def test_outlier_rows_display_rotation_error_in_degrees(self) -> None:
+        rows = [
+            {"window_index": 0, "normalized_nees": 1.0, "rot_error_norm": 0.1},
+            {"window_index": 1, "normalized_nees": 2.0, "rot_error_norm": 0.2},
+        ]
+
+        display_rows = _build_outlier_rows(rows)
+
+        self.assertEqual([row["window_index"] for row in display_rows], [1, 0])
+        self.assertAlmostEqual(display_rows[0]["rot_error_norm"], 11.4591559026)
+        self.assertAlmostEqual(display_rows[1]["rot_error_norm"], 5.7295779513)
+        self.assertEqual(rows[0]["rot_error_norm"], 0.1)
 
 
 if __name__ == "__main__":

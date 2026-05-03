@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,22 @@ TEXT = "#2d241b"
 MUTED = "#7a6956"
 
 
+def format_local_timestamp(timestamp_utc: str) -> str:
+    """Format an ISO UTC timestamp in the server's local timezone."""
+
+    if not timestamp_utc:
+        return "Unknown timestamp"
+    try:
+        normalized = timestamp_utc.replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return timestamp_utc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    local_time = parsed.astimezone()
+    return local_time.strftime("%Y-%m-%d %H:%M:%S %Z")
+
+
 def _status_colors(status: str) -> tuple[str, str]:
     if status == "ready":
         return "#e5f4e8", "#1f6b36"
@@ -27,7 +44,7 @@ def format_run_option(entry: RunCatalogEntry) -> dict[str, str]:
     dataset_label = entry.dataset_group_label or (
         f"{entry.dataset_count} datasets" if entry.dataset_count else "No dataset info"
     )
-    timestamp = entry.timestamp_utc or "Unknown timestamp"
+    timestamp = format_local_timestamp(entry.timestamp_utc)
     label = f"{entry.app_name} | {entry.run_id} | {dataset_label} | {timestamp}"
     return {"label": label, "value": str(entry.path)}
 

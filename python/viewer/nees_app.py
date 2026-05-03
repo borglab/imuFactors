@@ -69,10 +69,11 @@ OUTLIER_TABLE_LABELS = {
     "window_start_time": "Start Time",
     "window_end_time": "End Time",
     "normalized_nees": "Normalized NEES",
-    "rot_error_norm": "Rot Error",
+    "rot_error_norm": "Rot Error (deg)",
     "pos_error_norm": "Pos Error",
     "vel_error_norm": "Vel Error",
 }
+OUTLIER_ROTATION_ERROR_COLUMNS = {"rot_error_norm"}
 COMPONENT_GROUPS = {
     "Rotation": NORMALIZED_COMPONENT_COLUMNS[:3],
     "Position": NORMALIZED_COMPONENT_COLUMNS[3:6],
@@ -446,7 +447,20 @@ def _active_window_matches(row: dict[str, Any], active_window: dict[str, Any] | 
 
 
 def _build_outlier_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return sorted(rows, key=lambda row: float(row.get("normalized_nees", -math.inf)), reverse=True)
+    sorted_rows = sorted(
+        rows, key=lambda row: float(row.get("normalized_nees", -math.inf)),
+        reverse=True)
+    display_rows: list[dict[str, Any]] = []
+    for row in sorted_rows:
+        display_row = dict(row)
+        for column in OUTLIER_ROTATION_ERROR_COLUMNS:
+            if column in display_row and display_row[column] is not None:
+                try:
+                    display_row[column] = math.degrees(float(display_row[column]))
+                except (TypeError, ValueError):
+                    pass
+        display_rows.append(display_row)
+    return display_rows
 
 
 def _outlier_table_columns(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -93,7 +93,8 @@ def load_trajectory_samples(
     return filtered.reset_index(drop=True).copy()
 
 
-def load_run_data(entry: RunCatalogEntry) -> RunData:
+def load_run_data(entry: RunCatalogEntry,
+                  include_trajectory_index: bool = True) -> RunData:
     """Load viewer-facing CSVs for one selected run."""
 
     return RunData(
@@ -101,7 +102,11 @@ def load_run_data(entry: RunCatalogEntry) -> RunData:
         metadata=load_csv_frame(entry.path / "run_metadata.csv"),
         datasets=load_csv_frame(entry.path / "datasets.csv"),
         window_metrics=load_csv_frame(entry.path / "window_metrics.csv"),
-        trajectory_index=load_trajectory_index(entry.path),
+        trajectory_index=(
+            load_trajectory_index(entry.path)
+            if include_trajectory_index
+            else pd.DataFrame()
+        ),
         window_summaries=load_csv_frame(entry.path / "window_summaries.csv"),
         calibration_summaries=load_csv_frame(entry.path / "calibration_summaries.csv"),
     )

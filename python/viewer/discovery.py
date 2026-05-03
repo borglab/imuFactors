@@ -23,7 +23,8 @@ SUMMARY_RESULT_FILES = ("window_summaries.csv", "calibration_summaries.csv")
 _ISO_TIMESTAMP_SANITIZER = re.compile(r"[-:.Z]")
 
 
-def _read_csv_rows(path: Path) -> tuple[list[str], list[dict[str, str]]]:
+def _read_csv_rows(path: Path,
+                   max_rows: int | None = None) -> tuple[list[str], list[dict[str, str]]]:
     if not path.exists() or path.stat().st_size == 0:
         return [], []
 
@@ -31,7 +32,12 @@ def _read_csv_rows(path: Path) -> tuple[list[str], list[dict[str, str]]]:
         with path.open(newline="", encoding="utf-8") as handle:
             reader = csv.DictReader(handle)
             fieldnames = list(reader.fieldnames or [])
-            rows = list(reader)
+            if max_rows is None:
+                rows = list(reader)
+            else:
+                rows = []
+                for _, row in zip(range(max_rows), reader):
+                    rows.append(row)
     except (OSError, csv.Error):
         return [], []
 
@@ -39,12 +45,12 @@ def _read_csv_rows(path: Path) -> tuple[list[str], list[dict[str, str]]]:
 
 
 def _csv_is_readable(path: Path) -> bool:
-    fieldnames, _ = _read_csv_rows(path)
+    fieldnames, _ = _read_csv_rows(path, max_rows=0)
     return bool(fieldnames)
 
 
 def _csv_has_rows(path: Path) -> bool:
-    _, rows = _read_csv_rows(path)
+    _, rows = _read_csv_rows(path, max_rows=1)
     return bool(rows)
 
 
@@ -69,7 +75,7 @@ def _discover_dataset_info(run_dir: Path) -> tuple[int, str]:
 
 
 def _metadata_fields(run_dir: Path) -> dict[str, str]:
-    fieldnames, rows = _read_csv_rows(run_dir / "run_metadata.csv")
+    fieldnames, rows = _read_csv_rows(run_dir / "run_metadata.csv", max_rows=1)
     if not fieldnames:
         return {}
     return rows[0] if rows else {}
