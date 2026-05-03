@@ -104,28 +104,33 @@ def build_filter_dropdown(component_id: str, label: str) -> html.Div:
     )
 
 
-def build_data_table(table_id: str, merge_duplicate_headers: bool = False) -> dash_table.DataTable:
-    return dash_table.DataTable(
-        id=table_id,
-        page_action="none",
-        sort_action="native",
-        filter_action="none",
-        fixed_rows={"headers": True},
-        merge_duplicate_headers=merge_duplicate_headers,
-        style_as_list_view=False,
-        virtualization=True,
-        style_table={
+def build_data_table(
+    table_id: str,
+    merge_duplicate_headers: bool = False,
+    *,
+    fixed_headers: bool = True,
+    virtualization: bool = True,
+) -> dash_table.DataTable:
+    table_kwargs = {
+        "id": table_id,
+        "page_action": "none",
+        "sort_action": "native",
+        "filter_action": "none",
+        "merge_duplicate_headers": merge_duplicate_headers,
+        "style_as_list_view": False,
+        "virtualization": virtualization,
+        "style_table": {
             "height": "560px",
             "overflowX": "auto",
             "overflowY": "auto",
         },
-        style_header={
+        "style_header": {
             "backgroundColor": "#efe7db",
             "border": f"1px solid {PANEL_BORDER}",
             "fontWeight": 700,
             "color": TEXT,
         },
-        style_cell={
+        "style_cell": {
             "textAlign": "left",
             "padding": "10px 12px",
             "border": f"1px solid {PANEL_BORDER}",
@@ -138,7 +143,10 @@ def build_data_table(table_id: str, merge_duplicate_headers: bool = False) -> da
             "textOverflow": "ellipsis",
             "whiteSpace": "nowrap",
         },
-    )
+    }
+    if fixed_headers:
+        table_kwargs["fixed_rows"] = {"headers": True}
+    return dash_table.DataTable(**table_kwargs)
 
 
 def build_shell(
@@ -315,7 +323,12 @@ def build_shell(
                                         id="window-comparison-message",
                                         style={"marginBottom": "12px", "color": MUTED, "fontSize": "13px"},
                                     ),
-                                    build_data_table("window-method-compare-table", merge_duplicate_headers=True),
+                                    build_data_table(
+                                        "window-method-compare-table",
+                                        merge_duplicate_headers=True,
+                                        fixed_headers=False,
+                                        virtualization=False,
+                                    ),
                                     html.H3("Raw Summary Rows", style={"color": TEXT, "marginTop": "28px"}),
                                     build_data_table("window-summary-table"),
                                 ],

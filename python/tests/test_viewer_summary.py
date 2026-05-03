@@ -43,6 +43,18 @@ class ViewerSummaryTests(unittest.TestCase):
         self.assertEqual(table.fixed_rows, {"headers": True})
         self.assertEqual(table.style_table["overflowY"], "auto")
 
+    def test_data_table_can_disable_fixed_headers_for_grouped_columns(self) -> None:
+        table = build_data_table(
+            "method-compare-table",
+            merge_duplicate_headers=True,
+            fixed_headers=False,
+            virtualization=False,
+        )
+
+        self.assertFalse(table.virtualization)
+        self.assertNotIn("fixed_rows", table.to_plotly_json()["props"])
+        self.assertTrue(table.merge_duplicate_headers)
+
     def test_format_local_timestamp_uses_process_timezone(self) -> None:
         previous_timezone = os.environ.get("TZ")
         try:
@@ -124,7 +136,7 @@ class ViewerSummaryTests(unittest.TestCase):
             write_text(
                 run_dir / "window_summaries.csv",
                 "run_id,app_name,dataset,method,config_label,interval_seconds,samples_per_window,"
-                "quadrature_nodes,sample_count,normalized_nees_mean,normalized_nees_median,"
+                "quadrature_nodes,num_windows,normalized_nees_mean,normalized_nees_median,"
                 "normalized_nees_p95,normalized_nees_variance,rot_error_median,rot_pred_sigma_median,"
                 "pos_error_median,pos_pred_sigma_median,vel_error_median,vel_pred_sigma_median\n",
             )
@@ -160,7 +172,7 @@ class ViewerSummaryTests(unittest.TestCase):
             write_text(
                 run_dir / "window_summaries.csv",
                 "run_id,app_name,dataset,method,config_label,interval_seconds,samples_per_window,"
-                "quadrature_nodes,sample_count,normalized_nees_mean,normalized_nees_median,"
+                "quadrature_nodes,num_windows,normalized_nees_mean,normalized_nees_median,"
                 "normalized_nees_p95,normalized_nees_variance,rot_error_median,rot_pred_sigma_median,"
                 "pos_error_median,pos_pred_sigma_median,vel_error_median,vel_pred_sigma_median\n"
                 "20260417T000000002Z,evalFallback,MH01,quadrature,default,0.2,40,6,720,1.0,0.5,1.5,0.2,0.1,0.1,0.2,0.2,0.3,0.3\n",
@@ -180,7 +192,7 @@ class ViewerSummaryTests(unittest.TestCase):
             write_text(
                 older_run / "window_summaries.csv",
                 "run_id,app_name,dataset,method,config_label,interval_seconds,samples_per_window,"
-                "quadrature_nodes,sample_count,normalized_nees_mean,normalized_nees_median,"
+                "quadrature_nodes,num_windows,normalized_nees_mean,normalized_nees_median,"
                 "normalized_nees_p95,normalized_nees_variance,rot_error_median,rot_pred_sigma_median,"
                 "pos_error_median,pos_pred_sigma_median,vel_error_median,vel_pred_sigma_median\n"
                 "20260424T165239915Z,evalReduced,MH01,quadrature,default,0.2,40,6,720,1.0,0.5,1.5,0.2,0.1,0.1,0.2,0.2,0.3,0.3\n",
@@ -195,7 +207,7 @@ class ViewerSummaryTests(unittest.TestCase):
             write_text(
                 newer_run / "window_summaries.csv",
                 "run_id,app_name,dataset,method,config_label,interval_seconds,samples_per_window,"
-                "quadrature_nodes,sample_count,normalized_nees_mean,normalized_nees_median,"
+                "quadrature_nodes,num_windows,normalized_nees_mean,normalized_nees_median,"
                 "normalized_nees_p95,normalized_nees_variance,rot_error_median,rot_pred_sigma_median,"
                 "pos_error_median,pos_pred_sigma_median,vel_error_median,vel_pred_sigma_median\n"
                 "20260503T185304287Z,evalReduced,MH01,quadrature,default,0.2,40,6,720,1.0,0.5,1.5,0.2,0.1,0.1,0.2,0.2,0.3,0.3\n",
@@ -226,6 +238,9 @@ class ViewerSummaryTests(unittest.TestCase):
             entry = discover_runs(root)[0]
             run_data = load_run_data(entry)
             self.assertEqual(len(run_data.window_summaries), 1)
+            self.assertIn("num_windows", run_data.window_summaries.columns)
+            self.assertNotIn("sample_count", run_data.window_summaries.columns)
+            self.assertEqual(run_data.window_summaries.iloc[0]["num_windows"], 720)
             self.assertTrue(run_data.calibration_summaries.empty)
 
     def test_load_run_data_calibration_summary_only(self) -> None:
@@ -259,7 +274,7 @@ class ViewerSummaryTests(unittest.TestCase):
             write_text(
                 run_dir / "window_summaries.csv",
                 "run_id,app_name,dataset,method,config_label,interval_seconds,samples_per_window,"
-                "quadrature_nodes,sample_count,normalized_nees_mean,normalized_nees_median,"
+                "quadrature_nodes,num_windows,normalized_nees_mean,normalized_nees_median,"
                 "normalized_nees_p95,normalized_nees_variance,rot_error_median,rot_pred_sigma_median,"
                 "pos_error_median,pos_pred_sigma_median,vel_error_median,vel_pred_sigma_median\n",
             )
@@ -284,7 +299,7 @@ class ViewerSummaryTests(unittest.TestCase):
             write_text(
                 run_dir / "window_summaries.csv",
                 "run_id,app_name,dataset,method,config_label,interval_seconds,samples_per_window,"
-                "quadrature_nodes,sample_count,normalized_nees_mean,normalized_nees_median,"
+                "quadrature_nodes,num_windows,normalized_nees_mean,normalized_nees_median,"
                 "normalized_nees_p95,normalized_nees_variance,rot_error_median,rot_pred_sigma_median,"
                 "pos_error_median,pos_pred_sigma_median,vel_error_median,vel_pred_sigma_median\n"
                 "20260417T000000006Z,evalDash,MH01,quadrature,default,0.2,40,6,720,1.0,0.5,1.5,0.2,0.1,0.1,0.2,0.2,0.3,0.3\n",
@@ -348,7 +363,7 @@ class ViewerSummaryTests(unittest.TestCase):
                 "interval_seconds": 0.2,
                 "config_label": "default",
                 "samples_per_window": 40,
-                "sample_count": 400,
+                "num_windows": 400,
                 "method": "quadrature",
                 "normalized_nees_mean": 0.0240659,
                 "normalized_nees_median": 0.0187926,
@@ -361,7 +376,7 @@ class ViewerSummaryTests(unittest.TestCase):
                 "interval_seconds": 0.2,
                 "config_label": "default",
                 "samples_per_window": 40,
-                "sample_count": 400,
+                "num_windows": 400,
                 "method": "manifold",
                 "normalized_nees_mean": 0.0189061,
                 "normalized_nees_median": 0.0151347,
@@ -374,7 +389,7 @@ class ViewerSummaryTests(unittest.TestCase):
                 "interval_seconds": 0.2,
                 "config_label": "default",
                 "samples_per_window": 40,
-                "sample_count": 400,
+                "num_windows": 400,
                 "method": "tangent",
                 "normalized_nees_mean": 0.0119061,
                 "normalized_nees_median": 0.0101347,
@@ -418,7 +433,7 @@ class ViewerSummaryTests(unittest.TestCase):
         expected_filter_query = (
             '{dataset} = "V102" && {interval_seconds} = 0.2 && '
             '{config_label} = "default" && {samples_per_window} = 40 && '
-            "{sample_count} = 400"
+            "{num_windows} = 400"
         )
         self.assertIn(
             {
@@ -448,7 +463,7 @@ class ViewerSummaryTests(unittest.TestCase):
                 "interval_seconds": 0.2,
                 "config_label": "default",
                 "samples_per_window": 40,
-                "sample_count": 400,
+                "num_windows": 400,
                 "method": "quadrature",
                 "rot_error_median": 0.00100,
             },
@@ -457,7 +472,7 @@ class ViewerSummaryTests(unittest.TestCase):
                 "interval_seconds": 0.2,
                 "config_label": "default",
                 "samples_per_window": 40,
-                "sample_count": 400,
+                "num_windows": 400,
                 "method": "manifold",
                 "rot_error_median": 0.00101,
             },
@@ -499,7 +514,7 @@ class ViewerSummaryTests(unittest.TestCase):
                 "interval_seconds": 0.2,
                 "config_label": "default",
                 "samples_per_window": 40,
-                "sample_count": 720,
+                "num_windows": 720,
                 "method": "quadrature",
                 "rot_error_median": 0.000261,
                 "pos_error_median": 0.001389,
@@ -510,7 +525,7 @@ class ViewerSummaryTests(unittest.TestCase):
                 "interval_seconds": 0.2,
                 "config_label": "default",
                 "samples_per_window": 40,
-                "sample_count": 720,
+                "num_windows": 720,
                 "method": "manifold",
                 "rot_error_median": 0.000512,
                 "pos_error_median": 0.001429,

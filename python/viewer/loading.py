@@ -30,6 +30,14 @@ def load_csv_frame(path: Path, usecols: list[str] | tuple[str, ...] | None = Non
         return pd.DataFrame()
 
 
+def normalize_window_summary_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    """Normalize legacy window-summary schemas for viewer code."""
+
+    if "sample_count" not in frame.columns or "num_windows" in frame.columns:
+        return frame
+    return frame.rename(columns={"sample_count": "num_windows"})
+
+
 @lru_cache(maxsize=12)
 def _load_cached_trajectory_frame(path_str: str, columns: tuple[str, ...]) -> pd.DataFrame:
     return load_csv_frame(Path(path_str), usecols=columns)
@@ -107,6 +115,8 @@ def load_run_data(entry: RunCatalogEntry,
             if include_trajectory_index
             else pd.DataFrame()
         ),
-        window_summaries=load_csv_frame(entry.path / "window_summaries.csv"),
+        window_summaries=normalize_window_summary_columns(
+            load_csv_frame(entry.path / "window_summaries.csv")
+        ),
         calibration_summaries=load_csv_frame(entry.path / "calibration_summaries.csv"),
     )

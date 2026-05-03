@@ -31,7 +31,7 @@ struct WindowResult {
  * @brief Aggregate summary across a set of per-window metrics.
  */
 struct WindowResultSummary {
-  size_t sampleCount = 0;
+  size_t numWindows = 0;
   double normalizedNeesMean = 0.0;
   double normalizedNeesMedian = 0.0;
   double normalizedNeesP95 = 0.0;
@@ -195,7 +195,7 @@ inline WindowResultSummary summarizeWindowResults(
 
   const std::vector<double> normalizedNeesValues =
       project(&WindowResult::normalizedNees);
-  summary.sampleCount = normalizedNeesValues.size();
+  summary.numWindows = normalizedNeesValues.size();
   summary.normalizedNeesMean = computeMean(normalizedNeesValues);
   summary.normalizedNeesMedian = computeMedian(normalizedNeesValues);
   summary.normalizedNeesP95 = computePercentile(normalizedNeesValues, 95.0);

@@ -193,10 +193,10 @@ WINDOW_METRIC_LABELS = {
 
 WINDOW_COMPARISON_INDEX_COLUMNS = [
     ("dataset", "Dataset"),
-    ("interval_seconds", "Interval Seconds"),
-    ("config_label", "Config Label"),
-    ("samples_per_window", "Samples / Window"),
-    ("sample_count", "Sample Count"),
+    ("interval_seconds", "Interval"),
+    ("config_label", "Config"),
+    ("samples_per_window", "Samples/W"),
+    ("num_windows", "#Windows"),
 ]
 
 WINDOW_METRICS_CLOSE_TO_ONE = {

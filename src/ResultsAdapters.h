@@ -97,7 +97,7 @@ inline WindowSummaryRow makeWindowSummaryRow(
   row.intervalSeconds = intervalSeconds;
   row.samplesPerWindow = samplesPerWindow;
   row.quadratureNodes = quadratureNodes;
-  row.sampleCount = summary.sampleCount;
+  row.numWindows = summary.numWindows;
   row.normalizedNeesMean = summary.normalizedNeesMean;
   row.normalizedNeesMedian = summary.normalizedNeesMedian;
   row.normalizedNeesP95 = summary.normalizedNeesP95;

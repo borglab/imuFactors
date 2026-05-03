@@ -79,7 +79,7 @@ struct WindowSummaryRow {
   double intervalSeconds = 0.0;
   size_t samplesPerWindow = 0;
   size_t quadratureNodes = 0;
-  size_t sampleCount = 0;
+  size_t numWindows = 0;
   double normalizedNeesMean = 0.0;
   double normalizedNeesMedian = 0.0;
   double normalizedNeesP95 = 0.0;
@@ -224,7 +224,7 @@ inline std::string windowMetricHeader() {
 
 inline std::string windowSummaryHeader() {
   return "run_id,app_name,dataset,method,config_label,interval_seconds,"
-         "samples_per_window,quadrature_nodes,sample_count,"
+         "samples_per_window,quadrature_nodes,num_windows,"
          "normalized_nees_mean,normalized_nees_median,normalized_nees_p95,"
          "normalized_nees_variance,rot_error_median,rot_pred_sigma_median,"
          "pos_error_median,pos_pred_sigma_median,vel_error_median,"
@@ -282,7 +282,7 @@ inline std::string toCsvRow(const WindowSummaryRow& row) {
   return makeCsvRow(
       row.runId, row.appName, row.dataset, row.method, row.configLabel,
       row.intervalSeconds, row.samplesPerWindow, row.quadratureNodes,
-      row.sampleCount, row.normalizedNeesMean, row.normalizedNeesMedian,
+      row.numWindows, row.normalizedNeesMean, row.normalizedNeesMedian,
       row.normalizedNeesP95, row.normalizedNeesVariance, row.rotErrorMedian,
       row.rotPredSigmaMedian, row.posErrorMedian, row.posPredSigmaMedian,
       row.velErrorMedian, row.velPredSigmaMedian);
