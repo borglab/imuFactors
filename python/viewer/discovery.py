@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import re
 from pathlib import Path
 
 from .models import RunCatalogEntry
@@ -19,6 +20,8 @@ CANONICAL_RESULT_FILES = (
 
 SUMMARY_RESULT_FILES = ("window_summaries.csv", "calibration_summaries.csv")
 
+_ISO_TIMESTAMP_SANITIZER = re.compile(r"[-:.Z]")
+
 
 def _read_csv_rows(path: Path) -> tuple[list[str], list[dict[str, str]]]:
     if not path.exists() or path.stat().st_size == 0:
@@ -27,7 +30,7 @@ def _read_csv_rows(path: Path) -> tuple[list[str], list[dict[str, str]]]:
     try:
         with path.open(newline="", encoding="utf-8") as handle:
             reader = csv.DictReader(handle)
-            fieldnames = reader.fieldnames or []
+            fieldnames = list(reader.fieldnames or [])
             rows = list(reader)
     except (OSError, csv.Error):
         return [], []
@@ -100,6 +103,12 @@ def _make_catalog_entry(run_dir: Path) -> RunCatalogEntry:
     )
 
 
+def _sort_timestamp(entry: RunCatalogEntry) -> str:
+    if entry.timestamp_utc:
+        return _ISO_TIMESTAMP_SANITIZER.sub("", entry.timestamp_utc)
+    return entry.run_id.rstrip("Z")
+
+
 def discover_runs(results_root: str | Path) -> list[RunCatalogEntry]:
     """Discover canonical result-package directories under one results root."""
 
@@ -115,7 +124,7 @@ def discover_runs(results_root: str | Path) -> list[RunCatalogEntry]:
     catalog = [_make_catalog_entry(run_dir) for run_dir in run_dirs]
     catalog.sort(
         key=lambda entry: (
-            entry.timestamp_utc or entry.run_id,
+            _sort_timestamp(entry),
             entry.app_name,
             entry.run_id,
         ),

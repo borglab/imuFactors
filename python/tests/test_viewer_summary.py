@@ -93,6 +93,40 @@ class ViewerSummaryTests(unittest.TestCase):
             self.assertEqual(catalog[0].run_id, "20260417T000000002Z")
             self.assertEqual(catalog[0].status, "partial")
 
+    def test_discover_runs_orders_missing_timestamp_by_run_id_recency(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+
+            older_run = make_run(root, "evalReduced", "20260424T165239915Z")
+            write_text(
+                older_run / "window_summaries.csv",
+                "run_id,app_name,dataset,method,config_label,interval_seconds,samples_per_window,"
+                "quadrature_nodes,sample_count,normalized_nees_mean,normalized_nees_median,"
+                "normalized_nees_p95,normalized_nees_variance,rot_error_median,rot_pred_sigma_median,"
+                "pos_error_median,pos_pred_sigma_median,vel_error_median,vel_pred_sigma_median\n"
+                "20260424T165239915Z,evalReduced,MH01,quadrature,default,0.2,40,6,720,1.0,0.5,1.5,0.2,0.1,0.1,0.2,0.2,0.3,0.3\n",
+            )
+
+            newer_run = make_run(root, "evalReduced", "20260503T185304287Z")
+            write_text(
+                newer_run / "run_metadata.csv",
+                "run_id,app_name,timestamp_utc,cli_args,output_root,repo_version\n"
+                "20260503T185304287Z,evalReduced,2026-05-03T18:53:04.287Z,./evalReduced,./results,\n",
+            )
+            write_text(
+                newer_run / "window_summaries.csv",
+                "run_id,app_name,dataset,method,config_label,interval_seconds,samples_per_window,"
+                "quadrature_nodes,sample_count,normalized_nees_mean,normalized_nees_median,"
+                "normalized_nees_p95,normalized_nees_variance,rot_error_median,rot_pred_sigma_median,"
+                "pos_error_median,pos_pred_sigma_median,vel_error_median,vel_pred_sigma_median\n"
+                "20260503T185304287Z,evalReduced,MH01,quadrature,default,0.2,40,6,720,1.0,0.5,1.5,0.2,0.1,0.1,0.2,0.2,0.3,0.3\n",
+            )
+
+            catalog = discover_runs(root)
+            self.assertEqual(len(catalog), 2)
+            self.assertEqual(catalog[0].run_id, "20260503T185304287Z")
+            self.assertEqual(catalog[1].run_id, "20260424T165239915Z")
+
     def test_load_run_data_window_summary_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
