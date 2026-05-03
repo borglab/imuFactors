@@ -376,15 +376,35 @@ class ViewerSummaryTests(unittest.TestCase):
                 "samples_per_window": 40,
                 "sample_count": 400,
                 "method": "tangent",
-                "normalized_nees_mean": 0.0189061,
-                "normalized_nees_median": 0.0151347,
-                "rot_error_median": 0.0010,
-                "pos_error_median": 0.0021,
-                "vel_error_median": 0.0031,
+                "normalized_nees_mean": 0.0119061,
+                "normalized_nees_median": 0.0101347,
+                "rot_error_median": 0.0014,
+                "pos_error_median": 0.0024,
+                "vel_error_median": 0.0034,
             },
         ]
+        metric_rows = []
+        for window_index in range(8):
+            for method, normalized_nees, rot_error, pos_error, vel_error in (
+                ("quadrature", 0.5, 0.0030, 0.0040, 0.0050),
+                ("manifold", 0.1, 0.0010, 0.0020, 0.0030),
+                ("tangent", 0.05, 0.0020, 0.0030, 0.0040),
+            ):
+                metric_rows.append(
+                    {
+                        "dataset": "V102",
+                        "interval_seconds": 0.2,
+                        "config_label": "default",
+                        "window_index": window_index,
+                        "method": method,
+                        "normalized_nees": normalized_nees,
+                        "rot_error_norm": rot_error,
+                        "pos_error_norm": pos_error,
+                        "vel_error_norm": vel_error,
+                    }
+                )
 
-        columns, comparison_rows, style_rules = _build_window_method_comparison(rows, "core")
+        columns, comparison_rows, style_rules = _build_window_method_comparison(rows, "core", metric_rows)
         self.assertEqual(comparison_rows[0]["dataset"], "V102")
         self.assertIn("normalized_nees_mean__quadrature", comparison_rows[0])
         self.assertIn("normalized_nees_mean__manifold", comparison_rows[0])
@@ -395,14 +415,142 @@ class ViewerSummaryTests(unittest.TestCase):
         self.assertEqual(columns[11]["name"], ["Rotation Error Median (deg)", "Quadrature"])
         self.assertEqual(comparison_rows[0]["rot_error_median__manifold"], "0.0573")
         self.assertEqual(comparison_rows[0]["pos_error_median__manifold"], "0.0021")
+        expected_filter_query = (
+            '{dataset} = "V102" && {interval_seconds} = 0.2 && '
+            '{config_label} = "default" && {samples_per_window} = 40 && '
+            "{sample_count} = 400"
+        )
         self.assertIn(
-            {"if": {"row_index": 0, "column_id": "rot_error_median__manifold"}, "fontWeight": "700"},
+            {
+                "if": {
+                    "filter_query": expected_filter_query,
+                    "column_id": "rot_error_median__manifold",
+                },
+                "fontWeight": "700",
+            },
             style_rules,
         )
         self.assertIn(
-            {"if": {"row_index": 0, "column_id": "normalized_nees_mean__quadrature"}, "fontWeight": "700"},
+            {
+                "if": {
+                    "filter_query": expected_filter_query,
+                    "column_id": "normalized_nees_mean__quadrature",
+                },
+                "fontWeight": "700",
+            },
             style_rules,
         )
+
+    def test_build_window_method_comparison_does_not_style_close_winners(self) -> None:
+        rows = [
+            {
+                "dataset": "V102",
+                "interval_seconds": 0.2,
+                "config_label": "default",
+                "samples_per_window": 40,
+                "sample_count": 400,
+                "method": "quadrature",
+                "rot_error_median": 0.00100,
+            },
+            {
+                "dataset": "V102",
+                "interval_seconds": 0.2,
+                "config_label": "default",
+                "samples_per_window": 40,
+                "sample_count": 400,
+                "method": "manifold",
+                "rot_error_median": 0.00101,
+            },
+        ]
+        metric_rows = []
+        for window_index, quadrature_error, manifold_error in (
+            (0, 0.00100, 0.00102),
+            (1, 0.00102, 0.00100),
+            (2, 0.00100, 0.00103),
+            (3, 0.00103, 0.00100),
+            (4, 0.00100, 0.00101),
+            (5, 0.00101, 0.00100),
+        ):
+            for method, rot_error in (
+                ("quadrature", quadrature_error),
+                ("manifold", manifold_error),
+            ):
+                metric_rows.append(
+                    {
+                        "dataset": "V102",
+                        "interval_seconds": 0.2,
+                        "config_label": "default",
+                        "window_index": window_index,
+                        "method": method,
+                        "rot_error_norm": rot_error,
+                    }
+                )
+
+        _columns, _comparison_rows, style_rules = _build_window_method_comparison(
+            rows, "errors", metric_rows
+        )
+
+        self.assertEqual(style_rules, [])
+
+    def test_build_window_method_comparison_never_bolds_larger_error(self) -> None:
+        rows = [
+            {
+                "dataset": "MH01",
+                "interval_seconds": 0.2,
+                "config_label": "default",
+                "samples_per_window": 40,
+                "sample_count": 720,
+                "method": "quadrature",
+                "rot_error_median": 0.000261,
+                "pos_error_median": 0.001389,
+                "vel_error_median": 0.010554,
+            },
+            {
+                "dataset": "MH01",
+                "interval_seconds": 0.2,
+                "config_label": "default",
+                "samples_per_window": 40,
+                "sample_count": 720,
+                "method": "manifold",
+                "rot_error_median": 0.000512,
+                "pos_error_median": 0.001429,
+                "vel_error_median": 0.010157,
+            },
+        ]
+        metric_rows = []
+        for window_index in range(8):
+            for method, rot_error, pos_error, vel_error in (
+                ("quadrature", 0.0002, 0.0013, 0.0110),
+                ("manifold", 0.0005, 0.0014, 0.0100),
+            ):
+                metric_rows.append(
+                    {
+                        "dataset": "MH01",
+                        "interval_seconds": 0.2,
+                        "config_label": "default",
+                        "window_index": window_index,
+                        "method": method,
+                        "rot_error_norm": rot_error,
+                        "pos_error_norm": pos_error,
+                        "vel_error_norm": vel_error,
+                    }
+                )
+
+        _columns, _comparison_rows, style_rules = _build_window_method_comparison(
+            rows, "errors", metric_rows
+        )
+
+        bold_columns = {
+            rule["if"]["column_id"]
+            for rule in style_rules
+            if rule.get("fontWeight") == "700"
+        }
+        self.assertIn("rot_error_median__quadrature", bold_columns)
+        self.assertIn("pos_error_median__quadrature", bold_columns)
+        self.assertIn("vel_error_median__manifold", bold_columns)
+        self.assertNotIn("rot_error_median__manifold", bold_columns)
+        self.assertNotIn("pos_error_median__manifold", bold_columns)
+        self.assertNotIn("vel_error_median__quadrature", bold_columns)
 
     def test_display_window_summary_rows_converts_rotation_errors_only(self) -> None:
         rows = [{"rot_error_median": 0.1, "pos_error_median": 0.2, "vel_error_median": 0.3}]

@@ -205,6 +205,20 @@ WINDOW_METRICS_CLOSE_TO_ONE = {
     "normalized_nees_p95",
 }
 
+WINDOW_COMPARISON_RAW_METRICS = {
+    "normalized_nees_mean": "normalized_nees",
+    "normalized_nees_median": "normalized_nees",
+    "normalized_nees_p95": "normalized_nees",
+    "rot_error_median": "rot_error_norm",
+    "rot_pred_sigma_median": "rot_pred_sigma",
+    "pos_error_median": "pos_error_norm",
+    "pos_pred_sigma_median": "pos_pred_sigma",
+    "vel_error_median": "vel_error_norm",
+    "vel_pred_sigma_median": "vel_pred_sigma",
+}
+
+SIGNIFICANCE_ALPHA = 0.05
+
 
 def _method_sort_key(method: str) -> tuple[int, str]:
     preferred_order = {
@@ -275,8 +289,153 @@ def _is_same_score(left: float, right: float) -> bool:
     return math.isclose(left, right, rel_tol=1e-9, abs_tol=1e-12)
 
 
+def _one_sided_sign_test_p_value(positive_count: int, trial_count: int) -> float:
+    if trial_count <= 0 or positive_count <= trial_count / 2:
+        return 1.0
+    if trial_count <= 1000:
+        tail_count = sum(
+            math.comb(trial_count, count)
+            for count in range(positive_count, trial_count + 1)
+        )
+        return tail_count / (2.0 ** trial_count)
+
+    mean = trial_count / 2.0
+    standard_deviation = math.sqrt(trial_count / 4.0)
+    z_score = (positive_count - 0.5 - mean) / standard_deviation
+    return 0.5 * math.erfc(z_score / math.sqrt(2.0))
+
+
+def _score_series(metric: str, values: pd.Series) -> pd.Series:
+    scores = pd.to_numeric(values, errors="coerce")
+    if metric in WINDOW_METRICS_CLOSE_TO_ONE:
+        return (scores - 1.0).abs()
+    return scores
+
+
+def _score_difference_counts(differences: pd.Series) -> tuple[int, int]:
+    positive_count = 0
+    negative_count = 0
+    for difference in differences.dropna():
+        if _is_same_score(float(difference), 0.0):
+            continue
+        if difference > 0.0:
+            positive_count += 1
+        else:
+            negative_count += 1
+    return positive_count, negative_count
+
+
+def _method_is_significantly_better(
+    scores_by_window: pd.DataFrame,
+    candidate_method: str,
+    other_methods: list[str],
+    *,
+    alpha: float = SIGNIFICANCE_ALPHA,
+) -> bool:
+    if (
+        not other_methods
+        or candidate_method not in scores_by_window.columns
+        or scores_by_window[candidate_method].dropna().empty
+    ):
+        return False
+
+    for other_method in other_methods:
+        if other_method not in scores_by_window.columns:
+            return False
+        differences = scores_by_window[other_method] - scores_by_window[candidate_method]
+        positive_count, negative_count = _score_difference_counts(differences)
+        trial_count = positive_count + negative_count
+        p_value = _one_sided_sign_test_p_value(positive_count, trial_count)
+        if p_value >= alpha:
+            return False
+    return True
+
+
+def _make_group_key(row_values: dict[str, Any], key_columns: list[str]) -> tuple[Any, ...]:
+    return tuple(row_values[column] for column in key_columns)
+
+
+def _filter_query_value(value: Any) -> str:
+    if isinstance(value, str):
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    return str(value)
+
+
+def _row_filter_query(row: dict[str, Any], columns: list[str]) -> str:
+    return " && ".join(
+        f"{{{column}}} = {_filter_query_value(row[column])}"
+        for column in columns
+    )
+
+
+def _precompute_significant_methods(
+    metric_rows: list[dict[str, Any]],
+    index_columns: list[str],
+    metrics: list[str],
+    method_names: list[str],
+) -> tuple[dict[tuple[str, tuple[Any, ...]], set[str]], list[str]]:
+    if not metric_rows:
+        return {}, []
+
+    frame = pd.DataFrame(metric_rows)
+    required_columns = {"method", "window_index"}
+    if frame.empty or not required_columns.issubset(frame.columns):
+        return {}, []
+
+    key_columns = [column for column in index_columns if column in frame.columns]
+    base_columns = [*key_columns, "method", "window_index"]
+    significant_methods: dict[tuple[str, tuple[Any, ...]], set[str]] = {}
+
+    for metric in metrics:
+        raw_metric = WINDOW_COMPARISON_RAW_METRICS.get(metric)
+        if raw_metric is None or raw_metric not in frame.columns:
+            continue
+
+        score_frame = frame[[*base_columns, raw_metric]].copy()
+        score_frame = score_frame[score_frame["method"].isin(method_names)]
+        score_frame["_score"] = _score_series(metric, score_frame[raw_metric])
+        score_frame = score_frame.dropna(subset=["_score"])
+        score_frame = score_frame.drop_duplicates(
+            subset=[*base_columns],
+            keep="first",
+        )
+
+        if key_columns:
+            groups = score_frame.groupby(key_columns, dropna=False)
+        else:
+            groups = [((), score_frame)]
+
+        for key_values, group in groups:
+            key = key_values if isinstance(key_values, tuple) else (key_values,)
+            scores_by_window = group.pivot_table(
+                index="window_index",
+                columns="method",
+                values="_score",
+                aggfunc="first",
+            )
+            if scores_by_window.empty:
+                continue
+            for method_name in method_names:
+                other_methods = [
+                    other_method
+                    for other_method in method_names
+                    if other_method != method_name
+                ]
+                if _method_is_significantly_better(
+                    scores_by_window,
+                    method_name,
+                    other_methods,
+                ):
+                    significant_methods.setdefault((metric, key), set()).add(method_name)
+
+    return significant_methods, key_columns
+
+
 def _build_window_method_comparison(
-    rows: list[dict[str, Any]], metric_group: str
+    rows: list[dict[str, Any]],
+    metric_group: str,
+    metric_rows: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     if not rows:
         return [], [], []
@@ -324,13 +483,20 @@ def _build_window_method_comparison(
 
     comparison_rows: list[dict[str, Any]] = []
     style_rules: list[dict[str, Any]] = []
+    significant_methods, significance_key_columns = _precompute_significant_methods(
+        metric_rows or [],
+        index_columns,
+        metrics,
+        method_names,
+    )
     for index_values, series in pivot.iterrows():
         if not isinstance(index_values, tuple):
             index_values = (index_values,)
         row: dict[str, Any] = {
             index_columns[index]: index_values[index] for index in range(len(index_columns))
         }
-        row_index = len(comparison_rows)
+        significance_key = _make_group_key(row, significance_key_columns)
+        row_filter_query = _row_filter_query(row, index_columns)
         for metric in metrics:
             metric_scores: list[tuple[str, float]] = []
             for method_name in method_names:
@@ -343,25 +509,25 @@ def _build_window_method_comparison(
 
             if metric_scores:
                 best_score = min(score for _column_id, score in metric_scores)
-                second_best_score = next(
-                    (
-                        score
-                        for score in sorted(score for _column_id, score in metric_scores)
-                        if not _is_same_score(score, best_score)
-                    ),
-                    None,
-                )
-                for column_id, score in metric_scores:
-                    if _is_same_score(score, best_score):
-                        style_rules.append(
-                            {"if": {"row_index": row_index, "column_id": column_id}, "fontWeight": "700"}
-                        )
-                    elif second_best_score is not None and _is_same_score(score, second_best_score):
+                best_method_ids = [
+                    column_id for column_id, score in metric_scores if _is_same_score(score, best_score)
+                ]
+                if len(best_method_ids) == 1:
+                    best_column_id = best_method_ids[0]
+                    candidate_method = best_column_id.split("__", 1)[1]
+                    other_methods = [
+                        column_id.split("__", 1)[1]
+                        for column_id, _score in metric_scores
+                        if column_id != best_column_id
+                    ]
+                    if candidate_method in significant_methods.get((metric, significance_key), set()):
                         style_rules.append(
                             {
-                                "if": {"row_index": row_index, "column_id": column_id},
-                                "textDecoration": "underline",
-                                "textDecorationThickness": "2px",
+                                "if": {
+                                    "filter_query": row_filter_query,
+                                    "column_id": best_column_id,
+                                },
+                                "fontWeight": "700",
                             }
                         )
         comparison_rows.append(row)
@@ -591,13 +757,24 @@ def create_dash_app(results_root: str | Path = "build/results") -> Dash:
                 "interval_seconds": selected_intervals or [],
             },
         )
+        filtered_metric_rows = _filter_rows(
+            run_payload["window_metric_rows"],
+            {
+                "dataset": selected_datasets or [],
+                "method": selected_methods or [],
+                "config_label": selected_configs or [],
+                "interval_seconds": selected_intervals or [],
+            },
+        )
         comparison_columns, comparison_rows, comparison_styles = _build_window_method_comparison(
-            filtered_rows, comparison_metric_set
+            filtered_rows, comparison_metric_set, filtered_metric_rows
         )
 
         if comparison_rows:
             comparison_message: Any = html.Div(
-                "Methods are pivoted side-by-side for the current dataset and interval filters.",
+                "Methods are pivoted side-by-side for the current filters. "
+                "Bold marks a numerical winner only when paired per-window evidence "
+                "is significant at p < 0.05.",
                 style={"color": "#7a6956", "fontSize": "13px"},
             )
         else:
