@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "AppUtils.h"
+#include "QuadratureRunner.h"
 
 using namespace gtsam;
 
@@ -106,6 +107,45 @@ TEST(AppUtils, ResolveDatasetCliFiltersAndSortsDatasets) {
 TEST(AppUtils, ParseMaxIntervalsArgument) {
   EXPECT(parseMaxIntervalsArgument({}) == 0);
   EXPECT(parseMaxIntervalsArgument({"--max-intervals", "2"}) == 2);
+}
+
+/* ************************************************************************* */
+TEST(AppUtils, ParseQuadratureAlphaArguments) {
+  const QuadratureAppOptions defaultOptions =
+      parseQuadratureAppArguments({}, "test", 8.4);
+  EXPECT_DOUBLES_EQUAL(8.4, defaultOptions.alphaGyro, 1e-9);
+  EXPECT_DOUBLES_EQUAL(8.4, defaultOptions.alphaAcc, 1e-9);
+  EXPECT(!defaultOptions.hasAlphaGyroOverride);
+  EXPECT(!defaultOptions.hasAlphaAccOverride);
+  const AlphaPair machineHallDefault =
+      alphaForDataset(defaultOptions, "MH01");
+  EXPECT_DOUBLES_EQUAL(5.0, machineHallDefault.gyro, 1e-9);
+  EXPECT_DOUBLES_EQUAL(7.0, machineHallDefault.acc, 1e-9);
+  const AlphaPair viconDefault = alphaForDataset(defaultOptions, "V101");
+  EXPECT_DOUBLES_EQUAL(13.0, viconDefault.gyro, 1e-9);
+  EXPECT_DOUBLES_EQUAL(10.0, viconDefault.acc, 1e-9);
+
+  const QuadratureAppOptions sharedAlphaOptions =
+      parseQuadratureAppArguments({"--alpha", "4.2"}, "test", 8.4);
+  EXPECT_DOUBLES_EQUAL(4.2, sharedAlphaOptions.alphaGyro, 1e-9);
+  EXPECT_DOUBLES_EQUAL(4.2, sharedAlphaOptions.alphaAcc, 1e-9);
+  EXPECT(sharedAlphaOptions.hasAlphaGyroOverride);
+  EXPECT(sharedAlphaOptions.hasAlphaAccOverride);
+
+  const QuadratureAppOptions splitAlphaOptions = parseQuadratureAppArguments(
+      {"--alpha", "4.2", "--alpha-gyro", "13.0", "--alpha-acc", "9.4",
+       "--max-intervals", "2"},
+      "test", 8.4);
+  EXPECT_DOUBLES_EQUAL(13.0, splitAlphaOptions.alphaGyro, 1e-9);
+  EXPECT_DOUBLES_EQUAL(9.4, splitAlphaOptions.alphaAcc, 1e-9);
+  EXPECT(splitAlphaOptions.maxIntervals == 2);
+
+  const QuadratureAppOptions gyroOnlyOptions =
+      parseQuadratureAppArguments({"--alpha-gyro", "2.0"}, "test", 8.4);
+  const AlphaPair gyroOnlyMachineHall =
+      alphaForDataset(gyroOnlyOptions, "MH01");
+  EXPECT_DOUBLES_EQUAL(2.0, gyroOnlyMachineHall.gyro, 1e-9);
+  EXPECT_DOUBLES_EQUAL(7.0, gyroOnlyMachineHall.acc, 1e-9);
 }
 
 /* ************************************************************************* */

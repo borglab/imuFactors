@@ -50,9 +50,14 @@ int main(int argc, char* argv[]) {
       [&](ResultsWriter* writer, const std::string& datasetGroup) {
         return QuadratureRunner(
             appOptions, writer, datasetGroup,
-            makePreintegrationParams(appOptions.alpha * 1.6968e-4,
-                                     appOptions.alpha * 2.0000e-3),
             InitialCovarianceOptions{initialNavCovariance(),
-                                     initialBiasCovariance()});
+                                     initialBiasCovariance()},
+            [&appOptions](const std::string& datasetName) {
+              return makePreintegrationParams(
+                  alphaForDataset(appOptions, datasetName));
+            },
+            [&appOptions](const std::string& datasetName) {
+              return alphaConfigLabel(alphaForDataset(appOptions, datasetName));
+            });
       });
 }

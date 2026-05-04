@@ -49,6 +49,7 @@ target_link_libraries(imuFactorsEval PUBLIC
 # CLI entry points
 add_executable(evalGal3NavStateImuEKFNEES apps/evalGal3NavStateImuEKFNEES.cpp)
 add_executable(evalNoiseCalibration apps/evalNoiseCalibration.cpp)
+add_executable(evalPimNoiseCalibration apps/evalPimNoiseCalibration.cpp)
 add_executable(evalExportTrajectories apps/evalExportTrajectories.cpp)
 add_executable(evalReducedNeesWithPriorCovariance apps/evalReducedNeesWithPriorCovariance.cpp)
 add_executable(evalQuadratureImuFactorDiagnostics apps/evalQuadratureImuFactorDiagnostics.cpp)
@@ -57,6 +58,7 @@ add_executable(evalQuadratureImuFactorDiagnostics apps/evalQuadratureImuFactorDi
 foreach(app_target
     evalGal3NavStateImuEKFNEES
     evalNoiseCalibration
+    evalPimNoiseCalibration
     evalExportTrajectories
     evalReducedNeesWithPriorCovariance
     evalQuadratureImuFactorDiagnostics)
