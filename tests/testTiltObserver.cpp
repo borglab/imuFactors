@@ -44,64 +44,101 @@ TEST(TiltObserver, StationaryAlignedSampleLeavesStateUnchanged) {
 
   observer(Vector3::Zero(), Vector3(0, 0, 9.81));
 
-  EXPECT(observer.b_hat.norm() < 1e-12);
-  EXPECT((observer.n_hat.point3() - Vector3(0, 0, -1)).norm() < 1e-12);
+  EXPECT(observer.b_hat.has_value());
+  EXPECT(observer.n_hat.has_value());
+  EXPECT(observer.b_hat->norm() < 1e-12);
+  EXPECT((observer.n_hat->point3() - Vector3(0, 0, -1)).norm() < 1e-12);
 }
 
 /* ************************************************************************* */
-TEST(TiltObserver, InitialGravityDirectionStartsAlignedWithSpecificForce) {
-  const Vector3 specificForce(9.81, 0.0, 0.0);
-  TiltObserver observer(0.25, 3.0, 0.005,
-                        gravityDirectionFromSpecificForce(specificForce));
+TEST(TiltObserver, DefaultObserverStartsUninitialized) {
+  const TiltObserver observer(0.25, 3.0, 0.005);
 
-  EXPECT((observer.n_hat.point3() - Vector3(-1, 0, 0)).norm() < 1e-12);
+  EXPECT(!observer.b_hat.has_value());
+  EXPECT(!observer.n_hat.has_value());
+}
 
-  observer(Vector3::Zero(), specificForce);
+/* ************************************************************************* */
+TEST(TiltObserver, PredictInitializesBiasFromGyroSample) {
+  TiltObserver observer(0.25, 3.0, 0.005);
+  const Vector3 omega_b(0.1, -0.2, 0.3);
 
-  EXPECT((observer.n_hat.point3() - Vector3(-1, 0, 0)).norm() < 1e-12);
+  observer.predict(omega_b);
+
+  EXPECT(observer.b_hat.has_value());
+  EXPECT(!observer.n_hat.has_value());
+  EXPECT((observer.b_hat.value() - omega_b).norm() < 1e-12);
+}
+
+/* ************************************************************************* */
+TEST(TiltObserver, UpdateInitializesGravityFromSpecificForce) {
+  TiltObserver observer(0.25, 3.0, 0.005);
+  const Vector3 f_b(9.81, 0.0, 0.0);
+
+  observer.update(f_b);
+
+  EXPECT(!observer.b_hat.has_value());
+  EXPECT(observer.n_hat.has_value());
+  EXPECT((observer.n_hat->point3() - Vector3(-1, 0, 0)).norm() < 1e-12);
+}
+
+/* ************************************************************************* */
+TEST(TiltObserver, FirstOperatorCallInitializesBothStates) {
+  const Vector3 f_b(9.81, 0.0, 0.0);
+  const Vector3 omega_b(0.1, -0.2, 0.3);
+  TiltObserver observer(0.25, 3.0, 0.005);
+
+  observer(omega_b, f_b);
+
+  EXPECT(observer.b_hat.has_value());
+  EXPECT(observer.n_hat.has_value());
+  EXPECT((observer.b_hat.value() - omega_b).norm() < 1e-12);
+  EXPECT((observer.n_hat->point3() - Vector3(-1, 0, 0)).norm() < 1e-12);
 }
 
 /* ************************************************************************* */
 TEST(TiltObserver, GeodesicCorrectionMovesTowardGravityMeasurement) {
-  TiltObserver observer(0.25, 30.0, 0.005);
+  TiltObserver observer(0.25, 30.0, 0.005, Unit3(Vector3(0, 0, -1)));
   const Unit3 measuredGravity(Vector3(0.2, 0.0, -0.98));
-  const Vector3 specificForce = -9.81 * measuredGravity.point3();
+  const Vector3 f_b = -9.81 * measuredGravity.point3();
 
   const double dotBefore =
-      observer.n_hat.point3().dot(measuredGravity.point3());
+      observer.n_hat->point3().dot(measuredGravity.point3());
 
-  observer(Vector3::Zero(), specificForce);
+  observer(Vector3::Zero(), f_b);
 
-  const double dotAfter = observer.n_hat.point3().dot(measuredGravity.point3());
+  const double dotAfter =
+      observer.n_hat->point3().dot(measuredGravity.point3());
   EXPECT(dotAfter > dotBefore);
 }
 
 /* ************************************************************************* */
 TEST(TiltObserver, BiasUpdateMovesTowardStaticGyroBias) {
-  TiltObserver observer(0.25, 3.0, 0.005);
   const Vector3 trueGyroBias(0.02, 0.0, 0.0);
-  const Vector3 specificForce(0.0, 0.0, 9.81);
+  const Vector3 f_b(0.0, 0.0, 9.81);
+  TiltObserver observer(0.25, 3.0, 0.005,
+                        gravityDirectionFromSpecificForce(f_b));
 
   for (size_t i = 0; i < 1000; ++i) {
-    observer(trueGyroBias, specificForce);
+    observer(trueGyroBias, f_b);
   }
 
-  EXPECT(observer.b_hat.x() > 0.0);
-  EXPECT(std::abs(observer.b_hat.x() - trueGyroBias.x()) < trueGyroBias.x());
+  EXPECT(observer.b_hat->x() > 0.0);
+  EXPECT(std::abs(observer.b_hat->x() - trueGyroBias.x()) < trueGyroBias.x());
 }
 
 /* ************************************************************************* */
 TEST(TiltObserver, BiasParallelToGravityIsUnobservable) {
-  const Vector3 specificForce(9.81, 0.0, 0.0);
+  const Vector3 f_b(9.81, 0.0, 0.0);
   TiltObserver observer(0.25, 3.0, 0.005,
-                        gravityDirectionFromSpecificForce(specificForce));
+                        gravityDirectionFromSpecificForce(f_b));
 
   for (size_t i = 0; i < 1000; ++i) {
-    observer(Vector3(0.02, 0.0, 0.0), specificForce);
+    observer(Vector3(0.02, 0.0, 0.0), f_b);
   }
 
-  EXPECT(observer.b_hat.norm() < 1e-12);
-  EXPECT((observer.n_hat.point3() - Vector3(-1, 0, 0)).norm() < 1e-12);
+  EXPECT(observer.b_hat->norm() < 1e-12);
+  EXPECT((observer.n_hat->point3() - Vector3(-1, 0, 0)).norm() < 1e-12);
 }
 
 /* ************************************************************************* */
@@ -122,8 +159,8 @@ TEST(TiltObserver, ObservableMotionRecoversThreeAxisGyroBias) {
     observer(angularVelocity + trueGyroBias, -9.81 * trueGravity);
   }
 
-  EXPECT((observer.b_hat - trueGyroBias).norm() < 1e-4);
-  EXPECT((observer.n_hat.point3() - trueGravity).norm() < 1e-5);
+  EXPECT((observer.b_hat.value() - trueGyroBias).norm() < 1e-4);
+  EXPECT((observer.n_hat->point3() - trueGravity).norm() < 1e-5);
 }
 
 /* ************************************************************************* */

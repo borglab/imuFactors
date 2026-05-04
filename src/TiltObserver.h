@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 
 namespace gtsam {
 
@@ -21,12 +22,21 @@ namespace gtsam {
  * First-order tilt and gyroscope-bias observer driven by IMU measurements.
  */
 struct TiltObserver {
-  Unit3 n_hat;
-  Vector3 b_hat;
+  std::optional<Unit3> n_hat;
+  std::optional<Vector3> b_hat;
   double kP, kI, dt;
 
   /**
-   * Construct the observer with an initial gravity direction estimate.
+   * Construct the observer with lazy state initialization.
+   * @param tauP Proportional time constant in seconds
+   * @param tauI Integral time constant in seconds
+   * @param dt IMU sample period in seconds
+   */
+  TiltObserver(double tauP, double tauI, double dt)
+      : kP(dt / tauP), kI(dt / (tauI * tauI)), dt(dt) {}
+
+  /**
+   * Construct the observer with an initial state estimate.
    * @param tauP Proportional time constant in seconds
    * @param tauI Integral time constant in seconds
    * @param dt IMU sample period in seconds
@@ -34,7 +44,7 @@ struct TiltObserver {
    * @param initialGyroBias Initial gyroscope bias in rad/s
    */
   TiltObserver(double tauP, double tauI, double dt,
-               const Unit3& initialGravityDirection = Unit3(0, 0, -1),
+               const Unit3& initialGravityDirection,
                const Vector3& initialGyroBias = Vector3::Zero())
       : n_hat{initialGravityDirection},
         b_hat{initialGyroBias},
@@ -47,8 +57,14 @@ struct TiltObserver {
    * @param omega_b Measured body-frame angular velocity in rad/s
    */
   void predict(const Vector3& omega_b) {
-    const Vector3 omega_hat = omega_b - b_hat;
-    n_hat = Rot3::Expmap(-omega_hat * dt) * n_hat;
+    if (!b_hat) {
+      b_hat = omega_b;
+      return;
+    }
+    if (n_hat) {
+      const Vector3 omega_hat = omega_b - b_hat.value();
+      n_hat = Rot3::Expmap(-omega_hat * dt) * n_hat.value();
+    }
   }
 
   /**
@@ -57,9 +73,15 @@ struct TiltObserver {
    */
   void update(const Vector3& f_b) {
     const Vector3 y = -f_b.normalized();
-    const auto e = n_hat.cross(y);
-    n_hat = Rot3::Expmap(kP * e) * n_hat;
-    b_hat += kI * e;
+    if (!n_hat) {
+      n_hat = Unit3(y);
+      return;
+    }
+    const auto e = n_hat->cross(y);
+    n_hat = Rot3::Expmap(kP * e) * n_hat.value();
+    if (b_hat) {
+      b_hat = b_hat.value() + kI * e;
+    }
   }
 
   /**

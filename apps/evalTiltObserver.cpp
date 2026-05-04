@@ -14,7 +14,6 @@
 #include <gtsam/geometry/Unit3.h>
 
 #include <algorithm>
-#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -35,13 +34,11 @@ namespace {
 
 constexpr double kDefaultTauP = 0.25;
 constexpr double kDefaultTauI = 3.0;
-constexpr double kDefaultInitializationSeconds = 0.5;
 
 struct AppOptions {
   AppCliOptions datasetOptions;
   double tauP = kDefaultTauP;
   double tauI = kDefaultTauI;
-  double initializationSeconds = kDefaultInitializationSeconds;
 };
 
 void printUsage(const char* programName) {
@@ -50,9 +47,6 @@ void printUsage(const char* programName) {
        << kDefaultTauP << ")\n";
   cout << "  --tau-i <seconds>       Integral time constant (default: "
        << kDefaultTauI << ")\n";
-  cout << "  --init-seconds <seconds> Average initial accelerometer samples "
-          "over this duration (default: "
-       << kDefaultInitializationSeconds << ")\n";
 }
 
 AppOptions parseArguments(int argc, char* argv[]) {
@@ -82,14 +76,6 @@ AppOptions parseArguments(int argc, char* argv[]) {
           parsePositiveDoubleOption("--tau-i", parsed.remainingArgs[++index]);
       continue;
     }
-    if (argument == "--init-seconds") {
-      if (index + 1 >= parsed.remainingArgs.size()) {
-        throw runtime_error("Missing value for --init-seconds");
-      }
-      options.initializationSeconds = parsePositiveDoubleOption(
-          "--init-seconds", parsed.remainingArgs[++index]);
-      continue;
-    }
     throw runtime_error("Unknown argument: " + argument);
   }
 
@@ -102,34 +88,6 @@ string tiltObserverHeader() {
          "gt_gyro_bias_x,gt_gyro_bias_y,gt_gyro_bias_z,"
          "est_gyro_bias_x,est_gyro_bias_y,est_gyro_bias_z,"
          "omega_x,omega_y,omega_z,acc_x,acc_y,acc_z";
-}
-
-Unit3 initialGravityDirection(const Dataset& dataset,
-                              double initializationSeconds) {
-  const size_t sampleCount = min(dataset.truth.size(), dataset.imu.size());
-  if (sampleCount == 0) {
-    throw runtime_error(
-        "Cannot initialize tilt observer from an empty dataset.");
-  }
-
-  const double requestedInitializationSamples =
-      initializationSeconds / dataset.timestep();
-  const size_t initializationSamples =
-      min(sampleCount,
-          max<size_t>(
-              1, static_cast<size_t>(llround(requestedInitializationSamples))));
-  Vector3 gravitySum = Vector3::Zero();
-  for (size_t sampleIndex = 0; sampleIndex < initializationSamples;
-       ++sampleIndex) {
-    const Vector3& specificForce = dataset.imu[sampleIndex].acc;
-    if (specificForce.norm() > 1e-9) {
-      gravitySum += gravityDirectionFromSpecificForce(specificForce).point3();
-    }
-  }
-  if (gravitySum.norm() <= 1e-9) {
-    return gravityDirectionFromSpecificForce(dataset.imu.front().acc);
-  }
-  return Unit3(gravitySum.normalized());
 }
 
 void writeTiltObserverRow(ofstream& stream, const ResultsWriter& writer,
@@ -155,8 +113,7 @@ void writeTiltObserverRow(ofstream& stream, const ResultsWriter& writer,
 }
 
 void runDataset(const ResultsWriter& writer, const string& datasetName,
-                const Dataset& dataset, double tauP, double tauI,
-                double initializationSeconds) {
+                const Dataset& dataset, double tauP, double tauI) {
   const filesystem::path outputPath =
       writer.runDirectory() / ("tilt_observer_" + datasetName + ".csv");
   ofstream stream(outputPath);
@@ -167,23 +124,25 @@ void runDataset(const ResultsWriter& writer, const string& datasetName,
   stream << setprecision(17);
   stream << tiltObserverHeader() << "\n";
 
-  TiltObserver observer(
-      tauP, tauI, dataset.timestep(),
-      initialGravityDirection(dataset, initializationSeconds));
+  TiltObserver observer(tauP, tauI, dataset.timestep());
   const size_t sampleCount = min(dataset.truth.size(), dataset.imu.size());
   for (size_t sampleIndex = 0; sampleIndex < sampleCount; ++sampleIndex) {
     const auto& imuMeasurement = dataset.imu[sampleIndex];
     const auto& truth = dataset.truth[sampleIndex];
 
     observer(imuMeasurement.omega, imuMeasurement.acc);
+    if (!observer.n_hat || !observer.b_hat) {
+      continue;
+    }
 
     const Unit3 gtUpDirection(truth.navState.attitude().matrix().transpose() *
                               Vector3::UnitZ());
     const Vector2 gtRollPitch = rollPitchFromUpDirection(gtUpDirection);
-    const Vector2 estRollPitch = rollPitchFromGravityDirection(observer.n_hat);
+    const Vector2 estRollPitch =
+        rollPitchFromGravityDirection(observer.n_hat.value());
     writeTiltObserverRow(stream, writer, datasetName, sampleIndex,
                          truth.timestamp, tauP, tauI, gtRollPitch, estRollPitch,
-                         truth.bias.gyroscope(), observer.b_hat,
+                         truth.bias.gyroscope(), observer.b_hat.value(),
                          imuMeasurement);
   }
 }
@@ -212,8 +171,7 @@ int main(int argc, char* argv[]) {
       }
       writer.writeDataset(
           makeDatasetRow(writer, datasetName, dataset, datasetGroup));
-      runDataset(writer, datasetName, dataset, options.tauP, options.tauI,
-                 options.initializationSeconds);
+      runDataset(writer, datasetName, dataset, options.tauP, options.tauI);
       cout << "Wrote " << datasetName << "\n";
     }
 
