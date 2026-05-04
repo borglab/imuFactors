@@ -33,7 +33,7 @@ using namespace std;
 namespace {
 
 constexpr double kDefaultTauP = 0.25;
-constexpr double kDefaultTauI = 30.0;
+constexpr double kDefaultTauI = 3.0;
 
 struct AppOptions {
   AppCliOptions datasetOptions;

@@ -76,6 +76,21 @@ TEST(TiltObserver, GeodesicCorrectionMovesTowardGravityMeasurement) {
 }
 
 /* ************************************************************************* */
+TEST(TiltObserver, BiasUpdateMovesTowardStaticGyroBias) {
+  TiltObserver observer(0.25, 3.0, 0.005);
+  const Vector3 trueGyroBias(0.02, 0.0, 0.0);
+  const Vector3 specificForce(0.0, 0.0, 9.81);
+
+  for (size_t i = 0; i < 1000; ++i) {
+    observer(trueGyroBias, specificForce);
+  }
+
+  EXPECT(observer.x_hat.b.x() > 0.0);
+  EXPECT(std::abs(observer.x_hat.b.x() - trueGyroBias.x()) <
+         trueGyroBias.x());
+}
+
+/* ************************************************************************* */
 int main() {
   TestResult tr;
   return TestRegistry::runAllTests(tr);

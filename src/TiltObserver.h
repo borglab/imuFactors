@@ -62,7 +62,7 @@ struct TiltObserver {
     const auto y = (-f_b).normalized();
     const auto e = n1.cross(y);
     const Unit3 correctedDirection(Rot3::Expmap(kP * e) * n1);
-    x_hat = {correctedDirection, x_hat.b - kI * e};
+    x_hat = {correctedDirection, x_hat.b + kI * e};
   }
 };
 
