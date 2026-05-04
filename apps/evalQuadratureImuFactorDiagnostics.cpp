@@ -40,8 +40,8 @@ int main(int argc, char* argv[]) {
       [&](ResultsWriter* writer, const std::string& datasetGroup) {
         return QuadratureRunner(appOptions, writer, datasetGroup,
                                 makePreintegrationParams(
-                                    appOptions.alpha * 1.6968e-4,
-                                    appOptions.alpha * 2.0000e-3),
-                                std::nullopt);
+                                    appOptions.alphaGyro * 1.6968e-4,
+                                    appOptions.alphaAcc * 2.0000e-3),
+                                std::nullopt, alphaConfigLabel(appOptions));
       });
 }

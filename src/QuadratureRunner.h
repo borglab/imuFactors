@@ -15,6 +15,7 @@
 #include <cmath>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -29,14 +30,16 @@ using PIMManifold = PreintegratedImuMeasurementsT<ManifoldPreintegration>;
 
 struct QuadratureAppOptions {
   size_t maxIntervals = 0;
-  double alpha = 3.0;
+  double alphaGyro = 3.0;
+  double alphaAcc = 3.0;
 };
 
 inline QuadratureAppOptions parseQuadratureAppArguments(
     const std::vector<std::string>& arguments, const char* programName,
     double defaultAlpha = 3.0) {
   QuadratureAppOptions options;
-  options.alpha = defaultAlpha;
+  options.alphaGyro = defaultAlpha;
+  options.alphaAcc = defaultAlpha;
   std::vector<std::string> intervalArguments;
   for (size_t index = 0; index < arguments.size(); ++index) {
     const std::string& argument = arguments[index];
@@ -48,13 +51,38 @@ inline QuadratureAppOptions parseQuadratureAppArguments(
       if (index + 1 >= arguments.size()) {
         throw std::runtime_error("Missing value for --alpha");
       }
-      options.alpha = parsePositiveDoubleOption("--alpha", arguments[++index]);
+      const double alpha =
+          parsePositiveDoubleOption("--alpha", arguments[++index]);
+      options.alphaGyro = alpha;
+      options.alphaAcc = alpha;
+      continue;
+    }
+    if (argument == "--alpha-gyro") {
+      if (index + 1 >= arguments.size()) {
+        throw std::runtime_error("Missing value for --alpha-gyro");
+      }
+      options.alphaGyro =
+          parsePositiveDoubleOption("--alpha-gyro", arguments[++index]);
+      continue;
+    }
+    if (argument == "--alpha-acc") {
+      if (index + 1 >= arguments.size()) {
+        throw std::runtime_error("Missing value for --alpha-acc");
+      }
+      options.alphaAcc =
+          parsePositiveDoubleOption("--alpha-acc", arguments[++index]);
       continue;
     }
     intervalArguments.push_back(argument);
   }
   options.maxIntervals = parseMaxIntervalsArgument(intervalArguments);
   return options;
+}
+
+inline std::string alphaConfigLabel(const QuadratureAppOptions& options) {
+  std::ostringstream stream;
+  stream << "alpha_g" << options.alphaGyro << "_a" << options.alphaAcc;
+  return stream.str();
 }
 
 inline std::shared_ptr<PreintegrationParams> makePreintegrationParams(

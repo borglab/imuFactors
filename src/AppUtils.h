@@ -329,6 +329,8 @@ inline void printQuadratureAppUsage(const char* programName,
       << "  --max-intervals <count> Restrict to first N default intervals\n";
   std::cout << "  --alpha <value>         Noise scaling factor (default: "
             << defaultAlpha << ")\n";
+  std::cout << "  --alpha-gyro <value>    Gyroscope noise scaling factor\n";
+  std::cout << "  --alpha-acc <value>     Accelerometer noise scaling factor\n";
 }
 
 /**

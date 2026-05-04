@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "AppUtils.h"
+#include "QuadratureRunner.h"
 
 using namespace gtsam;
 
@@ -106,6 +107,27 @@ TEST(AppUtils, ResolveDatasetCliFiltersAndSortsDatasets) {
 TEST(AppUtils, ParseMaxIntervalsArgument) {
   EXPECT(parseMaxIntervalsArgument({}) == 0);
   EXPECT(parseMaxIntervalsArgument({"--max-intervals", "2"}) == 2);
+}
+
+/* ************************************************************************* */
+TEST(AppUtils, ParseQuadratureAlphaArguments) {
+  const QuadratureAppOptions defaultOptions =
+      parseQuadratureAppArguments({}, "test", 8.4);
+  EXPECT_DOUBLES_EQUAL(8.4, defaultOptions.alphaGyro, 1e-9);
+  EXPECT_DOUBLES_EQUAL(8.4, defaultOptions.alphaAcc, 1e-9);
+
+  const QuadratureAppOptions sharedAlphaOptions =
+      parseQuadratureAppArguments({"--alpha", "4.2"}, "test", 8.4);
+  EXPECT_DOUBLES_EQUAL(4.2, sharedAlphaOptions.alphaGyro, 1e-9);
+  EXPECT_DOUBLES_EQUAL(4.2, sharedAlphaOptions.alphaAcc, 1e-9);
+
+  const QuadratureAppOptions splitAlphaOptions = parseQuadratureAppArguments(
+      {"--alpha", "4.2", "--alpha-gyro", "13.0", "--alpha-acc", "9.4",
+       "--max-intervals", "2"},
+      "test", 8.4);
+  EXPECT_DOUBLES_EQUAL(13.0, splitAlphaOptions.alphaGyro, 1e-9);
+  EXPECT_DOUBLES_EQUAL(9.4, splitAlphaOptions.alphaAcc, 1e-9);
+  EXPECT(splitAlphaOptions.maxIntervals == 2);
 }
 
 /* ************************************************************************* */
