@@ -13,10 +13,12 @@
 #include <gtsam/navigation/TangentPreintegration.h>
 
 #include <cmath>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "AppUtils.h"
@@ -32,6 +34,8 @@ struct QuadratureAppOptions {
   size_t maxIntervals = 0;
   double alphaGyro = 3.0;
   double alphaAcc = 3.0;
+  bool hasAlphaGyroOverride = false;
+  bool hasAlphaAccOverride = false;
 };
 
 inline QuadratureAppOptions parseQuadratureAppArguments(
@@ -55,6 +59,8 @@ inline QuadratureAppOptions parseQuadratureAppArguments(
           parsePositiveDoubleOption("--alpha", arguments[++index]);
       options.alphaGyro = alpha;
       options.alphaAcc = alpha;
+      options.hasAlphaGyroOverride = true;
+      options.hasAlphaAccOverride = true;
       continue;
     }
     if (argument == "--alpha-gyro") {
@@ -63,6 +69,7 @@ inline QuadratureAppOptions parseQuadratureAppArguments(
       }
       options.alphaGyro =
           parsePositiveDoubleOption("--alpha-gyro", arguments[++index]);
+      options.hasAlphaGyroOverride = true;
       continue;
     }
     if (argument == "--alpha-acc") {
@@ -71,6 +78,7 @@ inline QuadratureAppOptions parseQuadratureAppArguments(
       }
       options.alphaAcc =
           parsePositiveDoubleOption("--alpha-acc", arguments[++index]);
+      options.hasAlphaAccOverride = true;
       continue;
     }
     intervalArguments.push_back(argument);
@@ -85,6 +93,38 @@ inline std::string alphaConfigLabel(const QuadratureAppOptions& options) {
   return stream.str();
 }
 
+struct AlphaPair {
+  double gyro = 0.0;
+  double acc = 0.0;
+};
+
+inline AlphaPair defaultPimAlphaForDataset(const std::string& datasetName) {
+  // Coarse PIM calibration uses quadrature plus tangent; manifold is omitted
+  // from the objective because it tracks tangent closely in this study.
+  if (DatasetFilters::machineHall(datasetName)) {
+    return {5.0, 7.0};
+  }
+  return {13.0, 10.0};
+}
+
+inline AlphaPair alphaForDataset(const QuadratureAppOptions& options,
+                                 const std::string& datasetName) {
+  AlphaPair alpha = defaultPimAlphaForDataset(datasetName);
+  if (options.hasAlphaGyroOverride) {
+    alpha.gyro = options.alphaGyro;
+  }
+  if (options.hasAlphaAccOverride) {
+    alpha.acc = options.alphaAcc;
+  }
+  return alpha;
+}
+
+inline std::string alphaConfigLabel(const AlphaPair& alpha) {
+  std::ostringstream stream;
+  stream << "alpha_g" << alpha.gyro << "_a" << alpha.acc;
+  return stream.str();
+}
+
 inline std::shared_ptr<PreintegrationParams> makePreintegrationParams(
     double sigmaGyro, double sigmaAcc) {
   auto params = PreintegrationParams::MakeSharedU(9.81);
@@ -94,8 +134,18 @@ inline std::shared_ptr<PreintegrationParams> makePreintegrationParams(
   return params;
 }
 
+inline std::shared_ptr<PreintegrationParams> makePreintegrationParams(
+    const AlphaPair& alpha) {
+  return makePreintegrationParams(alpha.gyro * 1.6968e-4,
+                                  alpha.acc * 2.0000e-3);
+}
+
 class QuadratureRunner {
  public:
+  using ParamsFactory =
+      std::function<std::shared_ptr<PreintegrationParams>(const std::string&)>;
+  using ConfigLabelFactory = std::function<std::string(const std::string&)>;
+
   QuadratureRunner(const QuadratureAppOptions& options, ResultsWriter* writer,
                    const std::string& datasetGroup,
                    const std::shared_ptr<PreintegrationParams>& params,
@@ -105,9 +155,23 @@ class QuadratureRunner {
                                    options.maxIntervals)),
         writer_(writer),
         datasetGroup_(datasetGroup),
-        params_(params),
         initialCovariance_(initialCovariance),
-        configLabel_(configLabel) {}
+        paramsFactory_([params](const std::string&) { return params; }),
+        configLabelFactory_(
+            [configLabel](const std::string&) { return configLabel; }) {}
+
+  QuadratureRunner(const QuadratureAppOptions& options, ResultsWriter* writer,
+                   const std::string& datasetGroup,
+                   std::optional<InitialCovarianceOptions> initialCovariance,
+                   ParamsFactory paramsFactory,
+                   ConfigLabelFactory configLabelFactory)
+      : intervals_(selectIntervals(defaultQuadratureIntervals(),
+                                   options.maxIntervals)),
+        writer_(writer),
+        datasetGroup_(datasetGroup),
+        initialCovariance_(initialCovariance),
+        paramsFactory_(std::move(paramsFactory)),
+        configLabelFactory_(std::move(configLabelFactory)) {}
 
   void operator()(const std::string& datasetName, const Dataset& dataset) {
     struct IntervalEvaluationSummary {
@@ -125,6 +189,8 @@ class QuadratureRunner {
     std::cout << "Processing dataset " << datasetName << "...\n";
     writer_->writeDataset(
         makeDatasetRow(*writer_, datasetName, dataset, datasetGroup_));
+    const auto params = paramsFactory_(datasetName);
+    const std::string configLabel = configLabelFactory_(datasetName);
     for (const double intervalSeconds : intervals_) {
       const size_t samplesPerWindow = dataset.stepsForInterval(intervalSeconds);
       const size_t quadratureNodes = std::max<size_t>(
@@ -133,19 +199,19 @@ class QuadratureRunner {
       const auto windows = dataset.completeWindows(samplesPerWindow);
       const auto quadratureEvaluations =
           collectWindowEvaluations<PIMQuadrature>(
-              windows, params_, initialCovariance_, quadratureNodes);
+              windows, params, initialCovariance_, quadratureNodes);
       const auto manifoldEvaluations = collectWindowEvaluations<PIMManifold>(
-          windows, params_, initialCovariance_);
+          windows, params, initialCovariance_);
       const auto tangentEvaluations = collectWindowEvaluations<PIMTangent>(
-          windows, params_, initialCovariance_);
+          windows, params, initialCovariance_);
 
-      writeWindowRows(writer_, datasetName, "quadrature", configLabel_,
+      writeWindowRows(writer_, datasetName, "quadrature", configLabel,
                       intervalSeconds, samplesPerWindow, quadratureNodes,
                       quadratureEvaluations);
-      writeWindowRows(writer_, datasetName, "manifold", configLabel_,
+      writeWindowRows(writer_, datasetName, "manifold", configLabel,
                       intervalSeconds, samplesPerWindow, 0,
                       manifoldEvaluations);
-      writeWindowRows(writer_, datasetName, "tangent", configLabel_,
+      writeWindowRows(writer_, datasetName, "tangent", configLabel,
                       intervalSeconds, samplesPerWindow, 0, tangentEvaluations);
 
       intervalSummaries.push_back({intervalSeconds, samplesPerWindow,
@@ -170,9 +236,9 @@ class QuadratureRunner {
   std::vector<double> intervals_;
   ResultsWriter* writer_;
   std::string datasetGroup_;
-  std::shared_ptr<PreintegrationParams> params_;
   std::optional<InitialCovarianceOptions> initialCovariance_;
-  std::string configLabel_;
+  ParamsFactory paramsFactory_;
+  ConfigLabelFactory configLabelFactory_;
 };
 
 template <class RunnerFactory>

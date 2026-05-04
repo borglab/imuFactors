@@ -327,10 +327,13 @@ inline void printQuadratureAppUsage(const char* programName,
   printDatasetAppUsage(programName);
   std::cout
       << "  --max-intervals <count> Restrict to first N default intervals\n";
-  std::cout << "  --alpha <value>         Noise scaling factor (default: "
-            << defaultAlpha << ")\n";
-  std::cout << "  --alpha-gyro <value>    Gyroscope noise scaling factor\n";
-  std::cout << "  --alpha-acc <value>     Accelerometer noise scaling factor\n";
+  std::cout
+      << "  --alpha <value>         Shared gyro/acc noise scaling override\n";
+  std::cout << "  --alpha-gyro <value>    Gyroscope noise scaling override\n";
+  std::cout << "  --alpha-acc <value>     Accelerometer noise scaling override\n";
+  std::cout << "  Defaults without overrides: MH=(5.0, 7.0), Vicon=(13.0, "
+               "10.0)\n";
+  (void)defaultAlpha;
 }
 
 /**

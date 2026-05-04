@@ -38,10 +38,14 @@ int main(int argc, char* argv[]) {
   return runDatasetApp(
       datasetCli, argc, argv,
       [&](ResultsWriter* writer, const std::string& datasetGroup) {
-        return QuadratureRunner(appOptions, writer, datasetGroup,
-                                makePreintegrationParams(
-                                    appOptions.alphaGyro * 1.6968e-4,
-                                    appOptions.alphaAcc * 2.0000e-3),
-                                std::nullopt, alphaConfigLabel(appOptions));
+        return QuadratureRunner(
+            appOptions, writer, datasetGroup, std::nullopt,
+            [&appOptions](const std::string& datasetName) {
+              return makePreintegrationParams(
+                  alphaForDataset(appOptions, datasetName));
+            },
+            [&appOptions](const std::string& datasetName) {
+              return alphaConfigLabel(alphaForDataset(appOptions, datasetName));
+            });
       });
 }
