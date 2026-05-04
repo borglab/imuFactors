@@ -60,6 +60,19 @@ TEST(TiltObserver, StationaryAlignedSampleLeavesStateUnchanged) {
 }
 
 /* ************************************************************************* */
+TEST(TiltObserver, InitialGravityDirectionStartsAlignedWithSpecificForce) {
+  const Vector3 specificForce(9.81, 0.0, 0.0);
+  TiltObserver observer(0.25, 3.0, 0.005,
+                        gravityDirectionFromSpecificForce(specificForce));
+
+  EXPECT((observer.x_hat.n.point3() - Vector3(-1, 0, 0)).norm() < 1e-12);
+
+  observer(Vector3::Zero(), specificForce);
+
+  EXPECT((observer.x_hat.n.point3() - Vector3(-1, 0, 0)).norm() < 1e-12);
+}
+
+/* ************************************************************************* */
 TEST(TiltObserver, GeodesicCorrectionMovesTowardGravityMeasurement) {
   TiltObserver observer(0.25, 30.0, 0.005);
   const Unit3 measuredGravity(Vector3(0.2, 0.0, -0.98));

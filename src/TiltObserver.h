@@ -46,7 +46,20 @@ struct TiltObserver {
    * @param dt IMU sample period in seconds
    */
   TiltObserver(double tauP, double tauI, double dt)
-      : x_hat{Unit3(Vector3(0, 0, -1)), Vector3::Zero()},
+      : TiltObserver(tauP, tauI, dt, Unit3(Vector3(0, 0, -1))) {}
+
+  /**
+   * Construct the observer with an initial gravity direction estimate.
+   * @param tauP Proportional time constant in seconds
+   * @param tauI Integral time constant in seconds
+   * @param dt IMU sample period in seconds
+   * @param initialGravityDirection Initial unit gravity direction in body frame
+   * @param initialGyroBias Initial gyroscope bias in rad/s
+   */
+  TiltObserver(double tauP, double tauI, double dt,
+               const Unit3& initialGravityDirection,
+               const Vector3& initialGyroBias = Vector3::Zero())
+      : x_hat{initialGravityDirection, initialGyroBias},
         kP(dt / tauP),
         kI(dt / (tauI * tauI)),
         dt(dt) {}
@@ -86,6 +99,14 @@ inline Vector2 rollPitchFromUpDirection(const Unit3& upDirection) {
  */
 inline Vector2 rollPitchFromGravityDirection(const Unit3& gravityDirection) {
   return rollPitchFromUpDirection(Unit3(-gravityDirection.point3()));
+}
+
+/**
+ * Convert a measured body-frame specific force into a gravity direction.
+ * @return Unit gravity direction in the body frame
+ */
+inline Unit3 gravityDirectionFromSpecificForce(const Vector3& f_b) {
+  return Unit3((-f_b).normalized());
 }
 
 }  // namespace gtsam
