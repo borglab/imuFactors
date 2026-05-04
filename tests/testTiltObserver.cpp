@@ -104,6 +104,43 @@ TEST(TiltObserver, BiasUpdateMovesTowardStaticGyroBias) {
 }
 
 /* ************************************************************************* */
+TEST(TiltObserver, BiasParallelToGravityIsUnobservable) {
+  const Vector3 specificForce(9.81, 0.0, 0.0);
+  TiltObserver observer(0.25, 3.0, 0.005,
+                        gravityDirectionFromSpecificForce(specificForce));
+
+  for (size_t i = 0; i < 1000; ++i) {
+    observer(Vector3(0.02, 0.0, 0.0), specificForce);
+  }
+
+  EXPECT(observer.x_hat.b.norm() < 1e-12);
+  EXPECT((observer.x_hat.n.point3() - Vector3(-1, 0, 0)).norm() < 1e-12);
+}
+
+/* ************************************************************************* */
+TEST(TiltObserver, ObservableMotionRecoversThreeAxisGyroBias) {
+  const double dt = 0.005;
+  const Vector3 trueGyroBias(0.02, -0.015, 0.01);
+  Vector3 trueGravity = Vector3(-0.3, 0.4, -0.866).normalized();
+  TiltObserver observer(0.25, 1.0, dt, Unit3(trueGravity));
+
+  for (size_t i = 0; i < 16000; ++i) {
+    const double time = static_cast<double>(i) * dt;
+    const Vector3 angularVelocity(
+        0.45 * std::sin(0.7 * time) + 0.15 * std::cos(0.17 * time),
+        0.35 * std::cos(0.53 * time),
+        0.28 * std::sin(0.31 * time) + 0.12);
+    trueGravity =
+        (Rot3::Expmap(-angularVelocity * dt) * trueGravity).normalized();
+
+    observer(angularVelocity + trueGyroBias, -9.81 * trueGravity);
+  }
+
+  EXPECT((observer.x_hat.b - trueGyroBias).norm() < 1e-4);
+  EXPECT((observer.x_hat.n.point3() - trueGravity).norm() < 1e-5);
+}
+
+/* ************************************************************************* */
 int main() {
   TestResult tr;
   return TestRegistry::runAllTests(tr);
