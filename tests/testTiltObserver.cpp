@@ -39,24 +39,13 @@ TEST(TiltObserver, RollPitchFromUpDirection) {
 }
 
 /* ************************************************************************* */
-TEST(TiltObserver, BiasRetractionIsAdditive) {
-  const TiltBias state{Unit3(Vector3(0, 0, -1)), Vector3(1.0, 2.0, 3.0)};
-
-  const TiltBias retracted =
-      state.retract(Vector2::Zero(), Vector3(0.1, -0.2, 0.3));
-
-  EXPECT((retracted.b - Vector3(1.1, 1.8, 3.3)).norm() < 1e-12);
-  EXPECT(retracted.n.point3().dot(state.n.point3()) > 1.0 - 1e-12);
-}
-
-/* ************************************************************************* */
 TEST(TiltObserver, StationaryAlignedSampleLeavesStateUnchanged) {
   TiltObserver observer(1.0, 10.0, 0.005);
 
   observer(Vector3::Zero(), Vector3(0, 0, 9.81));
 
-  EXPECT(observer.x_hat.b.norm() < 1e-12);
-  EXPECT((observer.x_hat.n.point3() - Vector3(0, 0, -1)).norm() < 1e-12);
+  EXPECT(observer.b_hat.norm() < 1e-12);
+  EXPECT((observer.n_hat.point3() - Vector3(0, 0, -1)).norm() < 1e-12);
 }
 
 /* ************************************************************************* */
@@ -65,11 +54,11 @@ TEST(TiltObserver, InitialGravityDirectionStartsAlignedWithSpecificForce) {
   TiltObserver observer(0.25, 3.0, 0.005,
                         gravityDirectionFromSpecificForce(specificForce));
 
-  EXPECT((observer.x_hat.n.point3() - Vector3(-1, 0, 0)).norm() < 1e-12);
+  EXPECT((observer.n_hat.point3() - Vector3(-1, 0, 0)).norm() < 1e-12);
 
   observer(Vector3::Zero(), specificForce);
 
-  EXPECT((observer.x_hat.n.point3() - Vector3(-1, 0, 0)).norm() < 1e-12);
+  EXPECT((observer.n_hat.point3() - Vector3(-1, 0, 0)).norm() < 1e-12);
 }
 
 /* ************************************************************************* */
@@ -79,12 +68,11 @@ TEST(TiltObserver, GeodesicCorrectionMovesTowardGravityMeasurement) {
   const Vector3 specificForce = -9.81 * measuredGravity.point3();
 
   const double dotBefore =
-      observer.x_hat.n.point3().dot(measuredGravity.point3());
+      observer.n_hat.point3().dot(measuredGravity.point3());
 
   observer(Vector3::Zero(), specificForce);
 
-  const double dotAfter =
-      observer.x_hat.n.point3().dot(measuredGravity.point3());
+  const double dotAfter = observer.n_hat.point3().dot(measuredGravity.point3());
   EXPECT(dotAfter > dotBefore);
 }
 
@@ -98,9 +86,8 @@ TEST(TiltObserver, BiasUpdateMovesTowardStaticGyroBias) {
     observer(trueGyroBias, specificForce);
   }
 
-  EXPECT(observer.x_hat.b.x() > 0.0);
-  EXPECT(std::abs(observer.x_hat.b.x() - trueGyroBias.x()) <
-         trueGyroBias.x());
+  EXPECT(observer.b_hat.x() > 0.0);
+  EXPECT(std::abs(observer.b_hat.x() - trueGyroBias.x()) < trueGyroBias.x());
 }
 
 /* ************************************************************************* */
@@ -113,8 +100,8 @@ TEST(TiltObserver, BiasParallelToGravityIsUnobservable) {
     observer(Vector3(0.02, 0.0, 0.0), specificForce);
   }
 
-  EXPECT(observer.x_hat.b.norm() < 1e-12);
-  EXPECT((observer.x_hat.n.point3() - Vector3(-1, 0, 0)).norm() < 1e-12);
+  EXPECT(observer.b_hat.norm() < 1e-12);
+  EXPECT((observer.n_hat.point3() - Vector3(-1, 0, 0)).norm() < 1e-12);
 }
 
 /* ************************************************************************* */
@@ -128,16 +115,15 @@ TEST(TiltObserver, ObservableMotionRecoversThreeAxisGyroBias) {
     const double time = static_cast<double>(i) * dt;
     const Vector3 angularVelocity(
         0.45 * std::sin(0.7 * time) + 0.15 * std::cos(0.17 * time),
-        0.35 * std::cos(0.53 * time),
-        0.28 * std::sin(0.31 * time) + 0.12);
+        0.35 * std::cos(0.53 * time), 0.28 * std::sin(0.31 * time) + 0.12);
     trueGravity =
         (Rot3::Expmap(-angularVelocity * dt) * trueGravity).normalized();
 
     observer(angularVelocity + trueGyroBias, -9.81 * trueGravity);
   }
 
-  EXPECT((observer.x_hat.b - trueGyroBias).norm() < 1e-4);
-  EXPECT((observer.x_hat.n.point3() - trueGravity).norm() < 1e-5);
+  EXPECT((observer.b_hat - trueGyroBias).norm() < 1e-4);
+  EXPECT((observer.n_hat.point3() - trueGravity).norm() < 1e-5);
 }
 
 /* ************************************************************************* */

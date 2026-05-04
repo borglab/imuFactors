@@ -18,35 +18,12 @@
 namespace gtsam {
 
 /**
- * Tilt direction and gyroscope bias state for the nonlinear observer.
- */
-struct TiltBias {
-  Unit3 n;
-  Vector3 b;
-
-  /// Retract a tilt perturbation and additive gyroscope-bias increment.
-  TiltBias retract(const Vector2& xi, const Vector3& db) const {
-    return {n.retract(xi), b + db};
-  }
-};
-
-/**
  * First-order tilt and gyroscope-bias observer driven by IMU measurements.
  */
 struct TiltObserver {
-  TiltBias x_hat;
-  double kP;
-  double kI;
-  double dt;
-
-  /**
-   * Construct the observer from proportional/integral time constants.
-   * @param tauP Proportional time constant in seconds
-   * @param tauI Integral time constant in seconds
-   * @param dt IMU sample period in seconds
-   */
-  TiltObserver(double tauP, double tauI, double dt)
-      : TiltObserver(tauP, tauI, dt, Unit3(Vector3(0, 0, -1))) {}
+  Unit3 n_hat;
+  Vector3 b_hat;
+  double kP, kI, dt;
 
   /**
    * Construct the observer with an initial gravity direction estimate.
@@ -57,12 +34,33 @@ struct TiltObserver {
    * @param initialGyroBias Initial gyroscope bias in rad/s
    */
   TiltObserver(double tauP, double tauI, double dt,
-               const Unit3& initialGravityDirection,
+               const Unit3& initialGravityDirection = Unit3(0, 0, -1),
                const Vector3& initialGyroBias = Vector3::Zero())
-      : x_hat{initialGravityDirection, initialGyroBias},
+      : n_hat{initialGravityDirection},
+        b_hat{initialGyroBias},
         kP(dt / tauP),
         kI(dt / (tauI * tauI)),
         dt(dt) {}
+
+  /**
+   * Predict the gravity direction using one gyroscope sample.
+   * @param omega_b Measured body-frame angular velocity in rad/s
+   */
+  void predict(const Vector3& omega_b) {
+    const Vector3 omega_hat = omega_b - b_hat;
+    n_hat = Rot3::Expmap(-omega_hat * dt) * n_hat;
+  }
+
+  /**
+   * Update the gravity direction and bias using one accelerometer sample.
+   * @param f_b Measured body-frame specific force in m/s^2
+   */
+  void update(const Vector3& f_b) {
+    const Vector3 y = -f_b.normalized();
+    const auto e = n_hat.cross(y);
+    n_hat = Rot3::Expmap(kP * e) * n_hat;
+    b_hat += kI * e;
+  }
 
   /**
    * Advance the observer by one IMU sample.
@@ -70,12 +68,8 @@ struct TiltObserver {
    * @param f_b Measured body-frame specific force in m/s^2
    */
   void operator()(const Vector3& omega_b, const Vector3& f_b) {
-    const auto n1 = Rot3::Expmap((x_hat.b - omega_b) * dt) *
-                    x_hat.n.point3();
-    const auto y = (-f_b).normalized();
-    const auto e = n1.cross(y);
-    const Unit3 correctedDirection(Rot3::Expmap(kP * e) * n1);
-    x_hat = {correctedDirection, x_hat.b + kI * e};
+    predict(omega_b);
+    update(f_b);
   }
 };
 

@@ -108,15 +108,16 @@ Unit3 initialGravityDirection(const Dataset& dataset,
                               double initializationSeconds) {
   const size_t sampleCount = min(dataset.truth.size(), dataset.imu.size());
   if (sampleCount == 0) {
-    throw runtime_error("Cannot initialize tilt observer from an empty dataset.");
+    throw runtime_error(
+        "Cannot initialize tilt observer from an empty dataset.");
   }
 
   const double requestedInitializationSamples =
       initializationSeconds / dataset.timestep();
   const size_t initializationSamples =
-      min(sampleCount, max<size_t>(
-                           1, static_cast<size_t>(
-                                  llround(requestedInitializationSamples))));
+      min(sampleCount,
+          max<size_t>(
+              1, static_cast<size_t>(llround(requestedInitializationSamples))));
   Vector3 gravitySum = Vector3::Zero();
   for (size_t sampleIndex = 0; sampleIndex < initializationSamples;
        ++sampleIndex) {
@@ -136,16 +137,14 @@ void writeTiltObserverRow(ofstream& stream, const ResultsWriter& writer,
                           double timestamp, double tauP, double tauI,
                           const Vector2& gtRollPitch,
                           const Vector2& estRollPitch,
-                          const Vector3& gtGyroBias,
-                          const Vector3& estGyroBias,
+                          const Vector3& gtGyroBias, const Vector3& estGyroBias,
                           const Dataset::ImuMeasurement& imuMeasurement) {
   stream << csvEscape(writer.runId()) << "," << csvEscape(writer.appName())
          << "," << csvEscape(datasetName) << "," << sampleIndex << ","
-         << timestamp << "," << tauP << "," << tauI << ","
-         << gtRollPitch.x() << "," << gtRollPitch.y() << ","
-         << estRollPitch.x() << "," << estRollPitch.y() << ","
-         << gtGyroBias.x() << "," << gtGyroBias.y() << ","
-         << gtGyroBias.z() << "," << estGyroBias.x() << ","
+         << timestamp << "," << tauP << "," << tauI << "," << gtRollPitch.x()
+         << "," << gtRollPitch.y() << "," << estRollPitch.x() << ","
+         << estRollPitch.y() << "," << gtGyroBias.x() << "," << gtGyroBias.y()
+         << "," << gtGyroBias.z() << "," << estGyroBias.x() << ","
          << estGyroBias.y() << "," << estGyroBias.z() << ","
          << imuMeasurement.omega.x() << "," << imuMeasurement.omega.y() << ","
          << imuMeasurement.omega.z() << "," << imuMeasurement.acc.x() << ","
@@ -168,9 +167,9 @@ void runDataset(const ResultsWriter& writer, const string& datasetName,
   stream << setprecision(17);
   stream << tiltObserverHeader() << "\n";
 
-  TiltObserver observer(tauP, tauI, dataset.timestep(),
-                        initialGravityDirection(dataset,
-                                                initializationSeconds));
+  TiltObserver observer(
+      tauP, tauI, dataset.timestep(),
+      initialGravityDirection(dataset, initializationSeconds));
   const size_t sampleCount = min(dataset.truth.size(), dataset.imu.size());
   for (size_t sampleIndex = 0; sampleIndex < sampleCount; ++sampleIndex) {
     const auto& imuMeasurement = dataset.imu[sampleIndex];
@@ -178,15 +177,14 @@ void runDataset(const ResultsWriter& writer, const string& datasetName,
 
     observer(imuMeasurement.omega, imuMeasurement.acc);
 
-    const Unit3 gtUpDirection(
-        truth.navState.attitude().matrix().transpose() * Vector3::UnitZ());
+    const Unit3 gtUpDirection(truth.navState.attitude().matrix().transpose() *
+                              Vector3::UnitZ());
     const Vector2 gtRollPitch = rollPitchFromUpDirection(gtUpDirection);
-    const Vector2 estRollPitch =
-        rollPitchFromGravityDirection(observer.x_hat.n);
+    const Vector2 estRollPitch = rollPitchFromGravityDirection(observer.n_hat);
     writeTiltObserverRow(stream, writer, datasetName, sampleIndex,
-                         truth.timestamp, tauP, tauI, gtRollPitch,
-                         estRollPitch, truth.bias.gyroscope(),
-                         observer.x_hat.b, imuMeasurement);
+                         truth.timestamp, tauP, tauI, gtRollPitch, estRollPitch,
+                         truth.bias.gyroscope(), observer.b_hat,
+                         imuMeasurement);
   }
 }
 
