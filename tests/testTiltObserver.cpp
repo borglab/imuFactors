@@ -26,11 +26,16 @@ TEST(TiltObserver, RollPitchFromUpDirection) {
   const double yaw = 0.7;
   const Rot3 rotation = Rot3::Ypr(yaw, pitch, roll);
   const Unit3 upDirection(rotation.matrix().transpose() * Vector3::UnitZ());
+  const Unit3 gravityDirection(-upDirection.point3());
 
   const Vector2 rollPitch = rollPitchFromUpDirection(upDirection);
+  const Vector2 gravityRollPitch =
+      rollPitchFromGravityDirection(gravityDirection);
 
   EXPECT_DOUBLES_EQUAL(roll, rollPitch.x(), 1e-12);
   EXPECT_DOUBLES_EQUAL(pitch, rollPitch.y(), 1e-12);
+  EXPECT_DOUBLES_EQUAL(roll, gravityRollPitch.x(), 1e-12);
+  EXPECT_DOUBLES_EQUAL(pitch, gravityRollPitch.y(), 1e-12);
 }
 
 /* ************************************************************************* */
@@ -48,10 +53,26 @@ TEST(TiltObserver, BiasRetractionIsAdditive) {
 TEST(TiltObserver, StationaryAlignedSampleLeavesStateUnchanged) {
   TiltObserver observer(1.0, 10.0, 0.005);
 
-  observer(Vector3::Zero(), Vector3(0, 0, -9.81));
+  observer(Vector3::Zero(), Vector3(0, 0, 9.81));
 
   EXPECT(observer.x_hat.b.norm() < 1e-12);
   EXPECT((observer.x_hat.n.point3() - Vector3(0, 0, -1)).norm() < 1e-12);
+}
+
+/* ************************************************************************* */
+TEST(TiltObserver, GeodesicCorrectionMovesTowardGravityMeasurement) {
+  TiltObserver observer(0.25, 30.0, 0.005);
+  const Unit3 measuredGravity(Vector3(0.2, 0.0, -0.98));
+  const Vector3 specificForce = -9.81 * measuredGravity.point3();
+
+  const double dotBefore =
+      observer.x_hat.n.point3().dot(measuredGravity.point3());
+
+  observer(Vector3::Zero(), specificForce);
+
+  const double dotAfter =
+      observer.x_hat.n.point3().dot(measuredGravity.point3());
+  EXPECT(dotAfter > dotBefore);
 }
 
 /* ************************************************************************* */

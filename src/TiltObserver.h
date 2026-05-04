@@ -59,11 +59,10 @@ struct TiltObserver {
   void operator()(const Vector3& omega_b, const Vector3& f_b) {
     const auto n1 = Rot3::Expmap((x_hat.b - omega_b) * dt) *
                     x_hat.n.point3();
-    const auto e = n1.cross(f_b.normalized());
-    const Unit3 predictedDirection(n1);
-    const Unit3 correctedDirection((n1 + kP * e).normalized());
-    x_hat = TiltBias{predictedDirection, x_hat.b}.retract(
-        predictedDirection.localCoordinates(correctedDirection), -kI * e);
+    const auto y = (-f_b).normalized();
+    const auto e = n1.cross(y);
+    const Unit3 correctedDirection(Rot3::Expmap(kP * e) * n1);
+    x_hat = {correctedDirection, x_hat.b - kI * e};
   }
 };
 
@@ -79,6 +78,14 @@ inline Vector2 rollPitchFromUpDirection(const Unit3& upDirection) {
   const Vector3 n = upDirection.point3();
   return Vector2(std::atan2(n.y(), n.z()),
                  std::asin(std::clamp(-n.x(), -1.0, 1.0)));
+}
+
+/**
+ * Convert a body-frame gravity direction into roll and pitch angles.
+ * @return Vector2(roll, pitch), both in radians
+ */
+inline Vector2 rollPitchFromGravityDirection(const Unit3& gravityDirection) {
+  return rollPitchFromUpDirection(Unit3(-gravityDirection.point3()));
 }
 
 }  // namespace gtsam

@@ -32,8 +32,8 @@ using namespace std;
 
 namespace {
 
-constexpr double kDefaultTauP = 1.0;
-constexpr double kDefaultTauI = 10.0;
+constexpr double kDefaultTauP = 0.25;
+constexpr double kDefaultTauI = 30.0;
 
 struct AppOptions {
   AppCliOptions datasetOptions;
@@ -138,7 +138,7 @@ void runDataset(const ResultsWriter& writer, const string& datasetName,
         truth.navState.attitude().matrix().transpose() * Vector3::UnitZ());
     const Vector2 gtRollPitch = rollPitchFromUpDirection(gtUpDirection);
     const Vector2 estRollPitch =
-        rollPitchFromUpDirection(observer.x_hat.n);
+        rollPitchFromGravityDirection(observer.x_hat.n);
     writeTiltObserverRow(stream, writer, datasetName, sampleIndex,
                          truth.timestamp, tauP, tauI, gtRollPitch,
                          estRollPitch, truth.bias.gyroscope(),
