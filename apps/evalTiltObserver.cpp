@@ -32,8 +32,8 @@ using namespace std;
 
 namespace {
 
-constexpr double kDefaultTauP = 0.25;
-constexpr double kDefaultTauI = 3.0;
+constexpr double kDefaultTauP = 5.0;
+constexpr double kDefaultTauI = 6.0;
 constexpr double kDefaultSpecificForceToleranceG = 0.3;
 constexpr double kGravityMagnitude = 9.81;
 
@@ -42,6 +42,7 @@ struct AppOptions {
   double tauP = kDefaultTauP;
   double tauI = kDefaultTauI;
   double specificForceToleranceG = kDefaultSpecificForceToleranceG;
+  bool initializeFromGroundTruth = false;
 };
 
 void printUsage(const char* programName) {
@@ -53,6 +54,8 @@ void printUsage(const char* programName) {
   cout << "  --specific-force-tolerance-g <fraction> Accept accelerometer "
           "updates within this fraction of g (default: "
        << kDefaultSpecificForceToleranceG << ")\n";
+  cout << "  --initialize-from-ground-truth Seed tilt and gyro bias from the "
+          "first ground-truth state\n";
 }
 
 AppOptions parseArguments(int argc, char* argv[]) {
@@ -88,6 +91,10 @@ AppOptions parseArguments(int argc, char* argv[]) {
       }
       options.specificForceToleranceG = parsePositiveDoubleOption(
           "--specific-force-tolerance-g", parsed.remainingArgs[++index]);
+      continue;
+    }
+    if (argument == "--initialize-from-ground-truth") {
+      options.initializeFromGroundTruth = true;
       continue;
     }
     throw runtime_error("Unknown argument: " + argument);
@@ -128,7 +135,8 @@ void writeTiltObserverRow(ofstream& stream, const ResultsWriter& writer,
 
 void runDataset(const ResultsWriter& writer, const string& datasetName,
                 const Dataset& dataset, double tauP, double tauI,
-                double specificForceToleranceG) {
+                double specificForceToleranceG,
+                bool initializeFromGroundTruth) {
   const filesystem::path outputPath =
       writer.runDirectory() / ("tilt_observer_" + datasetName + ".csv");
   ofstream stream(outputPath);
@@ -139,9 +147,20 @@ void runDataset(const ResultsWriter& writer, const string& datasetName,
   stream << setprecision(17);
   stream << tiltObserverHeader() << "\n";
 
-  TiltObserver observer(tauP, tauI, dataset.timestep(), kGravityMagnitude,
-                        specificForceToleranceG * kGravityMagnitude);
   const size_t sampleCount = min(dataset.truth.size(), dataset.imu.size());
+  const double specificForceTolerance =
+      specificForceToleranceG * kGravityMagnitude;
+  const Unit3 initialUpDirection(
+      dataset.truth.front().navState.attitude().matrix().transpose() *
+      Vector3::UnitZ());
+  TiltObserver observer =
+      initializeFromGroundTruth
+          ? TiltObserver(tauP, tauI, dataset.timestep(),
+                         Unit3(-initialUpDirection.point3()),
+                         dataset.truth.front().bias.gyroscope(),
+                         kGravityMagnitude, specificForceTolerance)
+          : TiltObserver(tauP, tauI, dataset.timestep(), kGravityMagnitude,
+                         specificForceTolerance);
   for (size_t sampleIndex = 0; sampleIndex < sampleCount; ++sampleIndex) {
     const auto& imuMeasurement = dataset.imu[sampleIndex];
     const auto& truth = dataset.truth[sampleIndex];
@@ -188,7 +207,8 @@ int main(int argc, char* argv[]) {
       writer.writeDataset(
           makeDatasetRow(writer, datasetName, dataset, datasetGroup));
       runDataset(writer, datasetName, dataset, options.tauP, options.tauI,
-                 options.specificForceToleranceG);
+                 options.specificForceToleranceG,
+                 options.initializeFromGroundTruth);
       cout << "Wrote " << datasetName << "\n";
     }
 
