@@ -24,16 +24,20 @@ namespace gtsam {
 struct TiltObserver {
   std::optional<Unit3> n_hat;
   std::optional<Vector3> b_hat;
-  double kP, kI, dt;
+  double kP, kI, dt, g, tol;
 
   /**
    * Construct the observer with lazy state initialization.
    * @param tauP Proportional time constant in seconds
    * @param tauI Integral time constant in seconds
    * @param dt IMU sample period in seconds
+   * @param g Nominal gravity magnitude in m/s^2
+   * @param tol Accepted deviation from gravity
+   * magnitude in m/s^2
    */
-  TiltObserver(double tauP, double tauI, double dt)
-      : kP(dt / tauP), kI(dt / (tauI * tauI)), dt(dt) {}
+  TiltObserver(double tauP, double tauI, double dt, double g = 9.81,
+               double tol = 0.3 * 9.81)
+      : kP(dt / tauP), kI(dt / (tauI * tauI)), dt(dt), g(g), tol(tol) {}
 
   /**
    * Construct the observer with an initial state estimate.
@@ -42,15 +46,21 @@ struct TiltObserver {
    * @param dt IMU sample period in seconds
    * @param initialGravityDirection Initial unit gravity direction in body frame
    * @param initialGyroBias Initial gyroscope bias in rad/s
+   * @param g Nominal gravity magnitude in m/s^2
+   * @param tol Accepted deviation from gravity
+   * magnitude in m/s^2
    */
   TiltObserver(double tauP, double tauI, double dt,
                const Unit3& initialGravityDirection,
-               const Vector3& initialGyroBias = Vector3::Zero())
+               const Vector3& initialGyroBias = Vector3::Zero(),
+               double g = 9.81, double tol = 0.3 * 9.81)
       : n_hat{initialGravityDirection},
         b_hat{initialGyroBias},
         kP(dt / tauP),
         kI(dt / (tauI * tauI)),
-        dt(dt) {}
+        dt(dt),
+        g(g),
+        tol(tol) {}
 
   /**
    * Predict the gravity direction using one gyroscope sample.
@@ -72,7 +82,9 @@ struct TiltObserver {
    * @param f_b Measured body-frame specific force in m/s^2
    */
   void update(const Vector3& f_b) {
-    const Vector3 y = -f_b.normalized();
+    const double magnitude = f_b.norm();
+    if (std::abs(magnitude - g) > tol) return;
+    const Vector3 y = -f_b / magnitude;
     if (!n_hat) {
       n_hat = Unit3(y);
       return;

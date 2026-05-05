@@ -34,11 +34,14 @@ namespace {
 
 constexpr double kDefaultTauP = 0.25;
 constexpr double kDefaultTauI = 3.0;
+constexpr double kDefaultSpecificForceToleranceG = 0.3;
+constexpr double kGravityMagnitude = 9.81;
 
 struct AppOptions {
   AppCliOptions datasetOptions;
   double tauP = kDefaultTauP;
   double tauI = kDefaultTauI;
+  double specificForceToleranceG = kDefaultSpecificForceToleranceG;
 };
 
 void printUsage(const char* programName) {
@@ -47,6 +50,9 @@ void printUsage(const char* programName) {
        << kDefaultTauP << ")\n";
   cout << "  --tau-i <seconds>       Integral time constant (default: "
        << kDefaultTauI << ")\n";
+  cout << "  --specific-force-tolerance-g <fraction> Accept accelerometer "
+          "updates within this fraction of g (default: "
+       << kDefaultSpecificForceToleranceG << ")\n";
 }
 
 AppOptions parseArguments(int argc, char* argv[]) {
@@ -74,6 +80,14 @@ AppOptions parseArguments(int argc, char* argv[]) {
       }
       options.tauI =
           parsePositiveDoubleOption("--tau-i", parsed.remainingArgs[++index]);
+      continue;
+    }
+    if (argument == "--specific-force-tolerance-g") {
+      if (index + 1 >= parsed.remainingArgs.size()) {
+        throw runtime_error("Missing value for --specific-force-tolerance-g");
+      }
+      options.specificForceToleranceG = parsePositiveDoubleOption(
+          "--specific-force-tolerance-g", parsed.remainingArgs[++index]);
       continue;
     }
     throw runtime_error("Unknown argument: " + argument);
@@ -113,7 +127,8 @@ void writeTiltObserverRow(ofstream& stream, const ResultsWriter& writer,
 }
 
 void runDataset(const ResultsWriter& writer, const string& datasetName,
-                const Dataset& dataset, double tauP, double tauI) {
+                const Dataset& dataset, double tauP, double tauI,
+                double specificForceToleranceG) {
   const filesystem::path outputPath =
       writer.runDirectory() / ("tilt_observer_" + datasetName + ".csv");
   ofstream stream(outputPath);
@@ -124,7 +139,8 @@ void runDataset(const ResultsWriter& writer, const string& datasetName,
   stream << setprecision(17);
   stream << tiltObserverHeader() << "\n";
 
-  TiltObserver observer(tauP, tauI, dataset.timestep());
+  TiltObserver observer(tauP, tauI, dataset.timestep(), kGravityMagnitude,
+                        specificForceToleranceG * kGravityMagnitude);
   const size_t sampleCount = min(dataset.truth.size(), dataset.imu.size());
   for (size_t sampleIndex = 0; sampleIndex < sampleCount; ++sampleIndex) {
     const auto& imuMeasurement = dataset.imu[sampleIndex];
@@ -171,7 +187,8 @@ int main(int argc, char* argv[]) {
       }
       writer.writeDataset(
           makeDatasetRow(writer, datasetName, dataset, datasetGroup));
-      runDataset(writer, datasetName, dataset, options.tauP, options.tauI);
+      runDataset(writer, datasetName, dataset, options.tauP, options.tauI,
+                 options.specificForceToleranceG);
       cout << "Wrote " << datasetName << "\n";
     }
 

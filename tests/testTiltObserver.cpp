@@ -83,6 +83,16 @@ TEST(TiltObserver, UpdateInitializesGravityFromSpecificForce) {
 }
 
 /* ************************************************************************* */
+TEST(TiltObserver, UpdateSkipsSpecificForceMagnitudeFarFromGravity) {
+  TiltObserver observer(0.25, 3.0, 0.005);
+
+  observer.update(Vector3(2.0 * 9.81, 0.0, 0.0));
+
+  EXPECT(!observer.b_hat.has_value());
+  EXPECT(!observer.n_hat.has_value());
+}
+
+/* ************************************************************************* */
 TEST(TiltObserver, FirstOperatorCallInitializesBothStates) {
   const Vector3 f_b(9.81, 0.0, 0.0);
   const Vector3 omega_b(0.1, -0.2, 0.3);
