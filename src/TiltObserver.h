@@ -78,6 +78,22 @@ struct TiltObserver {
   }
 
   /**
+   * Predict the gravity direction using a bias-corrected relative rotation.
+   *
+   * The rotation should be the PIM-style body rotation from the current frame to
+   * the next frame, equivalent to integrating `omega_b - b_hat` over the
+   * interval. The body-frame gravity direction transforms by the inverse of
+   * this relative rotation.
+   *
+   * @param deltaRij Bias-corrected body rotation from frame i to frame j
+   */
+  void predict(const Rot3& deltaRij) {
+    if (n_hat) {
+      n_hat = deltaRij.inverse() * n_hat.value();
+    }
+  }
+
+  /**
    * Update the gravity direction and bias using one accelerometer sample.
    * @param f_b Measured body-frame specific force in m/s^2
    */
@@ -104,6 +120,17 @@ struct TiltObserver {
   void operator()(const Vector3& omega_b, const Vector3& f_b) {
     predict(omega_b);
     update(f_b);
+  }
+
+  /**
+   * Advance the observer by one preintegrated window.
+   *
+   * @param deltaRij Bias-corrected body rotation from frame i to frame j
+   * @param averageSpecificForce Window-averaged body-frame specific force
+   */
+  void operator()(const Rot3& deltaRij, const Vector3& averageSpecificForce) {
+    predict(deltaRij);
+    update(averageSpecificForce);
   }
 };
 

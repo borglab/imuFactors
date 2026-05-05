@@ -107,6 +107,33 @@ TEST(TiltObserver, FirstOperatorCallInitializesBothStates) {
 }
 
 /* ************************************************************************* */
+TEST(TiltObserver, PredictWithDeltaRotationMatchesIntegratedGyroPrediction) {
+  const double dt = 0.2;
+  const Vector3 angularVelocity(0.3, -0.2, 0.1);
+  const Unit3 initialGravity(Vector3(-0.2, 0.4, -0.8944271909999159));
+  TiltObserver gyroObserver(0.25, 3.0, dt, initialGravity, Vector3::Zero());
+  TiltObserver pimObserver(0.25, 3.0, dt, initialGravity, Vector3::Zero());
+
+  gyroObserver.predict(angularVelocity);
+  pimObserver.predict(Rot3::Expmap(angularVelocity * dt));
+
+  EXPECT((gyroObserver.n_hat->point3() - pimObserver.n_hat->point3()).norm() <
+         1e-12);
+}
+
+/* ************************************************************************* */
+TEST(TiltObserver, WindowOperatorInitializesGravityFromAverageSpecificForce) {
+  TiltObserver observer(0.25, 3.0, 0.2);
+  const Vector3 averageSpecificForce(0.0, 9.81, 0.0);
+
+  observer(Rot3(), averageSpecificForce);
+
+  EXPECT(!observer.b_hat.has_value());
+  EXPECT(observer.n_hat.has_value());
+  EXPECT((observer.n_hat->point3() - Vector3(0, -1, 0)).norm() < 1e-12);
+}
+
+/* ************************************************************************* */
 TEST(TiltObserver, GeodesicCorrectionMovesTowardGravityMeasurement) {
   TiltObserver observer(0.25, 30.0, 0.005, Unit3(Vector3(0, 0, -1)));
   const Unit3 measuredGravity(Vector3(0.2, 0.0, -0.98));
