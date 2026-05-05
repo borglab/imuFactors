@@ -53,6 +53,8 @@ add_executable(evalPimNoiseCalibration apps/evalPimNoiseCalibration.cpp)
 add_executable(evalExportTrajectories apps/evalExportTrajectories.cpp)
 add_executable(evalReducedNeesWithPriorCovariance apps/evalReducedNeesWithPriorCovariance.cpp)
 add_executable(evalQuadratureImuFactorDiagnostics apps/evalQuadratureImuFactorDiagnostics.cpp)
+add_executable(evalTiltObserver apps/evalTiltObserver.cpp)
+add_executable(evalPimTiltObserver apps/evalPimTiltObserver.cpp)
 
 # Link dependencies
 foreach(app_target
@@ -61,7 +63,9 @@ foreach(app_target
     evalPimNoiseCalibration
     evalExportTrajectories
     evalReducedNeesWithPriorCovariance
-    evalQuadratureImuFactorDiagnostics)
+    evalQuadratureImuFactorDiagnostics
+    evalTiltObserver
+    evalPimTiltObserver)
 
     target_link_libraries(${app_target}
         imuFactorsEval
