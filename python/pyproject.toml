@@ -20,6 +20,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+delama_gal3 = [
+    "torch>=2.0",
+]
 dev = [
     "pytest>=6.0",
     "black>=21.0",
