@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from .utils import *
+from .utils import DEVICE, bmtm, bouter
 from .lie_group_utils import SO3, SE3_2, G3
 
 
@@ -54,7 +54,7 @@ def boxminus(T1, T2):
 
 
 def boxplus(T, xi):
-    """Compute the boxmplus operator for SE3_2"""
+    """Compute the boxplus operator for SE3_2"""
     T1 = torch.zeros_like(T)
     T1[:, :3, :3] = T[:, :3, :3].bmm(SO3.exp(xi[:, :3]))
     T1[:, :3, 3] = T[:, :3, 3] + xi[:, 3:6]
@@ -133,7 +133,7 @@ def ACI2_XI3(omega, a, dt):
 
 
 def ACI2_XI4(omega, a, dt):
-    """Compute the ACI2 preintegration term XI3"""
+    """Compute the ACI2 preintegration term XI4"""
     w = omega.norm(dim=1)
     k = omega / w.unsqueeze(1)
     kx = SO3.wedge(k)

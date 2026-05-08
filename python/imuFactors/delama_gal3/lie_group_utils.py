@@ -5,8 +5,6 @@ import torch
 
 from .utils import *
 
-torch.set_default_dtype(torch.float64)
-
 
 ########################################################
 # Lie Group Utils
@@ -23,8 +21,8 @@ torch.set_default_dtype(torch.float64)
 class G3:
     """G(3), the Inhomogeneous Galilean group"""
 
-    Id = torch.eye(5, device=DEVICE)
-    Id9 = torch.eye(9, device=DEVICE)
+    Id = torch.eye(5, dtype=torch.float64, device=DEVICE)
+    Id9 = torch.eye(9, dtype=torch.float64, device=DEVICE)
 
     @classmethod
     def exp(cls, psi):
@@ -239,8 +237,8 @@ class G3:
 class SE3_2:
     """SE_2(3), the group of extended poses"""
 
-    Id = torch.eye(5, device=DEVICE)
-    Id9 = torch.eye(9, device=DEVICE)
+    Id = torch.eye(5, dtype=torch.float64, device=DEVICE)
+    Id9 = torch.eye(9, dtype=torch.float64, device=DEVICE)
 
     @classmethod
     def exp(cls, xi):
@@ -571,7 +569,7 @@ class SE3_2:
 class SO3:
     #  tolerance criterion
     TOL = 1e-9
-    Id = torch.eye(3, device=DEVICE)
+    Id = torch.eye(3, dtype=torch.float64, device=DEVICE)
 
     @classmethod
     def exp(cls, phi):
@@ -916,10 +914,10 @@ class SO3:
 
     @classmethod
     def normalize(cls, Rots):
-        U, _, V = torch.svd(Rots)
+        U, _, Vh = torch.linalg.svd(Rots)
         S = cls.Id.clone().repeat(Rots.shape[0], 1, 1)
-        S[:, 2, 2] = torch.det(U) * torch.det(V)
-        return U.bmm(S).bmm(V.transpose(1, 2))
+        S[:, 2, 2] = torch.det(U) * torch.det(Vh)
+        return U.bmm(S).bmm(Vh)
 
     @classmethod
     def qmul(cls, q, r, ordering="wxyz"):
