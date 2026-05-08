@@ -35,6 +35,43 @@ fig = plot_position_timeseries_multi_interval(
 )
 ```
 
+## Delama Gal3 Runner
+
+This repository now includes a Delama Gal3 evaluator in
+`imuFactors.delama_gal3.preintegration_delama_gal3`.
+
+Install torch in your active Python environment, then run:
+
+```bash
+cd python
+pip install -e .[delama_gal3]
+```
+
+Then run from the repository root:
+
+```bash
+./.venv/bin/python python/run_delama_gal3.py
+```
+
+If you are already inside the `python/` directory, this also works:
+
+```bash
+python run_delama_gal3.py
+```
+
+Common options:
+
+```bash
+python run_delama_gal3.py \
+    --dataset-glob "../data/euroc/euroc_*.csv" \
+    --output-dir "../build/results/delama_gal3" \
+    --alpha 8.4 \
+    --preint-times 0.2 0.5 1.0
+```
+
+Outputs include per-sequence pickle files plus summary CSV files in the output
+directory.
+
 ---
 
 ## Generating All Visualizations
