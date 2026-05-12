@@ -117,6 +117,7 @@ TEST(AppUtils, ParseQuadratureAlphaArguments) {
   EXPECT_DOUBLES_EQUAL(8.4, defaultOptions.alphaAcc, 1e-9);
   EXPECT(!defaultOptions.hasAlphaGyroOverride);
   EXPECT(!defaultOptions.hasAlphaAccOverride);
+  EXPECT(defaultOptions.includeDelamaGal3);
   const AlphaPair machineHallDefault =
       alphaForDataset(defaultOptions, "MH01");
   EXPECT_DOUBLES_EQUAL(5.0, machineHallDefault.gyro, 1e-9);
@@ -146,6 +147,15 @@ TEST(AppUtils, ParseQuadratureAlphaArguments) {
       alphaForDataset(gyroOnlyOptions, "MH01");
   EXPECT_DOUBLES_EQUAL(2.0, gyroOnlyMachineHall.gyro, 1e-9);
   EXPECT_DOUBLES_EQUAL(7.0, gyroOnlyMachineHall.acc, 1e-9);
+
+  const QuadratureAppOptions noDelamaOptions =
+      parseQuadratureAppArguments({"--no-delama-gal3"}, "test", 8.4);
+  EXPECT(!noDelamaOptions.includeDelamaGal3);
+
+  const QuadratureAppOptions explicitDelamaOptions =
+      parseQuadratureAppArguments({"--no-delama-gal3", "--delama-gal3"},
+                                  "test", 8.4);
+  EXPECT(explicitDelamaOptions.includeDelamaGal3);
 }
 
 /* ************************************************************************* */

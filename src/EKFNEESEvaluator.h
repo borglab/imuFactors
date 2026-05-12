@@ -18,6 +18,8 @@
 #include <gtsam/navigation/Gal3ImuEKF.h>
 #include <gtsam/navigation/NavStateImuEKF.h>
 
+#include <optional>
+
 #include "Dataset.h"
 #include "NEESEvaluator.h"
 #include "NEESResults.h"
@@ -65,7 +67,9 @@ class EKFNEESEvaluator {
   /// Compute rich Gal3 EKF artifacts with custom parameters.
   RunArtifacts computeGal3ImuEKFArtifacts(
       double interval,
-      const std::shared_ptr<PreintegrationCombinedParams>& params) const;
+      const std::shared_ptr<PreintegrationCombinedParams>& params,
+      std::optional<InitialCovarianceOptions> initialCovariance =
+          std::nullopt) const;
 
   /// Compute rich NavState EKF artifacts with alpha scaling.
   RunArtifacts computeNavStateImuEKFArtifacts(double interval,
@@ -130,7 +134,8 @@ class EKFNEESEvaluator {
   /// Process time window for Gal3 EKF
   RunArtifacts processTimeWindowWithGal3EKF(
       const std::shared_ptr<PreintegrationCombinedParams>& params,
-      double preintegrationTime, double dt) const;
+      double preintegrationTime, double dt,
+      std::optional<InitialCovarianceOptions> initialCovariance) const;
 
   /// Process time window for NavState EKF
   RunArtifacts processTimeWindowWithNavStateEKF(
