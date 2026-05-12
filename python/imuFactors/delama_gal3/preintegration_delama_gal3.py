@@ -182,7 +182,7 @@ def main() -> None:
             "g": g,
             "preint_times": preint_times,
             "notes": (
-                "Delama Gal3 ext-pose NEES with zero initial bias "
+                "Delama Gal3 ext-pose NEES with ground-truth initial bias "
                 "and zero initial covariance."
             ),
         }
@@ -212,8 +212,10 @@ def main() -> None:
 
             omegas_k = torch.reshape(omegas[:new_len], (M, poses_per_window, 3))[:, :-1]
             accs_k = torch.reshape(accs[:new_len], (M, poses_per_window, 3))[:, :-1]
-            omegas_unbiased = omegas_k - b_omega_k
-            accs_unbiased = accs_k - b_acc_k
+            initial_bias_omega = b_omega_k[:, :1, :]
+            initial_bias_acc = b_acc_k[:, :1, :]
+            omegas_unbiased = omegas_k - initial_bias_omega
+            accs_unbiased = accs_k - initial_bias_acc
             w = torch.cat(
                 (
                     omegas_unbiased,
@@ -224,7 +226,8 @@ def main() -> None:
                 dim=2,
             )
 
-            # Requirement 1/2: no initial bias seed and no initial covariance seed.
+            # Initialize with zero covariance while using each window's
+            # ground-truth initial bias for measurement debiasing above.
             Y_delama_gal3 = torch.eye(5, device=DEVICE).repeat(M, 1, 1)
             gamma_delama_gal3 = torch.zeros(M, 10, device=DEVICE)
             covariance_delama_gal3 = torch.zeros(M, 20, 20, device=DEVICE)
