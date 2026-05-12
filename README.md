@@ -202,7 +202,6 @@ the same canonical package:
 --output-root <path>    # results root directory, default ./results
 --dataset <name>        # restrict to one dataset, e.g. MH01 or euroc_MH01.csv
 --max-intervals <count> # use only the first N default intervals
---no-delama-gal3        # skip delama_gal3 method rows in canonical tables
 ```
 
 Use `evalReducedNeesWithPriorCovariance` for the normalized-NEES comparison

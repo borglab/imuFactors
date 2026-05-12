@@ -100,7 +100,7 @@ EKFNEESEvaluator::RunArtifacts EKFNEESEvaluator::computeGal3ImuEKFArtifacts(
 EKFNEESEvaluator::RunArtifacts EKFNEESEvaluator::computeGal3ImuEKFArtifacts(
     double interval,
         const std::shared_ptr<PreintegrationCombinedParams>& params,
-        std::optional<InitialCovarianceOptions> initialCovariance) const {
+        const std::optional<InitialCovarianceOptions>& initialCovariance) const {
     return processTimeWindowWithGal3EKF(params, interval, dataset_.timestep(),
                                                                             initialCovariance);
 }
@@ -241,7 +241,7 @@ TrajectoryPoint EKFNEESEvaluator::createPredictedPointFromNavState(
 EKFNEESEvaluator::RunArtifacts EKFNEESEvaluator::processTimeWindowWithGal3EKF(
     const std::shared_ptr<PreintegrationCombinedParams>& params,
     double preintegrationTime, double dt,
-    std::optional<InitialCovarianceOptions> initialCovariance) const {
+    const std::optional<InitialCovarianceOptions>& initialCovariance) const {
     RunArtifacts artifacts;
     artifacts.preintegrationTime = preintegrationTime;
 

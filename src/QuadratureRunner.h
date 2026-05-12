@@ -156,9 +156,9 @@ makeCombinedPreintegrationParams(
   const double gravity = std::max(0.0, params->n_gravity.norm());
   auto combinedParams = PreintegrationCombinedParams::MakeSharedD(gravity);
   combinedParams->n_gravity = params->n_gravity;
-  combinedParams->accelerometerCovariance = params->accelerometerCovariance;
-  combinedParams->gyroscopeCovariance = params->gyroscopeCovariance;
-  combinedParams->integrationCovariance = params->integrationCovariance;
+  combinedParams->setAccelerometerCovariance(params->accelerometerCovariance);
+  combinedParams->setGyroscopeCovariance(params->gyroscopeCovariance);
+  combinedParams->setIntegrationCovariance(params->integrationCovariance);
   combinedParams->omegaCoriolis = params->omegaCoriolis;
   combinedParams->use2ndOrderCoriolis = params->use2ndOrderCoriolis;
   combinedParams->body_P_sensor = params->body_P_sensor;

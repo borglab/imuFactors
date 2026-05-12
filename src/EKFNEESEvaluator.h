@@ -68,7 +68,7 @@ class EKFNEESEvaluator {
   RunArtifacts computeGal3ImuEKFArtifacts(
       double interval,
       const std::shared_ptr<PreintegrationCombinedParams>& params,
-      std::optional<InitialCovarianceOptions> initialCovariance =
+      const std::optional<InitialCovarianceOptions>& initialCovariance =
           std::nullopt) const;
 
   /// Compute rich NavState EKF artifacts with alpha scaling.
@@ -135,7 +135,7 @@ class EKFNEESEvaluator {
   RunArtifacts processTimeWindowWithGal3EKF(
       const std::shared_ptr<PreintegrationCombinedParams>& params,
       double preintegrationTime, double dt,
-      std::optional<InitialCovarianceOptions> initialCovariance) const;
+      const std::optional<InitialCovarianceOptions>& initialCovariance) const;
 
   /// Process time window for NavState EKF
   RunArtifacts processTimeWindowWithNavStateEKF(
