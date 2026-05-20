@@ -51,19 +51,58 @@ void fillWindowPrediction(
   }
 }
 
+WindowResult makeGal3WindowResult(const Vector9& gal3Error,
+                                  const Matrix9& gal3Covariance,
+                                  double normalizedNees) {
+  WindowResult result;
+  result.normalizedNees = normalizedNees;
+
+  // Gal3 tangent ordering is [r, v, p].
+  result.rotErrorNorm = gal3Error.head<3>().norm();
+  result.rotPredSigma = covarianceBlockSigma(gal3Covariance, 0);
+  result.velErrorNorm = gal3Error.segment<3>(3).norm();
+  result.velPredSigma = covarianceBlockSigma(gal3Covariance, 3);
+  result.posErrorNorm = gal3Error.tail<3>().norm();
+  result.posPredSigma = covarianceBlockSigma(gal3Covariance, 6);
+  return result;
+}
+
+Matrix96 approximateGal3BiasJacobian(double windowDuration) {
+  Matrix96 biasJacobian = Matrix96::Zero();
+
+  // Approximate constant-bias sensitivity in Gal3 tangent ordering
+  biasJacobian.block<3, 3>(0, 3) = I_3x3 * windowDuration;
+  biasJacobian.block<3, 3>(3, 0) = I_3x3 * windowDuration;
+  biasJacobian.block<3, 3>(6, 0) =
+      I_3x3 * (0.5 * windowDuration * windowDuration);
+  return biasJacobian;
+}
+
+Matrix9 augmentGal3CovarianceWithInitialPrior(
+    const Matrix9& covariance, double windowDuration,
+    const InitialCovarianceOptions& initialCovariance) {
+  const Matrix96 biasJacobian = approximateGal3BiasJacobian(windowDuration);
+  return covariance + initialCovariance.navCovariance +
+         biasJacobian * initialCovariance.biasCovariance *
+             biasJacobian.transpose();
+}
+
 }  // namespace
 
 EKFNEESEvaluator::EKFNEESEvaluator(const Dataset& dataset) : dataset_(dataset) {}
 
 EKFNEESEvaluator::RunArtifacts EKFNEESEvaluator::computeGal3ImuEKFArtifacts(
     double interval, double alpha) const {
-  return computeGal3ImuEKFArtifacts(interval, dataset_.configureImuParams(alpha));
+    return computeGal3ImuEKFArtifacts(interval, dataset_.configureImuParams(alpha),
+                                                                        std::nullopt);
 }
 
 EKFNEESEvaluator::RunArtifacts EKFNEESEvaluator::computeGal3ImuEKFArtifacts(
     double interval,
-    const std::shared_ptr<PreintegrationCombinedParams>& params) const {
-  return processTimeWindowWithGal3EKF(params, interval, dataset_.timestep());
+        const std::shared_ptr<PreintegrationCombinedParams>& params,
+        const std::optional<InitialCovarianceOptions>& initialCovariance) const {
+    return processTimeWindowWithGal3EKF(params, interval, dataset_.timestep(),
+                                                                            initialCovariance);
 }
 
 EKFNEESEvaluator::RunArtifacts
@@ -201,7 +240,8 @@ TrajectoryPoint EKFNEESEvaluator::createPredictedPointFromNavState(
 
 EKFNEESEvaluator::RunArtifacts EKFNEESEvaluator::processTimeWindowWithGal3EKF(
     const std::shared_ptr<PreintegrationCombinedParams>& params,
-    double preintegrationTime, double dt) const {
+    double preintegrationTime, double dt,
+    const std::optional<InitialCovarianceOptions>& initialCovariance) const {
     RunArtifacts artifacts;
     artifacts.preintegrationTime = preintegrationTime;
 
@@ -232,7 +272,13 @@ EKFNEESEvaluator::RunArtifacts EKFNEESEvaluator::processTimeWindowWithGal3EKF(
         const NavState& groundTruthNavState = window.terminalTruth().navState;
         const Gal3 groundTruthGal3 = convertToGal3(groundTruthNavState, predictedGal3.time());
         const Vector9 navigationError = computeGal3Error(predictedGal3, groundTruthGal3);
-        const Matrix9 navigationCovariance = extractNavigationCovariance(ekf);
+        Matrix9 navigationCovariance = extractNavigationCovariance(ekf);
+        if (initialCovariance) {
+            const double windowDuration =
+                window.terminalTruth().timestamp - window.initialTruth().timestamp;
+            navigationCovariance = augmentGal3CovarianceWithInitialPrior(
+                navigationCovariance, windowDuration, *initialCovariance);
+        }
 
         fillWindowPrediction(
             window, states,
@@ -248,7 +294,8 @@ EKFNEESEvaluator::RunArtifacts EKFNEESEvaluator::processTimeWindowWithGal3EKF(
             artifacts.windowEvaluations.push_back(
                 {windowIdx, window.start, window.end,
                  window.initialTruth().timestamp, window.terminalTruth().timestamp,
-                 makeWindowResult(navigationError, navigationCovariance, *nees)});
+                 makeGal3WindowResult(navigationError, navigationCovariance,
+                                     *nees)});
         }
     }
 

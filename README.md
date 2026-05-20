@@ -144,6 +144,7 @@ The shared method labels are:
 - `quadrature`
 - `manifold`
 - `tangent`
+- `delama_gal3`
 - `gal3_imu_ekf`
 - `navstate_imu_ekf`
 

@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "AppUtils.h"
+#include "EKFNEESEvaluator.h"
 #include "ResultsAdapters.h"
 
 namespace gtsam {
@@ -36,6 +37,7 @@ struct QuadratureAppOptions {
   double alphaAcc = 3.0;
   bool hasAlphaGyroOverride = false;
   bool hasAlphaAccOverride = false;
+  bool includeDelamaGal3 = true;
 };
 
 inline QuadratureAppOptions parseQuadratureAppArguments(
@@ -79,6 +81,14 @@ inline QuadratureAppOptions parseQuadratureAppArguments(
       options.alphaAcc =
           parsePositiveDoubleOption("--alpha-acc", arguments[++index]);
       options.hasAlphaAccOverride = true;
+      continue;
+    }
+    if (argument == "--no-delama-gal3") {
+      options.includeDelamaGal3 = false;
+      continue;
+    }
+    if (argument == "--delama-gal3") {
+      options.includeDelamaGal3 = true;
       continue;
     }
     intervalArguments.push_back(argument);
@@ -140,6 +150,21 @@ inline std::shared_ptr<PreintegrationParams> makePreintegrationParams(
                                   alpha.acc * 2.0000e-3);
 }
 
+inline std::shared_ptr<PreintegrationCombinedParams>
+makeCombinedPreintegrationParams(
+    const std::shared_ptr<PreintegrationParams>& params) {
+  const double gravity = std::max(0.0, params->n_gravity.norm());
+  auto combinedParams = PreintegrationCombinedParams::MakeSharedD(gravity);
+  combinedParams->n_gravity = params->n_gravity;
+  combinedParams->setAccelerometerCovariance(params->accelerometerCovariance);
+  combinedParams->setGyroscopeCovariance(params->gyroscopeCovariance);
+  combinedParams->setIntegrationCovariance(params->integrationCovariance);
+  combinedParams->omegaCoriolis = params->omegaCoriolis;
+  combinedParams->use2ndOrderCoriolis = params->use2ndOrderCoriolis;
+  combinedParams->body_P_sensor = params->body_P_sensor;
+  return combinedParams;
+}
+
 class QuadratureRunner {
  public:
   using ParamsFactory =
@@ -156,6 +181,7 @@ class QuadratureRunner {
         writer_(writer),
         datasetGroup_(datasetGroup),
         initialCovariance_(initialCovariance),
+        includeDelamaGal3_(options.includeDelamaGal3),
         paramsFactory_([params](const std::string&) { return params; }),
         configLabelFactory_(
             [configLabel](const std::string&) { return configLabel; }) {}
@@ -170,6 +196,7 @@ class QuadratureRunner {
         writer_(writer),
         datasetGroup_(datasetGroup),
         initialCovariance_(initialCovariance),
+        includeDelamaGal3_(options.includeDelamaGal3),
         paramsFactory_(std::move(paramsFactory)),
         configLabelFactory_(std::move(configLabelFactory)) {}
 
@@ -181,6 +208,7 @@ class QuadratureRunner {
       size_t quadratureEvaluated = 0;
       size_t manifoldEvaluated = 0;
       size_t tangentEvaluated = 0;
+      size_t delamaGal3Evaluated = 0;
     };
 
     std::vector<IntervalEvaluationSummary> intervalSummaries;
@@ -191,6 +219,12 @@ class QuadratureRunner {
         makeDatasetRow(*writer_, datasetName, dataset, datasetGroup_));
     const auto params = paramsFactory_(datasetName);
     const std::string configLabel = configLabelFactory_(datasetName);
+    std::shared_ptr<PreintegrationCombinedParams> combinedParams;
+    std::unique_ptr<EKFNEESEvaluator> delamaEvaluator;
+    if (includeDelamaGal3_) {
+      combinedParams = makeCombinedPreintegrationParams(params);
+      delamaEvaluator = std::make_unique<EKFNEESEvaluator>(dataset);
+    }
     for (const double intervalSeconds : intervals_) {
       const size_t samplesPerWindow = dataset.stepsForInterval(intervalSeconds);
       const size_t quadratureNodes = std::max<size_t>(
@@ -204,6 +238,18 @@ class QuadratureRunner {
           windows, params, initialCovariance_);
       const auto tangentEvaluations = collectWindowEvaluations<PIMTangent>(
           windows, params, initialCovariance_);
+      size_t delamaGal3Evaluated = 0;
+      if (includeDelamaGal3_) {
+        const auto delamaGal3Evaluations =
+            delamaEvaluator
+                ->computeGal3ImuEKFArtifacts(intervalSeconds, combinedParams,
+                                             initialCovariance_)
+                .windowEvaluations;
+        writeWindowRows(writer_, datasetName, "delama_gal3", configLabel,
+                        intervalSeconds, samplesPerWindow, 0,
+                        delamaGal3Evaluations);
+        delamaGal3Evaluated = delamaGal3Evaluations.size();
+      }
 
       writeWindowRows(writer_, datasetName, "quadrature", configLabel,
                       intervalSeconds, samplesPerWindow, quadratureNodes,
@@ -217,7 +263,8 @@ class QuadratureRunner {
       intervalSummaries.push_back({intervalSeconds, samplesPerWindow,
                                    windows.size(), quadratureEvaluations.size(),
                                    manifoldEvaluations.size(),
-                                   tangentEvaluations.size()});
+                                   tangentEvaluations.size(),
+                                   delamaGal3Evaluated});
     }
 
     std::cout << "Finished dataset " << datasetName << ":\n";
@@ -228,7 +275,11 @@ class QuadratureRunner {
                 << " candidate windows, evaluated "
                 << summary.quadratureEvaluated << " quadrature, "
                 << summary.manifoldEvaluated << " manifold, "
-                << summary.tangentEvaluated << " tangent\n";
+                << summary.tangentEvaluated << " tangent";
+      if (includeDelamaGal3_) {
+        std::cout << ", " << summary.delamaGal3Evaluated << " delama_gal3";
+      }
+      std::cout << "\n";
     }
   }
 
@@ -237,6 +288,7 @@ class QuadratureRunner {
   ResultsWriter* writer_;
   std::string datasetGroup_;
   std::optional<InitialCovarianceOptions> initialCovariance_;
+  bool includeDelamaGal3_ = true;
   ParamsFactory paramsFactory_;
   ConfigLabelFactory configLabelFactory_;
 };
