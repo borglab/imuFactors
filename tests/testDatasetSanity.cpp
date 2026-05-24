@@ -102,6 +102,41 @@ TEST(Dataset, CompleteWindowsForInterval) {
 }
 
 /* ************************************************************************* */
+TEST(Dataset, WindowInitialTruthVelocityNormStatistics) {
+  Dataset dataset("../data/euroc/euroc_MH01.csv");
+
+  const auto windows = dataset.completeWindowsForInterval(0.2);
+  EXPECT(!windows.empty());
+  if (windows.empty()) {
+    return;
+  }
+
+  double velocityNormSum = 0.0;
+  double velocityNormSquaredSum = 0.0;
+  double minInitialVelocityNorm =
+      windows.front().initialTruth().navState.velocity().norm();
+  for (const Window& window : windows) {
+    const double velocityNorm =
+        window.initialTruth().navState.velocity().norm();
+    EXPECT(std::isfinite(velocityNorm));
+    velocityNormSum += velocityNorm;
+    velocityNormSquaredSum += velocityNorm * velocityNorm;
+    minInitialVelocityNorm = std::min(minInitialVelocityNorm, velocityNorm);
+  }
+
+  const double numWindows = static_cast<double>(windows.size());
+  const double meanVelocityNorm = velocityNormSum / numWindows;
+  const double velocityNormVariance = std::max(
+      0.0, velocityNormSquaredSum / numWindows -
+               meanVelocityNorm * meanVelocityNorm);
+  const double velocityNormStddev = std::sqrt(velocityNormVariance);
+
+  EXPECT(minInitialVelocityNorm > 1e-12);
+  EXPECT(std::abs(meanVelocityNorm - 0.50659674603679938) < 1e-12);
+  EXPECT(std::abs(velocityNormStddev - 0.265506565520361) < 1e-12);
+}
+
+/* ************************************************************************* */
 TEST(Dataset, WindowMeasurementTraversal) {
   Dataset dataset("../data/euroc/euroc_MH01.csv");
 
