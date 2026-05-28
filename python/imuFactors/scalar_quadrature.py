@@ -316,6 +316,63 @@ def run_scalar_monte_carlo(
     )
 
 
+def win_rate_summary(
+    comparisons: pd.DataFrame,
+    *,
+    group_by: Sequence[str] | str = ("m", "N"),
+    metric: str = "rmse_error",
+) -> pd.DataFrame:
+    """Summarize Chebyshev2 win rate and advantage for one comparison metric.
+
+    The comparison dataframe stores ``metric = Chebyshev2 error - trapezoid
+    error``. This helper flips the sign so ``advantage = trapezoid error -
+    Chebyshev2 error``. The reported win rate is the fraction of finite rows in
+    each group with positive advantage, meaning Chebyshev2 had lower error for
+    the selected metric. Use ``m`` for number of samples and ``N`` for number of
+    CGL nodes, with ``n=N-1`` for Chebyshev polynomial degree.
+    """
+
+    if metric not in METRIC_COLUMNS:
+        raise ValueError(f"Unknown metric {metric!r}; expected one of {METRIC_COLUMNS}")
+    group_columns = [group_by] if isinstance(group_by, str) else list(group_by)
+    if not group_columns:
+        raise ValueError("group_by must include at least one column")
+    missing_columns = [
+        column
+        for column in [*group_columns, metric]
+        if column not in comparisons.columns
+    ]
+    if missing_columns:
+        raise KeyError(f"Missing comparison columns: {missing_columns}")
+
+    data = comparisons[[*group_columns, metric]].copy()
+    data["advantage"] = -pd.to_numeric(data[metric], errors="coerce")
+    finite = np.isfinite(data["advantage"].to_numpy(dtype=float))
+    data = data.loc[finite]
+    if data.empty:
+        return pd.DataFrame(
+            columns=[
+                *group_columns,
+                "median_advantage",
+                "mean_advantage",
+                "win_rate",
+                "rows",
+            ]
+        )
+
+    return (
+        data.groupby(group_columns, as_index=False)
+        .agg(
+            median_advantage=("advantage", "median"),
+            mean_advantage=("advantage", "mean"),
+            win_rate=("advantage", lambda values: float(np.mean(values > 0.0))),
+            rows=("advantage", "size"),
+        )
+        .sort_values(group_columns)
+        .reset_index(drop=True)
+    )
+
+
 def plot_fixed_N_comparison(
     comparisons: pd.DataFrame,
     function_name: str,
@@ -613,7 +670,12 @@ def robust_N_summary(
     selected_m_values: Sequence[int] | None = None,
     metrics: Sequence[str] = METRIC_COLUMNS,
 ) -> pd.DataFrame:
-    """Summarize metric-wise and robust ``N`` choices for each fixed ``m``."""
+    """Summarize metric-wise and robust ``N`` choices for each fixed ``m``.
+
+    The win-rate columns are metric-specific, not magnitudes: by default they
+    report the fraction of rows at the robust ``N`` where RMSE Chebyshev2
+    advantage is positive, split across low/med/high noise bands.
+    """
 
     for metric in metrics:
         if metric not in METRIC_COLUMNS:
@@ -652,8 +714,12 @@ def robust_N_summary(
         rank_score = ranks.mean(axis=1)
         robust_N = _best_N_from_score(rank_score)
         robust_rows = panel[panel["N"] == robust_N]
-        robust_advantages = -robust_rows[list(metrics)].to_numpy(dtype=float)
+        win_rate_metric = "rmse_error" if "rmse_error" in metrics else metrics[0]
+        robust_advantages = -robust_rows[win_rate_metric].to_numpy(dtype=float)
         win_rate = float(np.mean(robust_advantages > 0.0))
+        noise_band_win_rates = _noise_band_win_rates(
+            robust_rows, win_rate_metric, panel["noise_fraction"]
+        )
         rmse_summary = metric_summaries.get(
             "rmse_error", next(iter(metric_summaries.values()))
         )
@@ -665,6 +731,8 @@ def robust_N_summary(
             "robust_N": int(robust_N),
             "robust_rank_score": float(rank_score.loc[robust_N]),
             "win_rate": win_rate,
+            "win_rate_metric": win_rate_metric,
+            **noise_band_win_rates,
             "rmse_advantage_at_robust_N": float(rmse_summary.loc[robust_N]),
             "rmse_advantage_sparkline": _ascii_sparkline(
                 rmse_summary.reindex(N_grid).to_numpy(dtype=float)
@@ -702,7 +770,9 @@ def plot_robust_N_table(
         ("best_rmse_error_N", "best RMSE N"),
         ("best_max_error_N", "best max N"),
         ("robust_N", "robust N"),
-        ("win_rate", "win rate"),
+        ("low_noise_win_rate", "low win"),
+        ("mid_noise_win_rate", "med win"),
+        ("high_noise_win_rate", "high win"),
         ("rmse_advantage_at_robust_N", "RMSE advantage"),
         ("rmse_advantage_sparkline", "RMSE advantage over N"),
     ]
@@ -718,7 +788,9 @@ def plot_robust_N_table(
         "best_rmse_error_N": 0.9,
         "best_max_error_N": 0.75,
         "robust_N": 0.75,
-        "win_rate": 0.75,
+        "low_noise_win_rate": 0.72,
+        "mid_noise_win_rate": 0.72,
+        "high_noise_win_rate": 0.72,
         "rmse_advantage_at_robust_N": 1.05,
         "rmse_advantage_sparkline": 1.9,
     }
@@ -726,8 +798,13 @@ def plot_robust_N_table(
     for key, _ in available_columns:
         if key == "sqrt_m":
             values.append([f"{value:.2f}" for value in summary[key]])
-        elif key == "win_rate":
-            values.append([f"{100.0 * value:.0f}%" for value in summary[key]])
+        elif key.endswith("_win_rate"):
+            values.append(
+                [
+                    "" if pd.isna(value) else f"{100.0 * float(value):.0f}%"
+                    for value in summary[key]
+                ]
+            )
         elif key == "rmse_advantage_at_robust_N":
             values.append([f"{value:.4g}" for value in summary[key]])
         elif key == "rmse_advantage_sparkline":
@@ -972,6 +1049,29 @@ def _noise_band_labels(values: pd.Series, band_count: int) -> dict[float, str]:
         for value in group:
             labels[float(value)] = name
     return labels
+
+
+def _noise_band_win_rates(
+    data: pd.DataFrame,
+    metric: str,
+    all_noise_fractions: pd.Series,
+) -> dict[str, float]:
+    labels = _noise_band_labels(all_noise_fractions, len(_NOISE_BAND_NAMES))
+    banded = data[["noise_fraction", metric]].copy()
+    banded["advantage"] = -pd.to_numeric(banded[metric], errors="coerce")
+    banded["noise_band"] = banded["noise_fraction"].map(labels)
+    finite = np.isfinite(banded["advantage"].to_numpy(dtype=float))
+    banded = banded.loc[finite]
+    rates = (
+        banded.groupby("noise_band")["advantage"]
+        .apply(lambda values: float(np.mean(values > 0.0)))
+        .to_dict()
+    )
+    return {
+        "low_noise_win_rate": rates.get("low noise", np.nan),
+        "mid_noise_win_rate": rates.get("mid noise", np.nan),
+        "high_noise_win_rate": rates.get("high noise", np.nan),
+    }
 
 
 def _noise_band_colors(count: int) -> tuple[str, ...]:
