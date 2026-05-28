@@ -145,6 +145,46 @@ class SpectrogramTests(unittest.TestCase):
             "5 CGL node values",
         )
 
+    def test_chebyshev2_lambda1_penalizes_first_derivative(self) -> None:
+        unregularized = spectrogram.fit_spectral_windows(
+            _write_synthetic_csv(),
+            coefficient_count=6,
+            basis="chebyshev2",
+            columns=["w_x"],
+        )
+        regularized = spectrogram.fit_spectral_windows(
+            _write_synthetic_csv(),
+            coefficient_count=6,
+            basis="chebyshev2",
+            columns=["w_x"],
+            lambda1=100.0,
+        )
+        penalty = spectrogram.chebyshev2_first_derivative_penalty(
+            unregularized.coefficient_count,
+            window_seconds=unregularized.window_seconds,
+        )
+
+        unregularized_energy = _mean_quadratic_energy(
+            unregularized.coeffs[:, :, 0], penalty
+        )
+        regularized_energy = _mean_quadratic_energy(
+            regularized.coeffs[:, :, 0], penalty
+        )
+
+        self.assertEqual(regularized.lambda1, 100.0)
+        self.assertLess(regularized_energy, unregularized_energy)
+        self.assertGreater(np.mean(regularized.rmse), np.mean(unregularized.rmse))
+
+    def test_lambda1_requires_chebyshev2_basis(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Chebyshev2"):
+            spectrogram.fit_spectral_windows(
+                _write_synthetic_csv(),
+                coefficient_count=5,
+                basis="chebyshev",
+                columns=["w_x"],
+                lambda1=1.0,
+            )
+
     def test_signal_groups_and_plots_return_figures(self) -> None:
         path = _write_synthetic_csv()
         dataframe = pd.read_csv(path)
@@ -242,6 +282,10 @@ def _write_synthetic_csv() -> Path:
     )
     rows.to_csv(path, index=False)
     return path
+
+
+def _mean_quadratic_energy(values: np.ndarray, matrix: np.ndarray) -> float:
+    return float(np.mean(np.einsum("wi,ij,wj->w", values, matrix, values)))
 
 
 if __name__ == "__main__":
