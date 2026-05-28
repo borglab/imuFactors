@@ -18,6 +18,7 @@ DEFAULT_SIGNAL_GROUP = "imu"
 
 SIGNAL_GROUPS = {
     "imu": ["w_x", "w_y", "w_z", "a_x", "a_y", "a_z"],
+    "imu_norms": ["gyro_norm", "accel_norm"],
     "gyro": ["w_x", "w_y", "w_z"],
     "accel": ["a_x", "a_y", "a_z"],
     "position": ["p_x", "p_y", "p_z"],
@@ -49,7 +50,7 @@ SIGNAL_GROUPS = {
 
 @dataclass
 class ChebyshevSpectrogramFit:
-    """One-second spectral Chebyshev fits for a selected signal block."""
+    """Fixed-interval spectral Chebyshev fits for a selected signal block."""
 
     path: Path
     coefficient_count: int
@@ -81,7 +82,7 @@ class ChebyshevSpectrogramFit:
 
     @property
     def window_count(self) -> int:
-        """Number of complete one-second intervals."""
+        """Number of complete fixed-duration intervals."""
         return int(self.starts.size)
 
 
@@ -90,8 +91,13 @@ def discover_euroc_files(data_dir: str | Path) -> list[Path]:
     return sorted(Path(data_dir).glob("euroc_*.csv"))
 
 
-def load_euroc_csv(path: str | Path, *, continuous_quaternions: bool = True) -> pd.DataFrame:
-    """Load a merged EuRoC CSV, optionally enforcing quaternion sign continuity."""
+def load_euroc_csv(
+    path: str | Path,
+    *,
+    continuous_quaternions: bool = True,
+    include_imu_norms: bool = True,
+) -> pd.DataFrame:
+    """Load a merged EuRoC CSV and add useful derived signal columns."""
     dataframe = pd.read_csv(path)
     quat_cols = ["q_w", "q_x", "q_y", "q_z"]
     if continuous_quaternions and all(column in dataframe.columns for column in quat_cols):
@@ -100,6 +106,21 @@ def load_euroc_csv(path: str | Path, *, continuous_quaternions: bool = True) -> 
             if float(np.dot(quat[i - 1], quat[i])) < 0.0:
                 quat[i] *= -1.0
         dataframe.loc[:, quat_cols] = quat
+    if include_imu_norms:
+        add_imu_norm_columns(dataframe)
+    return dataframe
+
+
+def add_imu_norm_columns(dataframe: pd.DataFrame) -> pd.DataFrame:
+    """Add ``gyro_norm`` and ``accel_norm`` columns when IMU axes are present."""
+    gyro_columns = ["w_x", "w_y", "w_z"]
+    accel_columns = ["a_x", "a_y", "a_z"]
+    if all(column in dataframe.columns for column in gyro_columns):
+        gyro = dataframe[gyro_columns].to_numpy(dtype=float)
+        dataframe["gyro_norm"] = np.linalg.norm(gyro, axis=1)
+    if all(column in dataframe.columns for column in accel_columns):
+        accel = dataframe[accel_columns].to_numpy(dtype=float)
+        dataframe["accel_norm"] = np.linalg.norm(accel, axis=1)
     return dataframe
 
 
@@ -130,15 +151,15 @@ def robust_center_scale(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return center, np.where(scale > 1e-12, scale, 1.0)
 
 
-def one_second_window_starts(
+def interval_window_starts(
     time: Sequence[float] | np.ndarray,
     *,
     window_seconds: float = WINDOW_SECONDS,
 ) -> tuple[np.ndarray, int, float]:
-    """Return starts for complete closed one-second windows.
+    """Return starts for complete closed fixed-duration windows.
 
-    At 200 Hz, this yields 201 samples per closed window and advances by 200
-    samples, so adjacent windows share one endpoint.
+    For a 1.0-second interval at 200 Hz, this yields 201 samples per closed
+    window and advances by 200 samples, so adjacent windows share one endpoint.
     """
     time_array = np.asarray(time, dtype=float)
     dt = float(np.median(np.diff(time_array)))
@@ -151,8 +172,17 @@ def one_second_window_starts(
     tolerance = max(1e-6, 0.1 * dt)
     complete = starts[np.abs(durations - window_seconds) <= tolerance]
     if complete.size == 0:
-        raise ValueError("No complete one-second windows found")
+        raise ValueError("No complete fixed-duration windows found")
     return complete, steps_per_window, dt
+
+
+def one_second_window_starts(
+    time: Sequence[float] | np.ndarray,
+    *,
+    window_seconds: float = WINDOW_SECONDS,
+) -> tuple[np.ndarray, int, float]:
+    """Compatibility wrapper for ``interval_window_starts``."""
+    return interval_window_starts(time, window_seconds=window_seconds)
 
 
 def chebyshev1_design(
@@ -183,7 +213,7 @@ def fit_spectral_chebyshev_windows(
     columns: Sequence[str] | None = None,
     window_seconds: float = WINDOW_SECONDS,
 ) -> ChebyshevSpectrogramFit:
-    """Fit spectral Chebyshev coefficients for each complete one-second window."""
+    """Fit spectral Chebyshev coefficients for each complete interval."""
     csv_path = Path(path)
     dataframe = load_euroc_csv(csv_path)
     groups = available_signal_groups(dataframe)
@@ -198,7 +228,7 @@ def fit_spectral_chebyshev_windows(
         raise ValueError("No selected columns are present in the dataframe")
 
     time = dataframe["t"].to_numpy(dtype=float)
-    starts, steps_per_window, dt = one_second_window_starts(
+    starts, steps_per_window, dt = interval_window_starts(
         time, window_seconds=window_seconds
     )
     sample_count = steps_per_window + 1
@@ -334,7 +364,8 @@ def summary_table(result: ChebyshevSpectrogramFit) -> pd.DataFrame:
         ("selected columns", ", ".join(result.columns)),
         ("N", result.coefficient_count),
         ("polynomial degree", result.degree),
-        ("complete one-second windows", result.window_count),
+        ("interval length [s]", result.window_seconds),
+        ("complete intervals", result.window_count),
         ("samples per closed window", result.sample_count),
         ("median dt", result.dt),
         ("effective rate", 1.0 / result.dt),
@@ -546,7 +577,7 @@ def plot_coefficient_spectrogram(
         )
     )
     fig.update_layout(
-        title="Coefficient spectrogram (m one-second intervals x N basis weights)",
+        title="Coefficient spectrogram (m intervals x N basis weights)",
         xaxis_title="Chebyshev spectral basis",
         yaxis_title="window start time [s]",
         height=max(420, min(900, 220 + 3 * result.window_count)),

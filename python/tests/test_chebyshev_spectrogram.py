@@ -18,7 +18,8 @@ from imuFactors.chebyshev_spectrogram import (
     available_signal_groups,
     characteristic_windows,
     fit_spectral_chebyshev_windows,
-    one_second_window_starts,
+    interval_window_starts,
+    load_euroc_csv,
     plot_average_spectra,
     plot_average_spectrogram_parts,
     plot_coefficient_spectrogram,
@@ -32,11 +33,31 @@ class ChebyshevSpectrogramTests(unittest.TestCase):
     def test_one_second_window_starts_uses_closed_windows(self) -> None:
         time = np.arange(0.0, 2.5, 0.005)
 
-        starts, steps, dt = one_second_window_starts(time)
+        starts, steps, dt = interval_window_starts(time)
 
         np.testing.assert_array_equal(starts, [0, 200])
         self.assertEqual(steps, 200)
         self.assertAlmostEqual(dt, 0.005)
+
+    def test_half_second_window_starts_uses_requested_interval(self) -> None:
+        time = np.arange(0.0, 2.0, 0.005)
+
+        starts, steps, _ = interval_window_starts(time, window_seconds=0.5)
+
+        np.testing.assert_array_equal(starts, [0, 100, 200])
+        self.assertEqual(steps, 100)
+
+    def test_load_adds_imu_norm_signal_group(self) -> None:
+        dataframe = load_euroc_csv(_write_synthetic_csv())
+
+        self.assertIn("gyro_norm", dataframe.columns)
+        self.assertIn("accel_norm", dataframe.columns)
+        groups = available_signal_groups(dataframe)
+        self.assertEqual(groups["imu_norms"], ["gyro_norm", "accel_norm"])
+        np.testing.assert_allclose(
+            dataframe.loc[0, ["gyro_norm", "accel_norm"]],
+            [0.0, np.sqrt(5.0)],
+        )
 
     def test_fit_spectral_chebyshev_windows_recovers_linear_signal(self) -> None:
         with self.subTest("fit"):
@@ -54,6 +75,20 @@ class ChebyshevSpectrogramTests(unittest.TestCase):
             self.assertEqual(result.coeffs.shape, (2, 3, 2))
             self.assertEqual(result.coeff_energy.shape, (2, 3))
             np.testing.assert_allclose(result.reconstructed, result.samples, atol=1e-12)
+
+    def test_fit_can_use_imu_norms_and_custom_interval(self) -> None:
+        result = fit_spectral_chebyshev_windows(
+            _write_synthetic_csv(),
+            coefficient_count=4,
+            signal_group="imu_norms",
+            window_seconds=0.5,
+        )
+
+        self.assertEqual(result.columns, ["gyro_norm", "accel_norm"])
+        self.assertEqual(result.window_seconds, 0.5)
+        self.assertEqual(result.sample_count, 101)
+        self.assertEqual(result.window_count, 4)
+        self.assertEqual(result.coeffs.shape, (4, 4, 2))
 
     def test_signal_groups_and_plots_return_figures(self) -> None:
         path = _write_synthetic_csv()
