@@ -1,17 +1,18 @@
-"""Reusable scalar quadrature experiments using GTSAM Chebyshev2."""
+"""Reusable scalar quadrature experiments using shared spectral fits."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Callable, Iterable, Sequence
 
-import gtsam
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from matplotlib.colors import TwoSlopeNorm
 from plotly.subplots import make_subplots
+
+import imuFactors.spectral as spectral
 
 
 DEFAULT_INTERVAL = (0.0, 1.0)
@@ -53,7 +54,7 @@ class _ChebyshevExperimentPlan:
     evaluation_times: np.ndarray
     node_count: int
     interval: tuple[float, float]
-    fit_solver: np.ndarray
+    fit_plan: spectral.BasisPlan
     final_weights: np.ndarray
     curve_weights: np.ndarray
 
@@ -65,30 +66,22 @@ class _ChebyshevExperimentPlan:
         node_count: int,
         interval: tuple[float, float],
     ) -> "_ChebyshevExperimentPlan":
-        a, b = interval
-        weight_matrix = np.asarray(
-            gtsam.Chebyshev2.WeightMatrix(node_count, sample_times, a, b),
-            dtype=float,
+        fit_plan = spectral.basis_plan_from_coordinates(
+            node_count,
+            sample_times,
+            basis="chebyshev2",
+            interval=interval,
         )
-        final_weights = np.asarray(
-            gtsam.Chebyshev2.IntegrationWeights(node_count, a, b),
-            dtype=float,
-        ).reshape(node_count)
-        integration_matrix = np.asarray(
-            gtsam.Chebyshev2.IntegrationMatrix(node_count, a, b),
-            dtype=float,
+        final_weights = spectral.chebyshev2_integration_weights(node_count, interval)
+        curve_weights = spectral.chebyshev2_integral_curve_matrix(
+            node_count, evaluation_times, interval
         )
-        integral_evaluation_matrix = np.asarray(
-            gtsam.Chebyshev2.WeightMatrix(node_count + 1, evaluation_times, a, b),
-            dtype=float,
-        )
-        curve_weights = integral_evaluation_matrix @ integration_matrix
         return cls(
             sample_times=sample_times,
             evaluation_times=evaluation_times,
             node_count=node_count,
             interval=interval,
-            fit_solver=np.linalg.pinv(weight_matrix),
+            fit_plan=fit_plan,
             final_weights=final_weights,
             curve_weights=curve_weights,
         )
@@ -96,8 +89,8 @@ class _ChebyshevExperimentPlan:
     def fit_node_values(self, sample_values: np.ndarray) -> np.ndarray:
         values = np.asarray(sample_values, dtype=float)
         if values.ndim == 1:
-            return self.fit_solver @ values
-        return values @ self.fit_solver.T
+            return self.fit_plan.fit(values)
+        return values @ self.fit_plan.solver.T
 
     def integral_curves(
         self, sample_values: np.ndarray
@@ -159,26 +152,18 @@ def scalar_function_from_chebyshev2_nodes(
 
     values = np.asarray(node_values, dtype=float).reshape(-1)
     node_count = values.size
-    a, b = interval
-    integration_matrix = np.asarray(
-        gtsam.Chebyshev2.IntegrationMatrix(node_count, a, b),
-        dtype=float,
-    )
+    integration_matrix = spectral.chebyshev2_integration_matrix(node_count, interval)
     antiderivative_nodes = integration_matrix @ values
 
     def evaluate(times: np.ndarray) -> np.ndarray:
         time_array = np.asarray(times, dtype=float)
-        weights = np.asarray(
-            gtsam.Chebyshev2.WeightMatrix(node_count, time_array, a, b),
-            dtype=float,
-        )
+        weights = spectral.chebyshev2_weight_matrix(node_count, time_array, interval)
         return weights @ values
 
     def antiderivative(times: np.ndarray) -> np.ndarray:
         time_array = np.asarray(times, dtype=float)
-        weights = np.asarray(
-            gtsam.Chebyshev2.WeightMatrix(node_count + 1, time_array, a, b),
-            dtype=float,
+        weights = spectral.chebyshev2_weight_matrix(
+            node_count + 1, time_array, interval
         )
         return weights @ antiderivative_nodes
 

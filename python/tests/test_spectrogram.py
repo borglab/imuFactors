@@ -14,6 +14,8 @@ PYTHON_DIR = Path(__file__).resolve().parents[1]
 if str(PYTHON_DIR) not in sys.path:
     sys.path.insert(0, str(PYTHON_DIR))
 
+import imuFactors.euroc as euroc
+import imuFactors.spectral as spectral
 import imuFactors.spectrogram as spectrogram
 
 
@@ -38,11 +40,11 @@ class SpectrogramTests(unittest.TestCase):
         self.assertEqual(steps, 100)
 
     def test_load_adds_imu_norm_signal_group(self) -> None:
-        dataframe = spectrogram.load_euroc_csv(_write_synthetic_csv())
+        dataframe = euroc.load_euroc_csv(_write_synthetic_csv())
 
         self.assertIn("gyro_norm", dataframe.columns)
         self.assertIn("accel_norm", dataframe.columns)
-        groups = spectrogram.available_signal_groups(dataframe)
+        groups = euroc.available_signal_groups(dataframe)
         self.assertEqual(groups["imu_norms"], ["gyro_norm", "accel_norm"])
         np.testing.assert_allclose(
             dataframe.loc[0, ["gyro_norm", "accel_norm"]],
@@ -50,19 +52,19 @@ class SpectrogramTests(unittest.TestCase):
         )
 
     def test_load_adds_gravity_compensated_accel_signal_group(self) -> None:
-        dataframe = spectrogram.load_euroc_csv(_write_synthetic_csv())
+        dataframe = euroc.load_euroc_csv(_write_synthetic_csv())
 
         self.assertIn("a_gc_x", dataframe.columns)
         self.assertIn("a_gc_y", dataframe.columns)
         self.assertIn("a_gc_z", dataframe.columns)
-        groups = spectrogram.available_signal_groups(dataframe)
+        groups = euroc.available_signal_groups(dataframe)
         self.assertEqual(
             groups["accel_gravity_compensated"],
             ["a_gc_x", "a_gc_y", "a_gc_z"],
         )
         np.testing.assert_allclose(
             dataframe.loc[0, ["a_gc_x", "a_gc_y", "a_gc_z"]],
-            [1.0, 2.0, -spectrogram.GRAVITY],
+            [1.0, 2.0, -euroc.GRAVITY],
         )
 
     def test_chebyshev_fit_recovers_linear_signal(self) -> None:
@@ -145,6 +147,30 @@ class SpectrogramTests(unittest.TestCase):
             "5 CGL node values",
         )
 
+    def test_fit_uses_shared_spectral_plan(self) -> None:
+        result = spectrogram.fit_spectral_windows(
+            _write_synthetic_csv(),
+            coefficient_count=5,
+            basis="chebyshev2",
+            columns=["w_x"],
+            window_seconds=0.5,
+            lambda1=0.1,
+        )
+        plan = spectral.basis_plan(
+            5,
+            result.sample_count,
+            basis="chebyshev2",
+            window_seconds=0.5,
+            lambda1=0.1,
+        )
+
+        np.testing.assert_allclose(result.basis_coordinates, plan.coordinates)
+        np.testing.assert_allclose(result.weight_matrix, plan.weight_matrix)
+        self.assertEqual(
+            spectrogram.basis_tick_labels(result),
+            spectral.basis_tick_labels(result.basis, result.coefficient_count),
+        )
+
     def test_chebyshev2_lambda1_penalizes_first_derivative(self) -> None:
         unregularized = spectrogram.fit_spectral_windows(
             _write_synthetic_csv(),
@@ -159,7 +185,7 @@ class SpectrogramTests(unittest.TestCase):
             columns=["w_x"],
             lambda1=100.0,
         )
-        penalty = spectrogram.chebyshev2_first_derivative_penalty(
+        penalty = spectral.chebyshev2_first_derivative_penalty(
             unregularized.coefficient_count,
             window_seconds=unregularized.window_seconds,
         )
@@ -188,7 +214,7 @@ class SpectrogramTests(unittest.TestCase):
     def test_signal_groups_and_plots_return_figures(self) -> None:
         path = _write_synthetic_csv()
         dataframe = pd.read_csv(path)
-        groups = spectrogram.available_signal_groups(dataframe)
+        groups = euroc.available_signal_groups(dataframe)
 
         self.assertIn("imu", groups)
         self.assertIn("gyro", groups)

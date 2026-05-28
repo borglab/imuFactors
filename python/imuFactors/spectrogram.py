@@ -6,55 +6,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Sequence
 
-import gtsam
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+import imuFactors.euroc as euroc
+import imuFactors.spectral as spectral
+
 
 WINDOW_SECONDS = 1.0
-GRAVITY = 9.81
-DEFAULT_SIGNAL_GROUP = "imu"
-DEFAULT_BASIS = "chebyshev"
-BASIS_OPTIONS = ("chebyshev", "chebyshev2", "fourier")
-BASIS_DISPLAY_NAMES = {
-    "chebyshev": "Chebyshev",
-    "chebyshev2": "Chebyshev2 pseudo-spectral",
-    "fourier": "Fourier",
-}
-
-SIGNAL_GROUPS = {
-    "imu": ["w_x", "w_y", "w_z", "a_x", "a_y", "a_z"],
-    "imu_norms": ["gyro_norm", "accel_norm"],
-    "gyro": ["w_x", "w_y", "w_z"],
-    "accel": ["a_x", "a_y", "a_z"],
-    "accel_gravity_compensated": ["a_gc_x", "a_gc_y", "a_gc_z"],
-    "position": ["p_x", "p_y", "p_z"],
-    "velocity": ["v_x", "v_y", "v_z"],
-    "gyro_bias": ["b_w_x", "b_w_y", "b_w_z"],
-    "accel_bias": ["b_a_x", "b_a_y", "b_a_z"],
-    "quaternion_components": ["q_w", "q_x", "q_y", "q_z"],
-    "state_plus_bias": [
-        "q_w",
-        "q_x",
-        "q_y",
-        "q_z",
-        "v_x",
-        "v_y",
-        "v_z",
-        "p_x",
-        "p_y",
-        "p_z",
-        "b_w_x",
-        "b_w_y",
-        "b_w_z",
-        "b_a_x",
-        "b_a_y",
-        "b_a_z",
-    ],
-    "all_numeric": [],
-}
+DEFAULT_SIGNAL_GROUP = euroc.DEFAULT_SIGNAL_GROUP
+DEFAULT_BASIS = spectral.DEFAULT_BASIS
 
 
 @dataclass
@@ -99,7 +62,7 @@ class SpectrogramFit:
     @property
     def basis_name(self) -> str:
         """Human-readable basis name."""
-        return basis_display_name(self.basis)
+        return spectral.basis_display_name(self.basis)
 
     @property
     def window_count(self) -> int:
@@ -112,106 +75,6 @@ class SpectrogramFit:
         return self.basis_coordinates
 
 
-ChebyshevSpectrogramFit = SpectrogramFit
-
-
-def discover_euroc_files(data_dir: str | Path) -> list[Path]:
-    """Return sorted merged EuRoC CSV files under ``data_dir``."""
-    return sorted(Path(data_dir).glob("euroc_*.csv"))
-
-
-def load_euroc_csv(
-    path: str | Path,
-    *,
-    continuous_quaternions: bool = True,
-    include_imu_norms: bool = True,
-    include_gravity_compensated_accel: bool = True,
-    gravity: float = GRAVITY,
-) -> pd.DataFrame:
-    """Load a merged EuRoC CSV and add useful derived signal columns."""
-    dataframe = pd.read_csv(path)
-    quat_cols = ["q_w", "q_x", "q_y", "q_z"]
-    if continuous_quaternions and all(column in dataframe.columns for column in quat_cols):
-        quat = dataframe[quat_cols].to_numpy(dtype=float, copy=True)
-        for i in range(1, len(quat)):
-            if float(np.dot(quat[i - 1], quat[i])) < 0.0:
-                quat[i] *= -1.0
-        dataframe.loc[:, quat_cols] = quat
-    if include_imu_norms:
-        add_imu_norm_columns(dataframe)
-    if include_gravity_compensated_accel:
-        add_gravity_compensated_accel_columns(dataframe, gravity=gravity)
-    return dataframe
-
-
-def add_imu_norm_columns(dataframe: pd.DataFrame) -> pd.DataFrame:
-    """Add ``gyro_norm`` and ``accel_norm`` columns when IMU axes are present."""
-    gyro_columns = ["w_x", "w_y", "w_z"]
-    accel_columns = ["a_x", "a_y", "a_z"]
-    if all(column in dataframe.columns for column in gyro_columns):
-        gyro = dataframe[gyro_columns].to_numpy(dtype=float)
-        dataframe["gyro_norm"] = np.linalg.norm(gyro, axis=1)
-    if all(column in dataframe.columns for column in accel_columns):
-        accel = dataframe[accel_columns].to_numpy(dtype=float)
-        dataframe["accel_norm"] = np.linalg.norm(accel, axis=1)
-    return dataframe
-
-
-def add_gravity_compensated_accel_columns(
-    dataframe: pd.DataFrame,
-    *,
-    gravity: float = GRAVITY,
-) -> pd.DataFrame:
-    """Add body-frame accelerometer columns with static gravity removed.
-
-    The quaternion columns define ``nRb``, the rotation from body frame to
-    navigation frame. A stationary accelerometer should read
-    ``nRb.unrotate([0, 0, gravity])`` in body coordinates, so that vector is
-    subtracted from the measured body-frame accelerometer.
-    """
-    accel_columns = ["a_x", "a_y", "a_z"]
-    quat_columns = ["q_w", "q_x", "q_y", "q_z"]
-    if not all(column in dataframe.columns for column in accel_columns + quat_columns):
-        return dataframe
-
-    accel = dataframe[accel_columns].to_numpy(dtype=float)
-    quaternions = dataframe[quat_columns].to_numpy(dtype=float)
-    expected_static_accel = np.empty_like(accel)
-    n_gravity_opposite = np.array([0.0, 0.0, float(gravity)])
-
-    for index, quaternion in enumerate(quaternions):
-        nRb = gtsam.Rot3.Quaternion(
-            float(quaternion[0]),
-            float(quaternion[1]),
-            float(quaternion[2]),
-            float(quaternion[3]),
-        )
-        expected_static_accel[index, :] = nRb.unrotate(n_gravity_opposite)
-
-    compensated = accel - expected_static_accel
-    dataframe["a_gc_x"] = compensated[:, 0]
-    dataframe["a_gc_y"] = compensated[:, 1]
-    dataframe["a_gc_z"] = compensated[:, 2]
-    return dataframe
-
-
-def available_signal_groups(dataframe: pd.DataFrame) -> dict[str, list[str]]:
-    """Return signal groups whose columns are present in ``dataframe``."""
-    groups: dict[str, list[str]] = {}
-    for name, columns in SIGNAL_GROUPS.items():
-        if name == "all_numeric":
-            continue
-        present = [column for column in columns if column in dataframe.columns]
-        if present:
-            groups[name] = present
-    groups["all_numeric"] = [
-        column
-        for column in dataframe.columns
-        if column != "t" and pd.api.types.is_numeric_dtype(dataframe[column])
-    ]
-    return groups
-
-
 def robust_center_scale(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Compute robust per-column center and scale for unit-comparable spectra."""
     center = np.nanmedian(values, axis=0)
@@ -220,38 +83,6 @@ def robust_center_scale(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     standard_sigma = np.nanstd(values, axis=0)
     scale = np.where(robust_sigma > 1e-12, robust_sigma, standard_sigma)
     return center, np.where(scale > 1e-12, scale, 1.0)
-
-
-def normalize_basis_name(basis: str) -> str:
-    """Normalize and validate a supported spectral basis name."""
-    normalized = basis.strip().lower().replace("_", "-")
-    aliases = {
-        "cheb": "chebyshev",
-        "chebyshev1": "chebyshev",
-        "chebyshev-1": "chebyshev",
-        "chebyshev1basis": "chebyshev",
-        "chebyshev-1-basis": "chebyshev",
-        "chebyshev2basis": "chebyshev2",
-        "chebyshev-2": "chebyshev2",
-        "chebyshev-2-basis": "chebyshev2",
-        "chebyshev2-pseudospectral": "chebyshev2",
-        "chebyshev2-pseudo-spectral": "chebyshev2",
-        "pseudospectral": "chebyshev2",
-        "pseudo-spectral": "chebyshev2",
-        "fourierbasis": "fourier",
-        "fourier-basis": "fourier",
-    }
-    normalized = aliases.get(normalized, normalized)
-    if normalized not in BASIS_OPTIONS:
-        raise ValueError(
-            f"Unknown basis {basis!r}; expected one of {', '.join(BASIS_OPTIONS)}"
-        )
-    return normalized
-
-
-def basis_display_name(basis: str) -> str:
-    """Return a human-readable basis name."""
-    return BASIS_DISPLAY_NAMES[normalize_basis_name(basis)]
 
 
 def interval_window_starts(
@@ -288,116 +119,6 @@ def one_second_window_starts(
     return interval_window_starts(time, window_seconds=window_seconds)
 
 
-def basis_design(
-    coefficient_count: int,
-    sample_count: int,
-    *,
-    basis: str = DEFAULT_BASIS,
-    window_seconds: float = WINDOW_SECONDS,
-    lambda1: float = 0.0,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return basis coordinates, weight matrix, and least-squares solver."""
-    if coefficient_count < 1:
-        raise ValueError("coefficient_count must be positive")
-    if coefficient_count > sample_count:
-        raise ValueError(
-            f"coefficient_count={coefficient_count} exceeds the "
-            f"{sample_count} samples in a window"
-        )
-    normalized_basis = normalize_basis_name(basis)
-    if normalized_basis == "chebyshev":
-        coordinates = np.linspace(-1.0, 1.0, sample_count)
-        weight_matrix = np.asarray(
-            gtsam.Chebyshev1Basis.WeightMatrix(int(coefficient_count), coordinates),
-            dtype=float,
-        )
-    elif normalized_basis == "chebyshev2":
-        coordinates = np.linspace(0.0, 1.0, sample_count)
-        weight_matrix = np.asarray(
-            gtsam.Chebyshev2.WeightMatrix(
-                int(coefficient_count), coordinates, 0.0, 1.0
-            ),
-            dtype=float,
-        )
-    elif normalized_basis == "fourier":
-        coordinates = np.linspace(0.0, 2.0 * np.pi, sample_count)
-        weight_matrix = np.asarray(
-            gtsam.FourierBasis.WeightMatrix(int(coefficient_count), coordinates),
-            dtype=float,
-        )
-    else:  # pragma: no cover - normalize_basis_name guards this branch.
-        raise AssertionError(f"unhandled basis {normalized_basis}")
-    solver = basis_solver(
-        weight_matrix,
-        normalized_basis,
-        coefficient_count,
-        window_seconds=window_seconds,
-        lambda1=lambda1,
-    )
-    return coordinates, weight_matrix, solver
-
-
-def basis_solver(
-    weight_matrix: np.ndarray,
-    basis: str,
-    coefficient_count: int,
-    *,
-    window_seconds: float = WINDOW_SECONDS,
-    lambda1: float = 0.0,
-) -> np.ndarray:
-    """Return an unregularized or Sobolev-regularized linear solver."""
-    normalized_basis = normalize_basis_name(basis)
-    lambda1 = float(lambda1)
-    if lambda1 < 0.0:
-        raise ValueError("lambda1 must be non-negative")
-    if lambda1 == 0.0:
-        return np.linalg.pinv(weight_matrix)
-    if normalized_basis != "chebyshev2":
-        raise ValueError(
-            "lambda1 Sobolev regularization is only supported for Chebyshev2"
-        )
-
-    lhs = weight_matrix.T @ weight_matrix
-    lhs += lambda1 * chebyshev2_first_derivative_penalty(
-        int(coefficient_count), window_seconds=window_seconds
-    )
-    rhs = weight_matrix.T
-    return np.linalg.solve(lhs, rhs)
-
-
-def chebyshev2_first_derivative_penalty(
-    coefficient_count: int,
-    *,
-    window_seconds: float = WINDOW_SECONDS,
-) -> np.ndarray:
-    """Return the CGL nodal penalty matrix for ``integral |p'(t)|^2 dt``."""
-    if coefficient_count < 1:
-        raise ValueError("coefficient_count must be positive")
-    if window_seconds <= 0.0:
-        raise ValueError("window_seconds must be positive")
-    if coefficient_count == 1:
-        return np.zeros((1, 1), dtype=float)
-
-    derivative = np.asarray(
-        gtsam.Chebyshev2.DifferentiationMatrix(int(coefficient_count), 0.0, 1.0),
-        dtype=float,
-    )
-    weights = np.asarray(
-        gtsam.Chebyshev2.IntegrationWeights(int(coefficient_count), 0.0, 1.0),
-        dtype=float,
-    )
-    penalty = derivative.T @ (weights.reshape(-1, 1) * derivative)
-    return penalty / float(window_seconds)
-
-
-def chebyshev1_design(
-    coefficient_count: int,
-    sample_count: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return canonical Chebyshev1 samples, weight matrix, and LS solver."""
-    return basis_design(coefficient_count, sample_count, basis="chebyshev")
-
-
 def fit_spectral_windows(
     path: str | Path,
     coefficient_count: int,
@@ -410,16 +131,20 @@ def fit_spectral_windows(
 ) -> SpectrogramFit:
     """Fit spectral basis coefficients for each complete interval."""
     csv_path = Path(path)
-    normalized_basis = normalize_basis_name(basis)
-    dataframe = load_euroc_csv(csv_path)
-    groups = available_signal_groups(dataframe)
-    selected_columns = list(columns) if columns is not None else groups.get(signal_group)
+    normalized_basis = spectral.normalize_basis_name(basis)
+    dataframe = euroc.load_euroc_csv(csv_path)
+    groups = euroc.available_signal_groups(dataframe)
+    selected_columns = (
+        list(columns) if columns is not None else groups.get(signal_group)
+    )
     if selected_columns is None:
         raise KeyError(
             f"Unknown signal group {signal_group!r}; available: {sorted(groups)}"
         )
 
-    selected_columns = [column for column in selected_columns if column in dataframe.columns]
+    selected_columns = [
+        column for column in selected_columns if column in dataframe.columns
+    ]
     if not selected_columns:
         raise ValueError("No selected columns are present in the dataframe")
 
@@ -428,7 +153,7 @@ def fit_spectral_windows(
         time, window_seconds=window_seconds
     )
     sample_count = steps_per_window + 1
-    basis_coordinates, weight_matrix, solver = basis_design(
+    plan = spectral.basis_plan(
         int(coefficient_count),
         sample_count,
         basis=normalized_basis,
@@ -438,9 +163,7 @@ def fit_spectral_windows(
 
     values = dataframe[selected_columns].to_numpy(dtype=float)
     center, scale = robust_center_scale(values)
-    samples, reconstructed, coeffs = _fit_windows(
-        values, starts, sample_count, solver, weight_matrix
-    )
+    samples, reconstructed, coeffs = _fit_windows(values, starts, sample_count, plan)
     rmse = np.sqrt(np.mean((reconstructed - samples) ** 2, axis=1))
     coeffs_standardized, coeff_energy = standardized_coefficient_energy(
         coeffs, center, scale
@@ -460,8 +183,8 @@ def fit_spectral_windows(
         sample_count=sample_count,
         window_seconds=window_seconds,
         dt=dt,
-        basis_coordinates=basis_coordinates,
-        weight_matrix=weight_matrix,
+        basis_coordinates=plan.coordinates,
+        weight_matrix=plan.weight_matrix,
         coeffs=coeffs,
         coeffs_standardized=coeffs_standardized,
         coeff_energy=coeff_energy,
@@ -472,26 +195,7 @@ def fit_spectral_windows(
         scale=scale,
         activity=activity,
         high_order_ratio=high_order_ratio,
-        lambda1=float(lambda1),
-    )
-
-
-def fit_spectral_chebyshev_windows(
-    path: str | Path,
-    coefficient_count: int,
-    *,
-    signal_group: str = DEFAULT_SIGNAL_GROUP,
-    columns: Sequence[str] | None = None,
-    window_seconds: float = WINDOW_SECONDS,
-) -> SpectrogramFit:
-    """Compatibility wrapper for Chebyshev spectral fitting."""
-    return fit_spectral_windows(
-        path,
-        coefficient_count,
-        basis="chebyshev",
-        signal_group=signal_group,
-        columns=columns,
-        window_seconds=window_seconds,
+        lambda1=plan.lambda1,
     )
 
 
@@ -499,12 +203,11 @@ def _fit_windows(
     values: np.ndarray,
     starts: np.ndarray,
     sample_count: int,
-    solver: np.ndarray,
-    weight_matrix: np.ndarray,
+    plan: spectral.BasisPlan,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     window_count = int(starts.size)
     component_count = int(values.shape[1])
-    coefficient_count = int(solver.shape[0])
+    coefficient_count = int(plan.parameter_count)
     samples = np.empty((window_count, sample_count, component_count), dtype=float)
     reconstructed = np.empty_like(samples)
     coeffs = np.empty((window_count, coefficient_count, component_count), dtype=float)
@@ -512,10 +215,10 @@ def _fit_windows(
     for window_index, start in enumerate(starts):
         stop = int(start) + sample_count
         y = values[int(start) : stop, :]
-        coefficient_matrix = solver @ y
+        coefficient_matrix = plan.fit(y)
         samples[window_index] = y
         coeffs[window_index] = coefficient_matrix
-        reconstructed[window_index] = weight_matrix @ coefficient_matrix
+        reconstructed[window_index] = plan.reconstruct(coefficient_matrix)
     return samples, reconstructed, coeffs
 
 
@@ -579,41 +282,17 @@ def window_start_seconds(result: SpectrogramFit, window_index: int) -> float:
 
 def basis_order_summary(result: SpectrogramFit) -> str:
     """Return a compact basis-order description for tables."""
-    if result.basis == "chebyshev":
-        return f"degree {result.degree}"
-    if result.basis == "chebyshev2":
-        return f"{result.coefficient_count} CGL node values"
-    if result.basis == "fourier":
-        if result.coefficient_count == 1:
-            return "constant only"
-        return f"max harmonic {result.max_harmonic}"
-    return str(result.coefficient_count - 1)
+    return spectral.basis_order_summary(result.basis, result.coefficient_count)
 
 
 def basis_tick_labels(result: SpectrogramFit) -> list[str]:
     """Return coefficient labels for the fitted basis."""
-    if result.basis == "chebyshev":
-        return [f"T{k}" for k in range(result.coefficient_count)]
-    if result.basis == "chebyshev2":
-        return [f"cgl{k}" for k in range(result.coefficient_count)]
-    if result.basis == "fourier":
-        labels = ["1"]
-        harmonic = 1
-        for index in range(1, result.coefficient_count):
-            if index % 2 == 1:
-                labels.append(f"cos{harmonic}")
-            else:
-                labels.append(f"sin{harmonic}")
-                harmonic += 1
-        return labels
-    return [str(k) for k in range(result.coefficient_count)]
+    return spectral.basis_tick_labels(result.basis, result.coefficient_count)
 
 
 def basis_axis_title(result: SpectrogramFit) -> str:
     """Return an x-axis title matching the fitted parameterization."""
-    if result.basis == "chebyshev2":
-        return "Chebyshev2 pseudo-spectral CGL nodes"
-    return f"{result.basis_name} spectral basis"
+    return spectral.basis_axis_title(result.basis)
 
 
 def summary_table(result: SpectrogramFit) -> pd.DataFrame:

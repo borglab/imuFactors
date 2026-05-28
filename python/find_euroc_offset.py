@@ -18,8 +18,7 @@ from pathlib import Path
 import numpy as np
 
 import gtsam
-
-import euroc
+import imuFactors.euroc as euroc
 
 
 def _uniform_time_grid(t_min: float, t_max: float, dt: float) -> np.ndarray:
