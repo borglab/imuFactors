@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EuRoC Signal Frequency Report</title>
+  <style>
+    :root {
+      --ink: #1f2933;
+      --muted: #5d6875;
+      --line: #d8dee6;
+      --panel: #f7f9fb;
+      --accent: #0f766e;
+      --accent-soft: #e7f5f2;
+      --warn: #9a5b13;
+      --warn-soft: #fff3df;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+
+    main {
+      width: min(1040px, calc(100% - 40px));
+      margin: 40px auto 64px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 34px;
+      font-weight: 720;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 34px 0 12px;
+      font-size: 21px;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 0 0 14px;
+      color: var(--muted);
+    }
+
+    code {
+      padding: 1px 5px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: var(--panel);
+      font-size: 0.94em;
+    }
+
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin: 24px 0 28px;
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px 16px;
+      background: var(--panel);
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .metric strong {
+      display: block;
+      margin-top: 4px;
+      font-size: 24px;
+      font-weight: 720;
+    }
+
+    .note {
+      border-left: 4px solid var(--warn);
+      padding: 12px 16px;
+      background: var(--warn-soft);
+      color: #5f3a0a;
+    }
+
+    .ok {
+      border-left-color: var(--accent);
+      background: var(--accent-soft);
+      color: #115e59;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0 22px;
+      font-size: 14px;
+    }
+
+    th,
+    td {
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: #374151;
+      background: var(--panel);
+      font-weight: 680;
+    }
+
+    tbody tr:hover {
+      background: #fbfcfd;
+    }
+
+    .freq {
+      color: var(--accent);
+      font-weight: 720;
+      white-space: nowrap;
+    }
+
+    .small {
+      font-size: 13px;
+    }
+
+    @media (max-width: 760px) {
+      main {
+        width: min(100% - 24px, 1040px);
+        margin-top: 24px;
+      }
+
+      h1 {
+        font-size: 27px;
+      }
+
+      .meta {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      table {
+        display: block;
+        overflow-x: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>EuRoC Signal Frequency Report</h1>
+    <p>
+      Representative file inspected:
+      <code>/Users/dellaert/git/imuFactors/data/euroc/euroc_MH01.csv</code>.
+      The file is one of the merged EuRoC CSVs used by this repository.
+    </p>
+
+    <section class="meta" aria-label="Dataset summary">
+      <div class="metric">
+        <span>Samples</span>
+        <strong>28,826</strong>
+      </div>
+      <div class="metric">
+        <span>Duration</span>
+        <strong>144.125 s</strong>
+      </div>
+      <div class="metric">
+        <span>Mean timestep</span>
+        <strong>0.005 s</strong>
+      </div>
+      <div class="metric">
+        <span>Effective rate</span>
+        <strong>200 Hz</strong>
+      </div>
+    </section>
+
+    <p class="note">
+      Interpretation: this CSV is already synchronized. In
+      <code>python/combine_euroc_files.py</code>, rows are generated at IMU
+      timestamps and the ground-truth state plus bias values are interpolated
+      onto those timestamps. Therefore the availability in this merged file is
+      200 Hz for every listed signal, while the file does not preserve a
+      separate original acquisition rate for the ground-truth source.
+    </p>
+
+    <h2>How Ground Truth Was Interpolated</h2>
+    <p>
+      The merge code reads the original EuRoC ground-truth stream and IMU
+      stream separately, then emits one output row for each IMU timestamp. For
+      each IMU time <code>t</code>, it advances to the neighboring
+      ground-truth samples <code>t0</code> and <code>t1</code>, computes
+      <code>alpha = (t - t0) / (t1 - t0)</code>, and interpolates the
+      navigation state with GTSAM's NavState Lie-group operations:
+      <code>xi = X0.logmap(X1)</code>, then
+      <code>X = X0.expmap(alpha * xi)</code>.
+    </p>
+    <p>
+      The interpolated <code>NavState</code> supplies orientation, position,
+      and velocity. Gyro and accelerometer biases are interpolated componentwise
+      with ordinary linear interpolation:
+      <code>(1 - alpha) * bias0 + alpha * bias1</code>. If an IMU timestamp is
+      outside the ground-truth time span, the code clamps to the first or last
+      ground-truth sample.
+    </p>
+
+    <h2>Signal Availability</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Signal group</th>
+          <th>Columns</th>
+          <th>Units</th>
+          <th>Availability in file</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Timestamp</td>
+          <td><code>t</code></td>
+          <td>seconds</td>
+          <td><span class="freq">200 Hz</span>, 28,826 / 28,826 rows</td>
+          <td>Common synchronized sample grid.</td>
+        </tr>
+        <tr>
+          <td>Orientation</td>
+          <td><code>q_w</code>, <code>q_x</code>, <code>q_y</code>, <code>q_z</code></td>
+          <td>unit quaternion</td>
+          <td><span class="freq">200 Hz</span>, 28,826 / 28,826 rows</td>
+          <td>Ground-truth attitude interpolated onto the IMU timestamp grid.</td>
+        </tr>
+        <tr>
+          <td>Velocity</td>
+          <td><code>v_x</code>, <code>v_y</code>, <code>v_z</code></td>
+          <td>m/s</td>
+          <td><span class="freq">200 Hz</span>, 28,826 / 28,826 rows</td>
+          <td>Ground-truth velocity interpolated onto the IMU timestamp grid.</td>
+        </tr>
+        <tr>
+          <td>Position</td>
+          <td><code>p_x</code>, <code>p_y</code>, <code>p_z</code></td>
+          <td>m</td>
+          <td><span class="freq">200 Hz</span>, 28,826 / 28,826 rows</td>
+          <td>Ground-truth position interpolated onto the IMU timestamp grid.</td>
+        </tr>
+        <tr>
+          <td>Gyroscope bias</td>
+          <td><code>b_w_x</code>, <code>b_w_y</code>, <code>b_w_z</code></td>
+          <td>rad/s</td>
+          <td><span class="freq">200 Hz</span>, 28,826 / 28,826 rows</td>
+          <td>Bias state interpolated from the EuRoC ground-truth stream.</td>
+        </tr>
+        <tr>
+          <td>Accelerometer bias</td>
+          <td><code>b_a_x</code>, <code>b_a_y</code>, <code>b_a_z</code></td>
+          <td>m/s^2</td>
+          <td><span class="freq">200 Hz</span>, 28,826 / 28,826 rows</td>
+          <td>Bias state interpolated from the EuRoC ground-truth stream.</td>
+        </tr>
+        <tr>
+          <td>Angular velocity</td>
+          <td><code>w_x</code>, <code>w_y</code>, <code>w_z</code></td>
+          <td>rad/s</td>
+          <td><span class="freq">200 Hz</span>, 28,826 / 28,826 rows</td>
+          <td>Raw IMU gyro measurement copied from the EuRoC IMU stream.</td>
+        </tr>
+        <tr>
+          <td>Linear acceleration</td>
+          <td><code>a_x</code>, <code>a_y</code>, <code>a_z</code></td>
+          <td>m/s^2</td>
+          <td><span class="freq">200 Hz</span>, 28,826 / 28,826 rows</td>
+          <td>Raw IMU accelerometer measurement copied from the EuRoC IMU stream.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Timing Check</h2>
+    <table>
+      <tbody>
+        <tr>
+          <th>First timestamp</th>
+          <td><code>1403636618.12856</code> s</td>
+        </tr>
+        <tr>
+          <th>Last timestamp</th>
+          <td><code>1403636762.25356</code> s</td>
+        </tr>
+        <tr>
+          <th>Intervals</th>
+          <td>28,825</td>
+        </tr>
+        <tr>
+          <th>Mean timestep</th>
+          <td><code>0.005000000</code> s</td>
+        </tr>
+        <tr>
+          <th>Median timestep</th>
+          <td><code>0.005000114</code> s</td>
+        </tr>
+        <tr>
+          <th>Minimum / maximum timestep</th>
+          <td><code>0.004999876</code> s / <code>0.005000114</code> s</td>
+        </tr>
+        <tr>
+          <th>Effective frequency</th>
+          <td><code>28,825 / 144.125 = 200.000 Hz</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Original Ground-Truth Rate</h2>
+    <p>
+      The raw source files used to build <code>euroc_MH01.csv</code> are not
+      present in this workspace, so the original <code>MH01</code>
+      ground-truth rate cannot be proven from the merged file alone. The merged
+      file only proves that the post-merge, synchronized output is sampled at
+      200 Hz.
+    </p>
+    <p>
+      There are raw EuRoC Vicon-room files available locally under
+      <code>/Users/dellaert/data/vicon_room1</code>. Those raw files show that
+      the original ground-truth stream is also sampled at 200 Hz for the checked
+      sequences:
+    </p>
+    <table>
+      <thead>
+        <tr>
+          <th>Raw sequence</th>
+          <th>Stream</th>
+          <th>Rows</th>
+          <th>Duration</th>
+          <th>Mean timestep</th>
+          <th>Effective rate</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>V1_01_easy</code></td>
+          <td>Ground truth</td>
+          <td>28,712</td>
+          <td>143.555000067 s</td>
+          <td>0.005000000002 s</td>
+          <td><span class="freq">199.999999907 Hz</span></td>
+        </tr>
+        <tr>
+          <td><code>V1_01_easy</code></td>
+          <td>IMU</td>
+          <td>29,120</td>
+          <td>145.595000029 s</td>
+          <td>0.005000000001 s</td>
+          <td><span class="freq">199.999999961 Hz</span></td>
+        </tr>
+        <tr>
+          <td><code>V1_02_medium</code></td>
+          <td>Ground truth</td>
+          <td>16,702</td>
+          <td>83.504999876 s</td>
+          <td>0.004999999993 s</td>
+          <td><span class="freq">200.000000297 Hz</span></td>
+        </tr>
+        <tr>
+          <td><code>V1_02_medium</code></td>
+          <td>IMU</td>
+          <td>17,100</td>
+          <td>85.494999886 s</td>
+          <td>0.004999999993 s</td>
+          <td><span class="freq">200.000000268 Hz</span></td>
+        </tr>
+      </tbody>
+    </table>
+    <p>
+      So, for the local raw Vicon-room examples, the original ground truth was
+      already 200 Hz. For the inspected merged <code>MH01</code> file, the
+      safest statement is that the output has 200 Hz state availability; the
+      original source rate would need the raw <code>MH01</code>
+      <code>state_groundtruth_estimate0/data.csv</code> to verify directly.
+    </p>
+
+    <p class="note ok">
+      Coverage check: every column in <code>euroc_MH01.csv</code> is populated
+      in every data row. No camera images, feature tracks, calibration records,
+      magnetometer, or barometer signals are present in this merged CSV.
+    </p>
+
+    <p class="small">
+      Generated on 2026-05-28 from the local workspace using the
+      <code>py312</code> conda environment for the timing/count checks.
+    </p>
+  </main>
+</body>
+</html>
