@@ -29,8 +29,8 @@ from pathlib import Path
 import pandas as pd
 import argparse
 
-import euroc
 import gtsam
+import imuFactors.euroc as euroc
 
 
 def load_and_interpolate_euroc(

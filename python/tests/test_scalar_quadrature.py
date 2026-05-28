@@ -14,18 +14,8 @@ PYTHON_DIR = Path(__file__).resolve().parents[1]
 if str(PYTHON_DIR) not in sys.path:
     sys.path.insert(0, str(PYTHON_DIR))
 
-from imuFactors.quadrature import scalar
-from imuFactors.quadrature.scalar import (
-    ScalarFunction,
-    chebyshev_trial_curves,
-    plot_advantage_curves_by_sample_count,
-    plot_fixed_sample_comparison,
-    plot_robust_m_table,
-    robust_m_summary,
-    run_scalar_monte_carlo,
-    scalar_function_from_chebyshev2_nodes,
-    trapezoid_integral_curve,
-)
+import imuFactors.scalar_quadrature as scalar_quadrature
+import imuFactors.spectral as spectral
 
 
 class ScalarQuadratureTests(unittest.TestCase):
@@ -34,7 +24,7 @@ class ScalarQuadratureTests(unittest.TestCase):
         sample_values = sample_times**2
         evaluation_times = np.linspace(0.0, 1.0, 11)
 
-        final, curve = chebyshev_trial_curves(
+        final, curve = scalar_quadrature.chebyshev_trial_curves(
             sample_times, sample_values, evaluation_times, node_count=3
         )
 
@@ -69,8 +59,8 @@ class ScalarQuadratureTests(unittest.TestCase):
                 assert a == 0.0
                 assert b == 1.0
 
-        with patch.object(scalar.gtsam, "Chebyshev2", FakeChebyshev2):
-            final, curve = chebyshev_trial_curves(
+        with patch.object(spectral.gtsam, "Chebyshev2", FakeChebyshev2):
+            final, curve = scalar_quadrature.chebyshev_trial_curves(
                 sample_times=[0.0, 1.0],
                 sample_values=[2.0, 4.0],
                 evaluation_times=[0.0, 1.0],
@@ -88,17 +78,19 @@ class ScalarQuadratureTests(unittest.TestCase):
         sample_values = 2.0 * sample_times + 1.0
         evaluation_times = np.linspace(0.0, 1.0, 9)
 
-        curve = trapezoid_integral_curve(sample_times, sample_values, evaluation_times)
+        curve = scalar_quadrature.trapezoid_integral_curve(
+            sample_times, sample_values, evaluation_times
+        )
 
         expected = evaluation_times**2 + evaluation_times
         np.testing.assert_allclose(curve, expected, atol=1e-12)
 
     def test_scalar_function_from_chebyshev2_nodes_matches_node_values(self) -> None:
         node_values = np.array([-0.25, 0.5, -0.1, 0.2, 0.0])
-        scalar_function = scalar_function_from_chebyshev2_nodes(
+        scalar_function = scalar_quadrature.scalar_function_from_chebyshev2_nodes(
             "fixed-poly", node_values
         )
-        nodes = scalar.gtsam.Chebyshev2.Points(5, 0.0, 1.0)
+        nodes = spectral.chebyshev2_points(5)
 
         np.testing.assert_allclose(scalar_function.value(nodes), node_values)
         np.testing.assert_allclose(
@@ -106,13 +98,13 @@ class ScalarQuadratureTests(unittest.TestCase):
         )
 
     def test_run_scalar_monte_carlo_masks_node_counts_above_sample_count(self) -> None:
-        linear = ScalarFunction(
+        linear = scalar_quadrature.ScalarFunction(
             name="linear",
             value=lambda t: t,
             antiderivative=lambda t: 0.5 * t**2,
         )
 
-        result = run_scalar_monte_carlo(
+        result = scalar_quadrature.run_scalar_monte_carlo(
             [linear],
             sample_counts=[2],
             chebyshev_node_counts=[2, 3],
@@ -126,7 +118,7 @@ class ScalarQuadratureTests(unittest.TestCase):
         self.assertNotIn(3, set(result.method_metrics["chebyshev_nodes"].dropna()))
 
     def test_run_scalar_monte_carlo_is_deterministic(self) -> None:
-        quadratic = ScalarFunction(
+        quadratic = scalar_quadrature.ScalarFunction(
             name="quadratic",
             value=lambda t: t**2,
             antiderivative=lambda t: t**3 / 3.0,
@@ -141,8 +133,8 @@ class ScalarQuadratureTests(unittest.TestCase):
             evaluation_count=7,
         )
 
-        first = run_scalar_monte_carlo(**kwargs)
-        second = run_scalar_monte_carlo(**kwargs)
+        first = scalar_quadrature.run_scalar_monte_carlo(**kwargs)
+        second = scalar_quadrature.run_scalar_monte_carlo(**kwargs)
 
         pd.testing.assert_frame_equal(first.method_metrics, second.method_metrics)
         pd.testing.assert_frame_equal(first.comparisons, second.comparisons)
@@ -160,7 +152,7 @@ class ScalarQuadratureTests(unittest.TestCase):
             }
         )
 
-        figure = plot_fixed_sample_comparison(
+        figure = scalar_quadrature.plot_fixed_sample_comparison(
             comparisons,
             "linear",
             selected_sample_counts=[10],
@@ -183,7 +175,7 @@ class ScalarQuadratureTests(unittest.TestCase):
             }
         )
 
-        summary = robust_m_summary(
+        summary = scalar_quadrature.robust_m_summary(
             comparisons,
             "linear",
             selected_sample_counts=[10],
@@ -209,13 +201,13 @@ class ScalarQuadratureTests(unittest.TestCase):
             }
         )
 
-        curve_figure = plot_advantage_curves_by_sample_count(
+        curve_figure = scalar_quadrature.plot_advantage_curves_by_sample_count(
             comparisons,
             "linear",
             selected_sample_counts=[10],
             metric="rmse_error",
         )
-        table_figure = plot_robust_m_table(
+        table_figure = scalar_quadrature.plot_robust_m_table(
             comparisons,
             "linear",
             selected_sample_counts=[10],
@@ -241,7 +233,7 @@ class ScalarQuadratureTests(unittest.TestCase):
             )
         comparisons = pd.DataFrame(rows)
 
-        figure = plot_advantage_curves_by_sample_count(
+        figure = scalar_quadrature.plot_advantage_curves_by_sample_count(
             comparisons,
             "linear",
             selected_sample_counts=[30],
@@ -276,7 +268,7 @@ class ScalarQuadratureTests(unittest.TestCase):
             }
         )
 
-        figure = plot_advantage_curves_by_sample_count(
+        figure = scalar_quadrature.plot_advantage_curves_by_sample_count(
             comparisons,
             "linear",
             selected_sample_counts=[20],
