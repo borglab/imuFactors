@@ -31,6 +31,24 @@ class ScalarQuadratureTests(unittest.TestCase):
         np.testing.assert_allclose(final, 1.0 / 3.0, atol=1e-12)
         np.testing.assert_allclose(curve, evaluation_times**3 / 3.0, atol=1e-12)
 
+    def test_chebyshev_lambda1_regularizes_trial_curve(self) -> None:
+        sample_times = np.linspace(0.0, 1.0, 8)
+        sample_values = np.array([0.0, 1.0, -0.8, 0.7, -0.6, 0.5, -0.4, 0.0])
+        evaluation_times = np.linspace(0.0, 1.0, 21)
+
+        _, unregularized = scalar_quadrature.chebyshev_trial_curves(
+            sample_times, sample_values, evaluation_times, node_count=6
+        )
+        _, regularized = scalar_quadrature.chebyshev_trial_curves(
+            sample_times,
+            sample_values,
+            evaluation_times,
+            node_count=6,
+            lambda1=10.0,
+        )
+
+        self.assertGreater(np.linalg.norm(unregularized - regularized), 1e-6)
+
     def test_chebyshev_path_calls_gtsam_directly(self) -> None:
         calls: list[str] = []
 
@@ -112,10 +130,12 @@ class ScalarQuadratureTests(unittest.TestCase):
             num_seeds=3,
             seed=42,
             evaluation_count=9,
+            lambda1=0.25,
         )
 
         self.assertEqual(set(result.comparisons["chebyshev_nodes"]), {2})
         self.assertNotIn(3, set(result.method_metrics["chebyshev_nodes"].dropna()))
+        self.assertEqual(set(result.comparisons["lambda1"]), {0.25})
 
     def test_run_scalar_monte_carlo_is_deterministic(self) -> None:
         quadratic = scalar_quadrature.ScalarFunction(
