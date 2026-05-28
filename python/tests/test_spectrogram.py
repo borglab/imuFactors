@@ -126,6 +126,25 @@ class SpectrogramTests(unittest.TestCase):
             ["1", "cos1", "sin1", "cos2", "sin2"],
         )
 
+    def test_chebyshev2_fit_uses_pseudo_spectral_basis(self) -> None:
+        result = spectrogram.fit_spectral_windows(
+            _write_synthetic_csv(),
+            coefficient_count=5,
+            basis="chebyshev2",
+            columns=["w_x", "a_x"],
+        )
+
+        self.assertEqual(result.basis, "chebyshev2")
+        self.assertEqual(result.coeffs.shape, (2, 5, 2))
+        self.assertEqual(
+            spectrogram.basis_tick_labels(result),
+            ["cgl0", "cgl1", "cgl2", "cgl3", "cgl4"],
+        )
+        self.assertEqual(
+            spectrogram.basis_order_summary(result),
+            "5 CGL node values",
+        )
+
     def test_signal_groups_and_plots_return_figures(self) -> None:
         path = _write_synthetic_csv()
         dataframe = pd.read_csv(path)
@@ -149,10 +168,46 @@ class SpectrogramTests(unittest.TestCase):
             spectrogram.plot_coefficient_spectrogram(result),
             spectrogram.plot_average_spectra(result),
             spectrogram.plot_average_spectrogram_parts(result),
+            spectrogram.plot_dataset_average_spectrograms({"synthetic": result}),
         ]
 
         for figure in figures:
             self.assertIsInstance(figure, go.Figure)
+
+    def test_coefficient_spectrogram_reverses_time_axis(self) -> None:
+        result = spectrogram.fit_spectral_windows(
+            _write_synthetic_csv(),
+            coefficient_count=4,
+            basis="chebyshev",
+            signal_group="gyro",
+        )
+
+        figure = spectrogram.plot_coefficient_spectrogram(result)
+
+        self.assertEqual(figure.layout.yaxis.autorange, "reversed")
+
+    def test_dataset_average_spectrogram_compares_whole_file_means(self) -> None:
+        first = spectrogram.fit_spectral_windows(
+            _write_synthetic_csv(),
+            coefficient_count=4,
+            basis="chebyshev",
+            signal_group="gyro",
+        )
+        second = spectrogram.fit_spectral_windows(
+            _write_synthetic_csv(),
+            coefficient_count=4,
+            basis="chebyshev",
+            signal_group="gyro",
+        )
+
+        figure = spectrogram.plot_dataset_average_spectrograms(
+            {"first": first, "second": second}
+        )
+
+        self.assertIsInstance(figure, go.Figure)
+        self.assertEqual(list(figure.data[0].y), ["first", "second"])
+        self.assertEqual(list(figure.data[0].x), ["T0", "T1", "T2", "T3"])
+        self.assertEqual(np.asarray(figure.data[0].z).shape, (2, 4))
 
 
 def _write_synthetic_csv() -> Path:
