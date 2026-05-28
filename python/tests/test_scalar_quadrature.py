@@ -25,7 +25,7 @@ class ScalarQuadratureTests(unittest.TestCase):
         evaluation_times = np.linspace(0.0, 1.0, 11)
 
         final, curve = scalar_quadrature.chebyshev_trial_curves(
-            sample_times, sample_values, evaluation_times, node_count=3
+            sample_times, sample_values, evaluation_times, N=3
         )
 
         np.testing.assert_allclose(final, 1.0 / 3.0, atol=1e-12)
@@ -37,13 +37,13 @@ class ScalarQuadratureTests(unittest.TestCase):
         evaluation_times = np.linspace(0.0, 1.0, 21)
 
         _, unregularized = scalar_quadrature.chebyshev_trial_curves(
-            sample_times, sample_values, evaluation_times, node_count=6
+            sample_times, sample_values, evaluation_times, N=6
         )
         _, regularized = scalar_quadrature.chebyshev_trial_curves(
             sample_times,
             sample_values,
             evaluation_times,
-            node_count=6,
+            N=6,
             lambda1=10.0,
         )
 
@@ -54,21 +54,21 @@ class ScalarQuadratureTests(unittest.TestCase):
 
         class FakeChebyshev2:
             @staticmethod
-            def WeightMatrix(node_count, times, a, b):
+            def WeightMatrix(N, times, a, b):
                 calls.append("WeightMatrix")
                 self = FakeChebyshev2
                 self.assert_interval(a, b)
-                if node_count == 2:
+                if N == 2:
                     return np.eye(2)
                 return np.array([[1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
 
             @staticmethod
-            def IntegrationWeights(node_count, a, b):
+            def IntegrationWeights(N, a, b):
                 calls.append("IntegrationWeights")
                 return np.array([0.25, 0.75])
 
             @staticmethod
-            def IntegrationMatrix(node_count, a, b):
+            def IntegrationMatrix(N, a, b):
                 calls.append("IntegrationMatrix")
                 return np.array([[0.0, 0.0], [0.0, 0.0], [0.25, 0.75]])
 
@@ -82,7 +82,7 @@ class ScalarQuadratureTests(unittest.TestCase):
                 sample_times=[0.0, 1.0],
                 sample_values=[2.0, 4.0],
                 evaluation_times=[0.0, 1.0],
-                node_count=2,
+                N=2,
             )
 
         self.assertEqual(final, 3.5)
@@ -115,7 +115,7 @@ class ScalarQuadratureTests(unittest.TestCase):
             scalar_function.antiderivative(np.array([0.0])), [0.0], atol=1e-12
         )
 
-    def test_run_scalar_monte_carlo_masks_node_counts_above_sample_count(self) -> None:
+    def test_run_scalar_monte_carlo_masks_Ns_above_m(self) -> None:
         linear = scalar_quadrature.ScalarFunction(
             name="linear",
             value=lambda t: t,
@@ -124,8 +124,8 @@ class ScalarQuadratureTests(unittest.TestCase):
 
         result = scalar_quadrature.run_scalar_monte_carlo(
             [linear],
-            sample_counts=[2],
-            chebyshev_node_counts=[2, 3],
+            m_values=[2],
+            N_values=[2, 3],
             noise_fractions=[0.0],
             num_seeds=3,
             seed=42,
@@ -133,8 +133,9 @@ class ScalarQuadratureTests(unittest.TestCase):
             lambda1=0.25,
         )
 
-        self.assertEqual(set(result.comparisons["chebyshev_nodes"]), {2})
-        self.assertNotIn(3, set(result.method_metrics["chebyshev_nodes"].dropna()))
+        self.assertEqual(set(result.comparisons["N"]), {2})
+        self.assertNotIn(3, set(result.method_metrics["N"].dropna()))
+        self.assertEqual(set(result.comparisons["n"]), {1})
         self.assertEqual(set(result.comparisons["lambda1"]), {0.25})
 
     def test_run_scalar_monte_carlo_is_deterministic(self) -> None:
@@ -145,8 +146,8 @@ class ScalarQuadratureTests(unittest.TestCase):
         )
         kwargs = dict(
             functions=[quadratic],
-            sample_counts=[4, 5],
-            chebyshev_node_counts=[2, 3],
+            m_values=[4, 5],
+            N_values=[2, 3],
             noise_fractions=[0.0, 0.05],
             num_seeds=4,
             seed=7,
@@ -159,52 +160,52 @@ class ScalarQuadratureTests(unittest.TestCase):
         pd.testing.assert_frame_equal(first.method_metrics, second.method_metrics)
         pd.testing.assert_frame_equal(first.comparisons, second.comparisons)
 
-    def test_plot_fixed_sample_comparison_returns_figure(self) -> None:
+    def test_plot_fixed_m_comparison_returns_figure(self) -> None:
         comparisons = pd.DataFrame(
             {
                 "function": ["linear", "linear", "linear", "linear"],
                 "noise_std": [0.0, 0.1, 0.0, 0.1],
-                "sample_count": [10, 10, 10, 10],
-                "chebyshev_nodes": [4, 4, 5, 5],
+                "m": [10, 10, 10, 10],
+                "N": [4, 4, 5, 5],
                 "end_error": [0.0, 0.1, -0.1, 0.2],
                 "rmse_error": [0.0, -0.1, -0.2, 0.1],
                 "max_error": [0.0, 0.2, -0.1, 0.3],
             }
         )
 
-        figure = scalar_quadrature.plot_fixed_sample_comparison(
+        figure = scalar_quadrature.plot_fixed_m_comparison(
             comparisons,
             "linear",
-            selected_sample_counts=[10],
+            selected_m_values=[10],
             metrics=["end_error"],
         )
 
         self.assertEqual(len(figure.axes), 2)
 
-    def test_robust_m_summary_prefers_highest_median_advantage(self) -> None:
+    def test_robust_N_summary_prefers_highest_median_advantage(self) -> None:
         comparisons = pd.DataFrame(
             {
                 "function": ["linear"] * 4,
                 "noise_fraction": [0.0, 0.1, 0.0, 0.1],
                 "noise_std": [0.0, 0.1, 0.0, 0.1],
-                "sample_count": [10, 10, 10, 10],
-                "chebyshev_nodes": [3, 3, 5, 5],
+                "m": [10, 10, 10, 10],
+                "N": [3, 3, 5, 5],
                 "end_error": [0.1, 0.2, -0.3, -0.4],
                 "rmse_error": [0.2, 0.3, -0.4, -0.5],
                 "max_error": [0.3, 0.4, -0.5, -0.6],
             }
         )
 
-        summary = scalar_quadrature.robust_m_summary(
+        summary = scalar_quadrature.robust_N_summary(
             comparisons,
             "linear",
-            selected_sample_counts=[10],
+            selected_m_values=[10],
         )
 
-        self.assertEqual(summary.loc[0, "best_end_error_m"], 5)
-        self.assertEqual(summary.loc[0, "best_rmse_error_m"], 5)
-        self.assertEqual(summary.loc[0, "best_max_error_m"], 5)
-        self.assertEqual(summary.loc[0, "robust_m"], 5)
+        self.assertEqual(summary.loc[0, "best_end_error_N"], 5)
+        self.assertEqual(summary.loc[0, "best_rmse_error_N"], 5)
+        self.assertEqual(summary.loc[0, "best_max_error_N"], 5)
+        self.assertEqual(summary.loc[0, "robust_N"], 5)
         self.assertEqual(summary.loc[0, "win_rate"], 1.0)
 
     def test_plotly_advantage_views_return_figures(self) -> None:
@@ -213,24 +214,24 @@ class ScalarQuadratureTests(unittest.TestCase):
                 "function": ["linear", "linear", "linear", "linear"],
                 "noise_fraction": [0.0, 0.1, 0.0, 0.1],
                 "noise_std": [0.0, 0.1, 0.0, 0.1],
-                "sample_count": [10, 10, 10, 10],
-                "chebyshev_nodes": [4, 4, 5, 5],
+                "m": [10, 10, 10, 10],
+                "N": [4, 4, 5, 5],
                 "end_error": [0.0, 0.1, -0.1, 0.2],
                 "rmse_error": [0.0, -0.1, -0.2, 0.1],
                 "max_error": [0.0, 0.2, -0.1, 0.3],
             }
         )
 
-        curve_figure = scalar_quadrature.plot_advantage_curves_by_sample_count(
+        curve_figure = scalar_quadrature.plot_advantage_curves_by_m(
             comparisons,
             "linear",
-            selected_sample_counts=[10],
+            selected_m_values=[10],
             metric="rmse_error",
         )
-        table_figure = scalar_quadrature.plot_robust_m_table(
+        table_figure = scalar_quadrature.plot_robust_N_table(
             comparisons,
             "linear",
-            selected_sample_counts=[10],
+            selected_m_values=[10],
         )
 
         self.assertGreater(len(curve_figure.data), 0)
@@ -238,25 +239,25 @@ class ScalarQuadratureTests(unittest.TestCase):
 
     def test_advantage_curve_uses_robust_y_range(self) -> None:
         rows = []
-        for index, node_count in enumerate(range(2, 22)):
+        for index, N in enumerate(range(2, 22)):
             rows.append(
                 {
                     "function": "linear",
                     "noise_fraction": 0.01 * index,
                     "noise_std": 0.01 * index,
-                    "sample_count": 30,
-                    "chebyshev_nodes": node_count,
+                    "m": 30,
+                    "N": N,
                     "end_error": -float(index),
-                    "rmse_error": -1000.0 if node_count == 21 else -float(index),
+                    "rmse_error": -1000.0 if N == 21 else -float(index),
                     "max_error": -float(index),
                 }
             )
         comparisons = pd.DataFrame(rows)
 
-        figure = scalar_quadrature.plot_advantage_curves_by_sample_count(
+        figure = scalar_quadrature.plot_advantage_curves_by_m(
             comparisons,
             "linear",
-            selected_sample_counts=[30],
+            selected_m_values=[30],
             metric="rmse_error",
         )
 
@@ -270,8 +271,8 @@ class ScalarQuadratureTests(unittest.TestCase):
                 "function": ["linear"] * 9,
                 "noise_fraction": [0.01] * 9,
                 "noise_std": [0.01] * 9,
-                "sample_count": [20] * 9,
-                "chebyshev_nodes": list(range(2, 11)),
+                "m": [20] * 9,
+                "N": list(range(2, 11)),
                 "end_error": [0.0] * 9,
                 "rmse_error": [
                     20.0,
@@ -288,12 +289,12 @@ class ScalarQuadratureTests(unittest.TestCase):
             }
         )
 
-        figure = scalar_quadrature.plot_advantage_curves_by_sample_count(
+        figure = scalar_quadrature.plot_advantage_curves_by_m(
             comparisons,
             "linear",
-            selected_sample_counts=[20],
+            selected_m_values=[20],
             metric="rmse_error",
-            y_range_min_m=5,
+            y_range_min_N=5,
         )
 
         y_range = figure.layout.yaxis.range

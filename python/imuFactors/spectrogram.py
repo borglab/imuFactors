@@ -26,13 +26,13 @@ class SpectrogramFit:
 
     path: Path
     basis: str
-    coefficient_count: int
+    N: int
     columns: list[str]
     dataframe: pd.DataFrame
     time: np.ndarray
     starts: np.ndarray
     steps_per_window: int
-    sample_count: int
+    m: int
     window_seconds: float
     dt: float
     basis_coordinates: np.ndarray
@@ -50,14 +50,14 @@ class SpectrogramFit:
     lambda1: float = 0.0
 
     @property
-    def degree(self) -> int:
-        """Polynomial degree, where coefficient_count = degree + 1."""
-        return self.coefficient_count - 1
+    def n(self) -> int:
+        """Polynomial degree for Chebyshev bases, with ``N = n + 1``."""
+        return self.N - 1
 
     @property
     def max_harmonic(self) -> int:
-        """Maximum Fourier harmonic represented by ``coefficient_count``."""
-        return self.coefficient_count // 2
+        """Maximum Fourier harmonic represented by ``N`` fitted parameters."""
+        return self.N // 2
 
     @property
     def basis_name(self) -> str:
@@ -68,11 +68,6 @@ class SpectrogramFit:
     def window_count(self) -> int:
         """Number of complete fixed-duration intervals."""
         return int(self.starts.size)
-
-    @property
-    def tau(self) -> np.ndarray:
-        """Compatibility alias for the fitted basis coordinates."""
-        return self.basis_coordinates
 
 
 def robust_center_scale(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -110,18 +105,9 @@ def interval_window_starts(
     return complete, steps_per_window, dt
 
 
-def one_second_window_starts(
-    time: Sequence[float] | np.ndarray,
-    *,
-    window_seconds: float = WINDOW_SECONDS,
-) -> tuple[np.ndarray, int, float]:
-    """Compatibility wrapper for ``interval_window_starts``."""
-    return interval_window_starts(time, window_seconds=window_seconds)
-
-
 def fit_spectral_windows(
     path: str | Path,
-    coefficient_count: int,
+    N: int,
     *,
     basis: str = DEFAULT_BASIS,
     signal_group: str = DEFAULT_SIGNAL_GROUP,
@@ -129,7 +115,7 @@ def fit_spectral_windows(
     window_seconds: float = WINDOW_SECONDS,
     lambda1: float = 0.0,
 ) -> SpectrogramFit:
-    """Fit spectral basis coefficients for each complete interval."""
+    """Fit ``N`` spectral basis parameters for each complete interval."""
     csv_path = Path(path)
     normalized_basis = spectral.normalize_basis_name(basis)
     dataframe = euroc.load_euroc_csv(csv_path)
@@ -152,10 +138,10 @@ def fit_spectral_windows(
     starts, steps_per_window, dt = interval_window_starts(
         time, window_seconds=window_seconds
     )
-    sample_count = steps_per_window + 1
+    m = steps_per_window + 1
     plan = spectral.basis_plan(
-        int(coefficient_count),
-        sample_count,
+        int(N),
+        m,
         basis=normalized_basis,
         window_seconds=window_seconds,
         lambda1=lambda1,
@@ -163,7 +149,7 @@ def fit_spectral_windows(
 
     values = dataframe[selected_columns].to_numpy(dtype=float)
     center, scale = robust_center_scale(values)
-    samples, reconstructed, coeffs = _fit_windows(values, starts, sample_count, plan)
+    samples, reconstructed, coeffs = _fit_windows(values, starts, m, plan)
     rmse = np.sqrt(np.mean((reconstructed - samples) ** 2, axis=1))
     coeffs_standardized, coeff_energy = standardized_coefficient_energy(
         coeffs, center, scale
@@ -174,13 +160,13 @@ def fit_spectral_windows(
     return SpectrogramFit(
         path=csv_path,
         basis=normalized_basis,
-        coefficient_count=int(coefficient_count),
+        N=int(N),
         columns=selected_columns,
         dataframe=dataframe,
         time=time,
         starts=starts,
         steps_per_window=steps_per_window,
-        sample_count=sample_count,
+        m=m,
         window_seconds=window_seconds,
         dt=dt,
         basis_coordinates=plan.coordinates,
@@ -202,18 +188,18 @@ def fit_spectral_windows(
 def _fit_windows(
     values: np.ndarray,
     starts: np.ndarray,
-    sample_count: int,
+    m: int,
     plan: spectral.BasisPlan,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     window_count = int(starts.size)
     component_count = int(values.shape[1])
-    coefficient_count = int(plan.parameter_count)
-    samples = np.empty((window_count, sample_count, component_count), dtype=float)
+    N = int(plan.N)
+    samples = np.empty((window_count, m, component_count), dtype=float)
     reconstructed = np.empty_like(samples)
-    coeffs = np.empty((window_count, coefficient_count, component_count), dtype=float)
+    coeffs = np.empty((window_count, N, component_count), dtype=float)
 
     for window_index, start in enumerate(starts):
-        stop = int(start) + sample_count
+        stop = int(start) + m
         y = values[int(start) : stop, :]
         coefficient_matrix = plan.fit(y)
         samples[window_index] = y
@@ -246,8 +232,8 @@ def standardized_window_activity(
 
 def high_order_energy_ratio(coeff_energy: np.ndarray) -> np.ndarray:
     """Return fraction of non-DC energy in the upper half of basis orders."""
-    coefficient_count = int(coeff_energy.shape[1])
-    high_start = max(2, coefficient_count // 2)
+    N = int(coeff_energy.shape[1])
+    high_start = max(2, N // 2)
     high_energy = np.sum(coeff_energy[:, high_start:], axis=1)
     non_dc_energy = np.sum(coeff_energy[:, 1:], axis=1)
     return high_energy / np.maximum(non_dc_energy, 1e-12)
@@ -283,12 +269,12 @@ def window_start_seconds(result: SpectrogramFit, window_index: int) -> float:
 
 def basis_order_summary(result: SpectrogramFit) -> str:
     """Return a compact basis-order description for tables."""
-    return spectral.basis_order_summary(result.basis, result.coefficient_count)
+    return spectral.basis_order_summary(result.basis, result.N)
 
 
 def basis_tick_labels(result: SpectrogramFit) -> list[str]:
     """Return coefficient labels for the fitted basis."""
-    return spectral.basis_tick_labels(result.basis, result.coefficient_count)
+    return spectral.basis_tick_labels(result.basis, result.N)
 
 
 def basis_axis_title(result: SpectrogramFit) -> str:
@@ -303,12 +289,13 @@ def summary_table(result: SpectrogramFit) -> pd.DataFrame:
         ("file", result.path.name),
         ("basis", result.basis_name),
         ("selected columns", ", ".join(result.columns)),
-        ("N", result.coefficient_count),
+        ("N", result.N),
+        ("n", result.n),
         ("basis order", basis_order_summary(result)),
         ("lambda1 p' penalty", result.lambda1),
         ("interval length [s]", result.window_seconds),
         ("complete intervals", result.window_count),
-        ("samples per closed window", result.sample_count),
+        ("m samples per closed window", result.m),
         ("median dt", result.dt),
         ("effective rate", 1.0 / result.dt),
         ("file duration", duration),
@@ -354,8 +341,7 @@ def plot_window_characteristics(
             y=result.high_order_ratio,
             mode="markers",
             text=[
-                f"window {i}, t={starts_s[i]:.1f}s"
-                for i in range(result.window_count)
+                f"window {i}, t={starts_s[i]:.1f}s" for i in range(result.window_count)
             ],
             marker=dict(
                 size=8,
@@ -405,7 +391,7 @@ def plot_interval_fit(
     """Plot original samples and spectral basis fit for one interval."""
     component_count = min(max_components, len(result.columns))
     columns = result.columns[:component_count]
-    seconds = np.linspace(0.0, result.window_seconds, result.sample_count)
+    seconds = np.linspace(0.0, result.window_seconds, result.m)
     fig = make_subplots(
         rows=component_count,
         cols=1,
@@ -500,7 +486,7 @@ def plot_coefficient_spectrogram(
     *,
     log_scale: bool = True,
 ) -> go.Figure:
-    """Plot the ``m x N`` coefficient-energy spectrogram."""
+    """Plot the ``window_count x N`` coefficient-energy spectrogram."""
     z = result.coeff_energy
     colorbar_title = "standardized RMS weight"
     if log_scale:
@@ -519,7 +505,7 @@ def plot_coefficient_spectrogram(
         )
     )
     fig.update_layout(
-        title="Coefficient spectrogram (m intervals x N basis weights)",
+        title="Coefficient spectrogram (window_count x N basis weights)",
         xaxis_title=basis_axis_title(result),
         yaxis_title="window start time [s]",
         yaxis_autorange="reversed",
@@ -535,7 +521,7 @@ def plot_average_spectra(
     part_count: int = 4,
 ) -> go.Figure:
     """Plot mean coefficient spectra for the whole file and trajectory parts."""
-    basis_indices = np.arange(result.coefficient_count)
+    basis_indices = np.arange(result.N)
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
@@ -608,11 +594,8 @@ def plot_dataset_average_spectrograms(
     labels = list(results.keys())
     first = next(iter(results.values()))
     for label, result in results.items():
-        if result.coefficient_count != first.coefficient_count:
-            raise ValueError(
-                f"{label} has N={result.coefficient_count}, expected "
-                f"N={first.coefficient_count}"
-            )
+        if result.N != first.N:
+            raise ValueError(f"{label} has N={result.N}, expected " f"N={first.N}")
         if result.basis != first.basis:
             raise ValueError(
                 f"{label} uses basis={result.basis!r}, expected {first.basis!r}"

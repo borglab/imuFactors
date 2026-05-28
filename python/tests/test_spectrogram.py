@@ -32,9 +32,7 @@ class SpectrogramTests(unittest.TestCase):
     def test_half_second_window_starts_uses_requested_interval(self) -> None:
         time = np.arange(0.0, 2.0, 0.005)
 
-        starts, steps, _ = spectrogram.interval_window_starts(
-            time, window_seconds=0.5
-        )
+        starts, steps, _ = spectrogram.interval_window_starts(time, window_seconds=0.5)
 
         np.testing.assert_array_equal(starts, [0, 100, 200])
         self.assertEqual(steps, 100)
@@ -72,14 +70,15 @@ class SpectrogramTests(unittest.TestCase):
             path = _write_synthetic_csv()
             result = spectrogram.fit_spectral_windows(
                 path,
-                coefficient_count=3,
+                N=3,
                 basis="chebyshev",
                 columns=["w_x", "a_x"],
             )
 
             self.assertEqual(result.basis, "chebyshev")
-            self.assertEqual(result.coefficient_count, 3)
-            self.assertEqual(result.degree, 2)
+            self.assertEqual(result.N, 3)
+            self.assertEqual(result.n, 2)
+            self.assertEqual(result.m, 201)
             self.assertEqual(result.window_count, 2)
             self.assertEqual(result.samples.shape, (2, 201, 2))
             self.assertEqual(result.coeffs.shape, (2, 3, 2))
@@ -89,7 +88,7 @@ class SpectrogramTests(unittest.TestCase):
     def test_fit_can_use_imu_norms_and_custom_interval(self) -> None:
         result = spectrogram.fit_spectral_windows(
             _write_synthetic_csv(),
-            coefficient_count=4,
+            N=4,
             basis="chebyshev",
             signal_group="imu_norms",
             window_seconds=0.5,
@@ -97,14 +96,14 @@ class SpectrogramTests(unittest.TestCase):
 
         self.assertEqual(result.columns, ["gyro_norm", "accel_norm"])
         self.assertEqual(result.window_seconds, 0.5)
-        self.assertEqual(result.sample_count, 101)
+        self.assertEqual(result.m, 101)
         self.assertEqual(result.window_count, 4)
         self.assertEqual(result.coeffs.shape, (4, 4, 2))
 
     def test_fit_can_use_gravity_compensated_accel(self) -> None:
         result = spectrogram.fit_spectral_windows(
             _write_synthetic_csv(),
-            coefficient_count=4,
+            N=4,
             basis="chebyshev",
             signal_group="accel_gravity_compensated",
         )
@@ -115,7 +114,7 @@ class SpectrogramTests(unittest.TestCase):
     def test_fourier_fit_uses_gtsam_fourier_basis(self) -> None:
         result = spectrogram.fit_spectral_windows(
             _write_synthetic_csv(),
-            coefficient_count=5,
+            N=5,
             basis="fourier",
             columns=["w_x", "a_x"],
         )
@@ -131,7 +130,7 @@ class SpectrogramTests(unittest.TestCase):
     def test_chebyshev2_fit_uses_pseudo_spectral_basis(self) -> None:
         result = spectrogram.fit_spectral_windows(
             _write_synthetic_csv(),
-            coefficient_count=5,
+            N=5,
             basis="chebyshev2",
             columns=["w_x", "a_x"],
         )
@@ -144,13 +143,13 @@ class SpectrogramTests(unittest.TestCase):
         )
         self.assertEqual(
             spectrogram.basis_order_summary(result),
-            "5 CGL node values",
+            "N=5 CGL node values, n=4",
         )
 
     def test_fit_uses_shared_spectral_plan(self) -> None:
         result = spectrogram.fit_spectral_windows(
             _write_synthetic_csv(),
-            coefficient_count=5,
+            N=5,
             basis="chebyshev2",
             columns=["w_x"],
             window_seconds=0.5,
@@ -158,7 +157,7 @@ class SpectrogramTests(unittest.TestCase):
         )
         plan = spectral.basis_plan(
             5,
-            result.sample_count,
+            result.m,
             basis="chebyshev2",
             window_seconds=0.5,
             lambda1=0.1,
@@ -168,13 +167,13 @@ class SpectrogramTests(unittest.TestCase):
         np.testing.assert_allclose(result.weight_matrix, plan.weight_matrix)
         self.assertEqual(
             spectrogram.basis_tick_labels(result),
-            spectral.basis_tick_labels(result.basis, result.coefficient_count),
+            spectral.basis_tick_labels(result.basis, result.N),
         )
 
     def test_aggressive_window_scores_match_characteristic_selection(self) -> None:
         result = spectrogram.fit_spectral_windows(
             _write_synthetic_csv(),
-            coefficient_count=5,
+            N=5,
             basis="chebyshev2",
             columns=["w_x", "a_x"],
             window_seconds=0.5,
@@ -189,19 +188,19 @@ class SpectrogramTests(unittest.TestCase):
     def test_chebyshev2_lambda1_penalizes_first_derivative(self) -> None:
         unregularized = spectrogram.fit_spectral_windows(
             _write_synthetic_csv(),
-            coefficient_count=6,
+            N=6,
             basis="chebyshev2",
             columns=["w_x"],
         )
         regularized = spectrogram.fit_spectral_windows(
             _write_synthetic_csv(),
-            coefficient_count=6,
+            N=6,
             basis="chebyshev2",
             columns=["w_x"],
             lambda1=100.0,
         )
         penalty = spectral.chebyshev2_first_derivative_penalty(
-            unregularized.coefficient_count,
+            unregularized.N,
             window_seconds=unregularized.window_seconds,
         )
 
@@ -220,7 +219,7 @@ class SpectrogramTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Chebyshev2"):
             spectrogram.fit_spectral_windows(
                 _write_synthetic_csv(),
-                coefficient_count=5,
+                N=5,
                 basis="chebyshev",
                 columns=["w_x"],
                 lambda1=1.0,
@@ -236,7 +235,7 @@ class SpectrogramTests(unittest.TestCase):
 
         result = spectrogram.fit_spectral_windows(
             path,
-            coefficient_count=4,
+            N=4,
             basis="fourier",
             signal_group="imu",
         )
@@ -258,7 +257,7 @@ class SpectrogramTests(unittest.TestCase):
     def test_coefficient_spectrogram_reverses_time_axis(self) -> None:
         result = spectrogram.fit_spectral_windows(
             _write_synthetic_csv(),
-            coefficient_count=4,
+            N=4,
             basis="chebyshev",
             signal_group="gyro",
         )
@@ -270,13 +269,13 @@ class SpectrogramTests(unittest.TestCase):
     def test_dataset_average_spectrogram_compares_whole_file_means(self) -> None:
         first = spectrogram.fit_spectral_windows(
             _write_synthetic_csv(),
-            coefficient_count=4,
+            N=4,
             basis="chebyshev",
             signal_group="gyro",
         )
         second = spectrogram.fit_spectral_windows(
             _write_synthetic_csv(),
-            coefficient_count=4,
+            N=4,
             basis="chebyshev",
             signal_group="gyro",
         )
