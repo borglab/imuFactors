@@ -84,6 +84,7 @@ class SpectrogramFit:
     scale: np.ndarray
     activity: np.ndarray
     high_order_ratio: np.ndarray
+    lambda1: float = 0.0
 
     @property
     def degree(self) -> int:
@@ -292,6 +293,8 @@ def basis_design(
     sample_count: int,
     *,
     basis: str = DEFAULT_BASIS,
+    window_seconds: float = WINDOW_SECONDS,
+    lambda1: float = 0.0,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Return basis coordinates, weight matrix, and least-squares solver."""
     if coefficient_count < 1:
@@ -324,7 +327,67 @@ def basis_design(
         )
     else:  # pragma: no cover - normalize_basis_name guards this branch.
         raise AssertionError(f"unhandled basis {normalized_basis}")
-    return coordinates, weight_matrix, np.linalg.pinv(weight_matrix)
+    solver = basis_solver(
+        weight_matrix,
+        normalized_basis,
+        coefficient_count,
+        window_seconds=window_seconds,
+        lambda1=lambda1,
+    )
+    return coordinates, weight_matrix, solver
+
+
+def basis_solver(
+    weight_matrix: np.ndarray,
+    basis: str,
+    coefficient_count: int,
+    *,
+    window_seconds: float = WINDOW_SECONDS,
+    lambda1: float = 0.0,
+) -> np.ndarray:
+    """Return an unregularized or Sobolev-regularized linear solver."""
+    normalized_basis = normalize_basis_name(basis)
+    lambda1 = float(lambda1)
+    if lambda1 < 0.0:
+        raise ValueError("lambda1 must be non-negative")
+    if lambda1 == 0.0:
+        return np.linalg.pinv(weight_matrix)
+    if normalized_basis != "chebyshev2":
+        raise ValueError(
+            "lambda1 Sobolev regularization is only supported for Chebyshev2"
+        )
+
+    lhs = weight_matrix.T @ weight_matrix
+    lhs += lambda1 * chebyshev2_first_derivative_penalty(
+        int(coefficient_count), window_seconds=window_seconds
+    )
+    rhs = weight_matrix.T
+    return np.linalg.solve(lhs, rhs)
+
+
+def chebyshev2_first_derivative_penalty(
+    coefficient_count: int,
+    *,
+    window_seconds: float = WINDOW_SECONDS,
+) -> np.ndarray:
+    """Return the CGL nodal penalty matrix for ``integral |p'(t)|^2 dt``."""
+    if coefficient_count < 1:
+        raise ValueError("coefficient_count must be positive")
+    if window_seconds <= 0.0:
+        raise ValueError("window_seconds must be positive")
+    if coefficient_count == 1:
+        return np.zeros((1, 1), dtype=float)
+
+    derivative = np.asarray(
+        gtsam.Chebyshev2.DifferentiationMatrix(int(coefficient_count), 0.0, 1.0),
+        dtype=float,
+    )
+    weights = np.asarray(
+        gtsam.Chebyshev2.IntegrationWeights(int(coefficient_count), 0.0, 1.0),
+        dtype=float,
+    )
+    penalty = derivative.T @ (weights.reshape(-1, 1) * derivative)
+    return penalty / float(window_seconds)
 
 
 def chebyshev1_design(
@@ -343,6 +406,7 @@ def fit_spectral_windows(
     signal_group: str = DEFAULT_SIGNAL_GROUP,
     columns: Sequence[str] | None = None,
     window_seconds: float = WINDOW_SECONDS,
+    lambda1: float = 0.0,
 ) -> SpectrogramFit:
     """Fit spectral basis coefficients for each complete interval."""
     csv_path = Path(path)
@@ -365,7 +429,11 @@ def fit_spectral_windows(
     )
     sample_count = steps_per_window + 1
     basis_coordinates, weight_matrix, solver = basis_design(
-        int(coefficient_count), sample_count, basis=normalized_basis
+        int(coefficient_count),
+        sample_count,
+        basis=normalized_basis,
+        window_seconds=window_seconds,
+        lambda1=lambda1,
     )
 
     values = dataframe[selected_columns].to_numpy(dtype=float)
@@ -404,6 +472,7 @@ def fit_spectral_windows(
         scale=scale,
         activity=activity,
         high_order_ratio=high_order_ratio,
+        lambda1=float(lambda1),
     )
 
 
@@ -556,6 +625,7 @@ def summary_table(result: SpectrogramFit) -> pd.DataFrame:
         ("selected columns", ", ".join(result.columns)),
         ("N", result.coefficient_count),
         ("basis order", basis_order_summary(result)),
+        ("lambda1 p' penalty", result.lambda1),
         ("interval length [s]", result.window_seconds),
         ("complete intervals", result.window_count),
         ("samples per closed window", result.sample_count),
