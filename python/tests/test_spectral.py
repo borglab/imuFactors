@@ -17,23 +17,23 @@ import imuFactors.spectral as spectral
 
 class SpectralTests(unittest.TestCase):
     def test_builds_chebyshev1_chebyshev2_and_fourier_plans(self) -> None:
-        for basis, parameter_count in [
+        for basis, N in [
             ("chebyshev", 4),
             ("chebyshev2", 4),
             ("fourier", 5),
         ]:
             with self.subTest(basis=basis):
-                plan = spectral.basis_plan(
-                    parameter_count, sample_count=11, basis=basis
-                )
-                coeffs = np.arange(parameter_count, dtype=float)
+                plan = spectral.basis_plan(N, m=11, basis=basis)
+                coeffs = np.arange(N, dtype=float)
                 values = plan.reconstruct(coeffs)
                 recovered = plan.fit(values)
 
                 self.assertEqual(plan.basis, basis)
-                self.assertEqual(plan.parameter_count, parameter_count)
-                self.assertEqual(plan.weight_matrix.shape, (11, parameter_count))
-                self.assertEqual(plan.solver.shape, (parameter_count, 11))
+                self.assertEqual(plan.N, N)
+                self.assertEqual(plan.m, 11)
+                self.assertEqual(plan.n, N - 1)
+                self.assertEqual(plan.weight_matrix.shape, (11, N))
+                self.assertEqual(plan.solver.shape, (N, 11))
                 np.testing.assert_allclose(recovered, coeffs, atol=1e-10)
 
     def test_chebyshev2_recovers_polynomial_node_values(self) -> None:
@@ -41,9 +41,7 @@ class SpectralTests(unittest.TestCase):
             return 1.0 - 2.0 * t + 0.5 * t**2 + 3.0 * t**3
 
         sample_times = np.linspace(0.0, 1.0, 12)
-        plan = spectral.basis_plan_from_coordinates(
-            4, sample_times, basis="chebyshev2"
-        )
+        plan = spectral.basis_plan_from_coordinates(4, sample_times, basis="chebyshev2")
         coeffs = plan.fit(polynomial(sample_times))
         nodes = spectral.chebyshev2_points(4)
 
@@ -53,17 +51,17 @@ class SpectralTests(unittest.TestCase):
         )
 
     def test_chebyshev2_integration_matrix_matches_antiderivative(self) -> None:
-        node_count = 3
-        nodes = spectral.chebyshev2_points(node_count)
+        N = 3
+        nodes = spectral.chebyshev2_points(N)
         values = 2.0 * nodes
-        integration_matrix = spectral.chebyshev2_integration_matrix(node_count)
-        integral_nodes = spectral.chebyshev2_points(node_count + 1)
+        integration_matrix = spectral.chebyshev2_integration_matrix(N)
+        integral_nodes = spectral.chebyshev2_points(N + 1)
 
         np.testing.assert_allclose(
             integration_matrix @ values, integral_nodes**2, atol=1e-12
         )
         np.testing.assert_allclose(
-            spectral.chebyshev2_integration_weights(node_count) @ values,
+            spectral.chebyshev2_integration_weights(N) @ values,
             1.0,
             atol=1e-12,
         )

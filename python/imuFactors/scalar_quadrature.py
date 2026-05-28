@@ -52,7 +52,7 @@ class _ChebyshevExperimentPlan:
 
     sample_times: np.ndarray
     evaluation_times: np.ndarray
-    node_count: int
+    N: int
     interval: tuple[float, float]
     fit_plan: spectral.BasisPlan
     final_weights: np.ndarray
@@ -64,25 +64,25 @@ class _ChebyshevExperimentPlan:
         cls,
         sample_times: np.ndarray,
         evaluation_times: np.ndarray,
-        node_count: int,
+        N: int,
         interval: tuple[float, float],
         lambda1: float = 0.0,
     ) -> "_ChebyshevExperimentPlan":
         fit_plan = spectral.basis_plan_from_coordinates(
-            node_count,
+            N,
             sample_times,
             basis="chebyshev2",
             interval=interval,
             lambda1=lambda1,
         )
-        final_weights = spectral.chebyshev2_integration_weights(node_count, interval)
+        final_weights = spectral.chebyshev2_integration_weights(N, interval)
         curve_weights = spectral.chebyshev2_integral_curve_matrix(
-            node_count, evaluation_times, interval
+            N, evaluation_times, interval
         )
         return cls(
             sample_times=sample_times,
             evaluation_times=evaluation_times,
-            node_count=node_count,
+            N=N,
             interval=interval,
             fit_plan=fit_plan,
             final_weights=final_weights,
@@ -113,18 +113,18 @@ def chebyshev_trial_curves(
     sample_times: Sequence[float],
     sample_values: Sequence[float] | np.ndarray,
     evaluation_times: Sequence[float],
-    node_count: int,
+    N: int,
     interval: tuple[float, float] = DEFAULT_INTERVAL,
     lambda1: float = 0.0,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Fit scalar samples with GTSAM Chebyshev2 and evaluate integral curves."""
+    """Fit ``m`` scalar samples with ``N`` Chebyshev2 CGL nodes."""
 
     sample_time_array = np.asarray(sample_times, dtype=float)
     evaluation_time_array = np.asarray(evaluation_times, dtype=float)
     plan = _ChebyshevExperimentPlan.build(
         sample_time_array,
         evaluation_time_array,
-        int(node_count),
+        int(N),
         interval,
         lambda1=lambda1,
     )
@@ -157,23 +157,21 @@ def scalar_function_from_chebyshev2_nodes(
     node_values: Sequence[float],
     interval: tuple[float, float] = DEFAULT_INTERVAL,
 ) -> ScalarFunction:
-    """Create a scalar function from values at GTSAM Chebyshev2 nodes."""
+    """Create a scalar function from ``N`` GTSAM Chebyshev2 CGL values."""
 
     values = np.asarray(node_values, dtype=float).reshape(-1)
-    node_count = values.size
-    integration_matrix = spectral.chebyshev2_integration_matrix(node_count, interval)
+    N = values.size
+    integration_matrix = spectral.chebyshev2_integration_matrix(N, interval)
     antiderivative_nodes = integration_matrix @ values
 
     def evaluate(times: np.ndarray) -> np.ndarray:
         time_array = np.asarray(times, dtype=float)
-        weights = spectral.chebyshev2_weight_matrix(node_count, time_array, interval)
+        weights = spectral.chebyshev2_weight_matrix(N, time_array, interval)
         return weights @ values
 
     def antiderivative(times: np.ndarray) -> np.ndarray:
         time_array = np.asarray(times, dtype=float)
-        weights = spectral.chebyshev2_weight_matrix(
-            node_count + 1, time_array, interval
-        )
+        weights = spectral.chebyshev2_weight_matrix(N + 1, time_array, interval)
         return weights @ antiderivative_nodes
 
     return ScalarFunction(name=name, value=evaluate, antiderivative=antiderivative)
@@ -181,8 +179,8 @@ def scalar_function_from_chebyshev2_nodes(
 
 def run_scalar_monte_carlo(
     functions: Sequence[ScalarFunction],
-    sample_counts: Iterable[int],
-    chebyshev_node_counts: Iterable[int],
+    m_values: Iterable[int],
+    N_values: Iterable[int],
     noise_fractions: Iterable[float],
     *,
     num_seeds: int = 100,
@@ -191,13 +189,13 @@ def run_scalar_monte_carlo(
     evaluation_count: int = 201,
     lambda1: float = 0.0,
 ) -> ScalarMonteCarloResult:
-    """Run scalar noisy integration comparisons over a Monte Carlo grid."""
+    """Run noisy quadrature comparisons over ``m`` samples and ``N`` CGL nodes."""
 
     a, b = interval
     lambda1 = float(lambda1)
     evaluation_times = np.linspace(a, b, evaluation_count)
-    sample_counts = [int(sample_count) for sample_count in sample_counts]
-    chebyshev_node_counts = [int(node_count) for node_count in chebyshev_node_counts]
+    m_values = [int(m) for m in m_values]
+    N_values = [int(N) for N in N_values]
     noise_fractions = [float(noise_fraction) for noise_fraction in noise_fractions]
 
     method_rows: list[dict[str, float | int | str]] = []
@@ -209,12 +207,12 @@ def run_scalar_monte_carlo(
         true_final = float(true_curve[-1])
         value_range = _function_range(function, interval)
 
-        for sample_count in sample_counts:
-            sample_times = np.linspace(a, b, sample_count)
+        for m in m_values:
+            sample_times = np.linspace(a, b, m)
             clean_samples = np.asarray(function.value(sample_times), dtype=float)
             standard_noises = np.random.default_rng(
-                seed + 1000003 * function_index + 1009 * sample_count
-            ).normal(size=(num_seeds, sample_count))
+                seed + 1000003 * function_index + 1009 * m
+            ).normal(size=(num_seeds, m))
             clean_trapezoid_curve = _trapezoid_integral_curves(
                 sample_times, clean_samples, evaluation_times
             )[0]
@@ -223,25 +221,25 @@ def run_scalar_monte_carlo(
             )
 
             valid_plans = {}
-            for node_count in chebyshev_node_counts:
-                if node_count > sample_count:
+            for N in N_values:
+                if N > m:
                     continue
-                cache_key = (sample_count, node_count, lambda1)
+                cache_key = (m, N, lambda1)
                 if cache_key not in plan_cache:
                     plan_cache[cache_key] = _ChebyshevExperimentPlan.build(
                         sample_times,
                         evaluation_times,
-                        node_count,
+                        N,
                         interval,
                         lambda1=lambda1,
                     )
-                valid_plans[node_count] = plan_cache[cache_key]
+                valid_plans[N] = plan_cache[cache_key]
 
             chebyshev_components = {}
-            for node_count, plan in valid_plans.items():
+            for N, plan in valid_plans.items():
                 clean_final, clean_curve = plan.integral_curves(clean_samples)
                 noise_final, noise_curves = plan.integral_curves(standard_noises)
-                chebyshev_components[node_count] = (
+                chebyshev_components[N] = (
                     float(clean_final[0]),
                     clean_curve[0],
                     noise_final,
@@ -263,14 +261,14 @@ def run_scalar_monte_carlo(
                         "trapezoid",
                         noise_fraction,
                         noise_std,
-                        sample_count,
+                        m,
                         np.nan,
                         trapezoid_metrics,
                         lambda1=0.0,
                     )
                 )
 
-                for node_count, components in chebyshev_components.items():
+                for N, components in chebyshev_components.items():
                     (
                         clean_chebyshev_final,
                         clean_chebyshev_curve,
@@ -293,8 +291,8 @@ def run_scalar_monte_carlo(
                             "chebyshev2",
                             noise_fraction,
                             noise_std,
-                            sample_count,
-                            node_count,
+                            m,
+                            N,
                             chebyshev_metrics,
                             lambda1=lambda1,
                         )
@@ -304,8 +302,8 @@ def run_scalar_monte_carlo(
                             function.name,
                             noise_fraction,
                             noise_std,
-                            sample_count,
-                            node_count,
+                            m,
+                            N,
                             chebyshev_metrics,
                             trapezoid_metrics,
                             lambda1=lambda1,
@@ -318,40 +316,40 @@ def run_scalar_monte_carlo(
     )
 
 
-def plot_fixed_node_comparison(
+def plot_fixed_N_comparison(
     comparisons: pd.DataFrame,
     function_name: str,
     *,
-    selected_nodes: Sequence[int] = (2, 9, 17, 24),
+    selected_N_values: Sequence[int] = (2, 9, 17, 24),
     metrics: Sequence[str] = METRIC_COLUMNS,
     x_column: str = "noise_std",
     cmap: str = "coolwarm",
 ) -> plt.Figure:
-    """Plot metric differences over noise and sample count for fixed M values."""
+    """Plot metric differences over noise and ``m`` samples for fixed ``N``."""
 
     fig, axes = plt.subplots(
         len(metrics),
-        len(selected_nodes),
-        figsize=(3.6 * len(selected_nodes), 3.0 * len(metrics)),
+        len(selected_N_values),
+        figsize=(3.6 * len(selected_N_values), 3.0 * len(metrics)),
         squeeze=False,
         constrained_layout=True,
     )
     subset = comparisons[comparisons["function"] == function_name]
     for row_index, metric in enumerate(metrics):
-        for col_index, node_count in enumerate(selected_nodes):
+        for col_index, N in enumerate(selected_N_values):
             axis = axes[row_index, col_index]
-            grid_subset = subset[subset["chebyshev_nodes"] == node_count]
+            grid_subset = subset[subset["N"] == N]
             _contour_metric_grid(
                 axis,
                 grid_subset,
                 x_column=x_column,
-                y_column="sample_count",
+                y_column="m",
                 metric=metric,
                 cmap=cmap,
             )
-            axis.set_title(f"{METRIC_LABELS.get(metric, metric)}, M={node_count}")
+            axis.set_title(f"{METRIC_LABELS.get(metric, metric)}, N={N}")
             axis.set_xlabel("Noise std. dev. sigma")
-            axis.set_ylabel("Number of samples n")
+            axis.set_ylabel("m samples")
     fig.suptitle(
         f"{function_name}: Chebyshev2 minus trapezoid (negative is better)",
         fontsize=14,
@@ -359,44 +357,44 @@ def plot_fixed_node_comparison(
     return fig
 
 
-def plot_fixed_sample_comparison(
+def plot_fixed_m_comparison(
     comparisons: pd.DataFrame,
     function_name: str,
     *,
-    selected_sample_counts: Sequence[int] = (10, 20, 30, 40, 50),
+    selected_m_values: Sequence[int] = (10, 20, 30, 40, 50),
     metrics: Sequence[str] = METRIC_COLUMNS,
     x_column: str = "noise_std",
     cmap: str = "coolwarm",
-    show_sqrt_sample_count: bool = False,
+    show_sqrt_m: bool = False,
 ) -> plt.Figure:
-    """Plot metric differences over noise and M for fixed sample counts."""
+    """Plot metric differences over noise and ``N`` for fixed ``m``."""
 
     fig, axes = plt.subplots(
         len(metrics),
-        len(selected_sample_counts),
-        figsize=(3.6 * len(selected_sample_counts), 3.0 * len(metrics)),
+        len(selected_m_values),
+        figsize=(3.6 * len(selected_m_values), 3.0 * len(metrics)),
         squeeze=False,
         constrained_layout=True,
     )
     subset = comparisons[comparisons["function"] == function_name]
     for row_index, metric in enumerate(metrics):
-        for col_index, sample_count in enumerate(selected_sample_counts):
+        for col_index, m in enumerate(selected_m_values):
             axis = axes[row_index, col_index]
-            grid_subset = subset[subset["sample_count"] == sample_count]
+            grid_subset = subset[subset["m"] == m]
             _contour_metric_grid(
                 axis,
                 grid_subset,
                 x_column=x_column,
-                y_column="chebyshev_nodes",
+                y_column="N",
                 metric=metric,
                 cmap=cmap,
             )
-            axis.set_title(f"{METRIC_LABELS.get(metric, metric)}, N={sample_count}")
+            axis.set_title(f"{METRIC_LABELS.get(metric, metric)}, m={m}")
             axis.set_xlabel("Noise std. dev. sigma")
-            axis.set_ylabel("Chebyshev nodes m")
-            if show_sqrt_sample_count:
+            axis.set_ylabel("N CGL nodes (n=N-1)")
+            if show_sqrt_m:
                 axis.axhline(
-                    np.sqrt(sample_count),
+                    np.sqrt(m),
                     color="lightgrey",
                     linestyle="--",
                     linewidth=1.5,
@@ -416,7 +414,7 @@ def plot_function_noise_comparison(
     metric: str = "end_error",
     cmap: str = "coolwarm",
 ) -> plt.Figure:
-    """Plot one metric over sample count and M across functions/noise levels."""
+    """Plot one metric over ``m`` and ``N`` across functions/noise levels."""
 
     fig, axes = plt.subplots(
         len(function_names),
@@ -438,14 +436,14 @@ def plot_function_noise_comparison(
             _contour_metric_grid(
                 axis,
                 grid_subset,
-                x_column="sample_count",
-                y_column="chebyshev_nodes",
+                x_column="m",
+                y_column="N",
                 metric=metric,
                 cmap=cmap,
             )
             axis.set_title(f"{function_name}, noise fraction={noise_fraction:.3g}")
-            axis.set_xlabel("Number of samples n")
-            axis.set_ylabel("Chebyshev nodes M")
+            axis.set_xlabel("m samples")
+            axis.set_ylabel("N CGL nodes (n=N-1)")
     fig.suptitle(
         f"{METRIC_LABELS.get(metric, metric)}: Chebyshev2 minus trapezoid",
         fontsize=14,
@@ -453,22 +451,22 @@ def plot_function_noise_comparison(
     return fig
 
 
-def plot_advantage_curves_by_sample_count(
+def plot_advantage_curves_by_m(
     comparisons: pd.DataFrame,
     function_name: str,
     *,
-    selected_sample_counts: Sequence[int] | None = None,
+    selected_m_values: Sequence[int] | None = None,
     metric: str = "rmse_error",
     noise_band_count: int = 3,
     y_percentile_range: tuple[float, float] | None = (5.0, 95.0),
-    y_range_min_m: int | None = None,
+    y_range_min_N: int | None = None,
 ) -> go.Figure:
-    """Plot Chebyshev2 advantage over trapezoid as m varies for fixed N values.
+    """Plot Chebyshev2 advantage over trapezoid as ``N`` varies for fixed ``m``.
 
     The y axis is percentile-clipped by default so rare large outliers do not
     dominate the scale. Pass ``y_percentile_range=None`` for autoranging. Pass
-    ``y_range_min_m`` to compute the y-axis range only from m values at or above
-    that threshold while still plotting all m values.
+    ``y_range_min_N`` to compute the y-axis range only from ``N`` values at or
+    above that threshold while still plotting all ``N`` values.
     """
 
     if metric not in METRIC_COLUMNS:
@@ -476,14 +474,14 @@ def plot_advantage_curves_by_sample_count(
     _validate_percentile_range(y_percentile_range)
 
     subset = _function_subset(comparisons, function_name)
-    sample_counts = _selected_sample_counts(subset, selected_sample_counts)
-    if not sample_counts:
+    m_values = _selected_m_values(subset, selected_m_values)
+    if not m_values:
         return _empty_plotly_figure(f"No comparison rows for {function_name}")
 
     fig = make_subplots(
         rows=1,
-        cols=len(sample_counts),
-        subplot_titles=[f"N={sample_count}" for sample_count in sample_counts],
+        cols=len(m_values),
+        subplot_titles=[f"m={m}" for m in m_values],
         shared_yaxes=True,
         horizontal_spacing=0.035,
     )
@@ -492,8 +490,8 @@ def plot_advantage_curves_by_sample_count(
     colors = _noise_band_colors(len(band_order))
     plotted_advantages: list[np.ndarray] = []
 
-    for col_index, sample_count in enumerate(sample_counts, start=1):
-        panel = subset[subset["sample_count"] == sample_count].copy()
+    for col_index, m in enumerate(m_values, start=1):
+        panel = subset[subset["m"] == m].copy()
         if panel.empty:
             fig.add_annotation(
                 text="no rows",
@@ -508,20 +506,18 @@ def plot_advantage_curves_by_sample_count(
         panel["advantage"] = -panel[metric]
         panel["noise_band"] = panel["noise_fraction"].map(noise_band_labels)
         band_summary = (
-            panel.groupby(["chebyshev_nodes", "noise_band"], as_index=False)[
-                "advantage"
-            ]
+            panel.groupby(["N", "noise_band"], as_index=False)["advantage"]
             .median()
-            .sort_values(["noise_band", "chebyshev_nodes"])
+            .sort_values(["noise_band", "N"])
         )
-        plotted_advantages.append(_axis_range_advantages(band_summary, y_range_min_m))
+        plotted_advantages.append(_axis_range_advantages(band_summary, y_range_min_N))
         for band_index, band_label in enumerate(band_order):
             band_data = band_summary[band_summary["noise_band"] == band_label]
             if band_data.empty:
                 continue
             fig.add_trace(
                 go.Scatter(
-                    x=band_data["chebyshev_nodes"],
+                    x=band_data["N"],
                     y=band_data["advantage"],
                     mode="lines+markers",
                     line=dict(width=1.5, color=colors[band_index % len(colors)]),
@@ -530,15 +526,17 @@ def plot_advantage_curves_by_sample_count(
                     legendgroup=band_label,
                     showlegend=col_index == 1,
                     hovertemplate=(
-                        "N=%{customdata[0]}<br>"
-                        "m=%{x}<br>"
+                        "m=%{customdata[0]}<br>"
+                        "N=%{x}<br>"
+                        "n=%{customdata[2]}<br>"
                         "noise band=%{customdata[1]}<br>"
                         "advantage=%{y:.4g}<extra></extra>"
                     ),
                     customdata=np.column_stack(
                         [
-                            np.full(len(band_data), sample_count),
+                            np.full(len(band_data), m),
                             np.full(len(band_data), band_label),
+                            band_data["N"].to_numpy(dtype=int) - 1,
                         ]
                     ),
                 ),
@@ -546,19 +544,19 @@ def plot_advantage_curves_by_sample_count(
                 col=col_index,
             )
 
-        best = _best_m_for_metric(panel, metric)
+        best = _best_N_for_metric(panel, metric)
         if best is not None:
             fig.add_trace(
                 go.Scatter(
-                    x=[best["chebyshev_nodes"]],
+                    x=[best["N"]],
                     y=[best["advantage"]],
                     mode="markers",
                     marker=dict(size=9, symbol="diamond", color="black"),
-                    name="best median m",
-                    legendgroup="best median m",
+                    name="best median N",
+                    legendgroup="best median N",
                     showlegend=col_index == 1,
                     hovertemplate=(
-                        "best median m=%{x}<br>"
+                        "best median N=%{x}<br>"
                         "median advantage=%{y:.4g}<extra></extra>"
                     ),
                 ),
@@ -574,7 +572,7 @@ def plot_advantage_curves_by_sample_count(
             col=col_index,
         )
         fig.add_vline(
-            x=np.sqrt(sample_count),
+            x=np.sqrt(m),
             line_width=1,
             line_dash="dash",
             line_color="lightgrey",
@@ -584,15 +582,16 @@ def plot_advantage_curves_by_sample_count(
 
     fig.update_layout(
         title=(
-            f"{function_name}: Chebyshev2 advantage by m " f"({METRIC_LABELS[metric]})"
+            f"{function_name}: Chebyshev2 advantage by N at fixed m "
+            f"({METRIC_LABELS[metric]})"
         ),
         template="plotly_white",
         height=360,
-        width=max(900, 240 * len(sample_counts)),
+        width=max(900, 240 * len(m_values)),
         legend=dict(orientation="h", yanchor="bottom", y=1.08, xanchor="left", x=0.0),
         margin=dict(l=55, r=20, t=85, b=45),
     )
-    fig.update_xaxes(title_text="m", showgrid=False, ticks="outside")
+    fig.update_xaxes(title_text="N CGL nodes (n=N-1)", showgrid=False, ticks="outside")
     y_axis_settings = dict(
         title_text="trapezoid error - Chebyshev2 error",
         showgrid=True,
@@ -607,14 +606,14 @@ def plot_advantage_curves_by_sample_count(
     return fig
 
 
-def robust_m_summary(
+def robust_N_summary(
     comparisons: pd.DataFrame,
     function_name: str,
     *,
-    selected_sample_counts: Sequence[int] | None = None,
+    selected_m_values: Sequence[int] | None = None,
     metrics: Sequence[str] = METRIC_COLUMNS,
 ) -> pd.DataFrame:
-    """Summarize metric-wise and robust m choices for each fixed sample count."""
+    """Summarize metric-wise and robust ``N`` choices for each fixed ``m``."""
 
     for metric in metrics:
         if metric not in METRIC_COLUMNS:
@@ -623,26 +622,24 @@ def robust_m_summary(
             )
 
     subset = _function_subset(comparisons, function_name)
-    sample_counts = _selected_sample_counts(subset, selected_sample_counts)
+    m_values = _selected_m_values(subset, selected_m_values)
     rows: list[dict[str, float | int | str]] = []
 
-    for sample_count in sample_counts:
-        panel = subset[subset["sample_count"] == sample_count].copy()
+    for m in m_values:
+        panel = subset[subset["m"] == m].copy()
         if panel.empty:
             continue
 
-        node_values = np.asarray(
-            sorted(panel["chebyshev_nodes"].dropna().unique()), dtype=int
-        )
-        if node_values.size == 0:
+        N_grid = np.asarray(sorted(panel["N"].dropna().unique()), dtype=int)
+        if N_grid.size == 0:
             continue
 
         metric_summaries = {
-            metric: _median_advantage_by_m(panel, metric).reindex(node_values)
+            metric: _median_advantage_by_N(panel, metric).reindex(N_grid)
             for metric in metrics
         }
         best_by_metric = {
-            metric: _best_m_from_advantage(metric_summary)
+            metric: _best_N_from_advantage(metric_summary)
             for metric, metric_summary in metric_summaries.items()
         }
         ranks = pd.concat(
@@ -653,8 +650,8 @@ def robust_m_summary(
             axis=1,
         )
         rank_score = ranks.mean(axis=1)
-        robust_m = _best_m_from_score(rank_score)
-        robust_rows = panel[panel["chebyshev_nodes"] == robust_m]
+        robust_N = _best_N_from_score(rank_score)
+        robust_rows = panel[panel["N"] == robust_N]
         robust_advantages = -robust_rows[list(metrics)].to_numpy(dtype=float)
         win_rate = float(np.mean(robust_advantages > 0.0))
         rmse_summary = metric_summaries.get(
@@ -663,51 +660,51 @@ def robust_m_summary(
 
         row: dict[str, float | int | str] = {
             "function": function_name,
-            "sample_count": int(sample_count),
-            "sqrt_sample_count": float(np.sqrt(sample_count)),
-            "robust_m": int(robust_m),
-            "robust_rank_score": float(rank_score.loc[robust_m]),
+            "m": int(m),
+            "sqrt_m": float(np.sqrt(m)),
+            "robust_N": int(robust_N),
+            "robust_rank_score": float(rank_score.loc[robust_N]),
             "win_rate": win_rate,
-            "rmse_advantage_at_robust_m": float(rmse_summary.loc[robust_m]),
+            "rmse_advantage_at_robust_N": float(rmse_summary.loc[robust_N]),
             "rmse_advantage_sparkline": _ascii_sparkline(
-                rmse_summary.reindex(node_values).to_numpy(dtype=float)
+                rmse_summary.reindex(N_grid).to_numpy(dtype=float)
             ),
         }
-        for metric, best_m in best_by_metric.items():
-            row[f"best_{metric}_m"] = int(best_m)
+        for metric, best_N in best_by_metric.items():
+            row[f"best_{metric}_N"] = int(best_N)
         rows.append(row)
 
     return pd.DataFrame(rows)
 
 
-def plot_robust_m_table(
+def plot_robust_N_table(
     comparisons: pd.DataFrame,
     function_name: str,
     *,
-    selected_sample_counts: Sequence[int] | None = None,
+    selected_m_values: Sequence[int] | None = None,
     metrics: Sequence[str] = METRIC_COLUMNS,
 ) -> go.Figure:
-    """Plot a compact table of ideal and robust m choices for fixed N values."""
+    """Plot a compact table of ideal and robust ``N`` choices for fixed ``m``."""
 
-    summary = robust_m_summary(
+    summary = robust_N_summary(
         comparisons,
         function_name,
-        selected_sample_counts=selected_sample_counts,
+        selected_m_values=selected_m_values,
         metrics=metrics,
     )
     if summary.empty:
         return _empty_plotly_figure(f"No comparison rows for {function_name}")
 
     columns = [
-        ("sample_count", "N"),
-        ("sqrt_sample_count", "sqrt(N)"),
-        ("best_end_error_m", "best final m"),
-        ("best_rmse_error_m", "best RMSE m"),
-        ("best_max_error_m", "best max m"),
-        ("robust_m", "robust m"),
+        ("m", "m"),
+        ("sqrt_m", "sqrt(m)"),
+        ("best_end_error_N", "best final N"),
+        ("best_rmse_error_N", "best RMSE N"),
+        ("best_max_error_N", "best max N"),
+        ("robust_N", "robust N"),
         ("win_rate", "win rate"),
-        ("rmse_advantage_at_robust_m", "RMSE advantage"),
-        ("rmse_advantage_sparkline", "RMSE advantage over m"),
+        ("rmse_advantage_at_robust_N", "RMSE advantage"),
+        ("rmse_advantage_sparkline", "RMSE advantage over N"),
     ]
     available_columns = [(key, label) for key, label in columns if key in summary]
     alignments = [
@@ -715,23 +712,23 @@ def plot_robust_m_table(
         for key, _ in available_columns
     ]
     column_widths = {
-        "sample_count": 0.55,
-        "sqrt_sample_count": 0.75,
-        "best_end_error_m": 0.85,
-        "best_rmse_error_m": 0.9,
-        "best_max_error_m": 0.75,
-        "robust_m": 0.75,
+        "m": 0.55,
+        "sqrt_m": 0.75,
+        "best_end_error_N": 0.85,
+        "best_rmse_error_N": 0.9,
+        "best_max_error_N": 0.75,
+        "robust_N": 0.75,
         "win_rate": 0.75,
-        "rmse_advantage_at_robust_m": 1.05,
+        "rmse_advantage_at_robust_N": 1.05,
         "rmse_advantage_sparkline": 1.9,
     }
     values: list[list[str | int]] = []
     for key, _ in available_columns:
-        if key == "sqrt_sample_count":
+        if key == "sqrt_m":
             values.append([f"{value:.2f}" for value in summary[key]])
         elif key == "win_rate":
             values.append([f"{100.0 * value:.0f}%" for value in summary[key]])
-        elif key == "rmse_advantage_at_robust_m":
+        elif key == "rmse_advantage_at_robust_N":
             values.append([f"{value:.4g}" for value in summary[key]])
         elif key == "rmse_advantage_sparkline":
             values.append(summary[key].astype(str).tolist())
@@ -765,8 +762,8 @@ def plot_robust_m_table(
     )
     fig.update_layout(
         title=(
-            f"{function_name}: ideal m by metric and robust m "
-            "(RMSE sparkline is m ascending)"
+            f"{function_name}: ideal N by metric and robust N "
+            "(RMSE sparkline is N ascending)"
         ),
         template="plotly_white",
         height=max(240, 120 + 32 * len(summary)),
@@ -850,8 +847,8 @@ def _method_row(
     method: str,
     noise_fraction: float,
     noise_std: float,
-    sample_count: int,
-    chebyshev_nodes: float,
+    m: int,
+    N: float,
     metrics: dict[str, float],
     *,
     lambda1: float,
@@ -861,8 +858,9 @@ def _method_row(
         "method": method,
         "noise_fraction": noise_fraction,
         "noise_std": noise_std,
-        "sample_count": sample_count,
-        "chebyshev_nodes": chebyshev_nodes,
+        "m": m,
+        "N": N,
+        "n": _n_from_N(N),
         "lambda1": float(lambda1),
     }
     row.update(metrics)
@@ -873,8 +871,8 @@ def _comparison_row(
     function_name: str,
     noise_fraction: float,
     noise_std: float,
-    sample_count: int,
-    node_count: int,
+    m: int,
+    N: int,
     chebyshev_metrics: dict[str, float],
     trapezoid_metrics: dict[str, float],
     *,
@@ -884,13 +882,20 @@ def _comparison_row(
         "function": function_name,
         "noise_fraction": noise_fraction,
         "noise_std": noise_std,
-        "sample_count": sample_count,
-        "chebyshev_nodes": node_count,
+        "m": m,
+        "N": N,
+        "n": _n_from_N(N),
         "lambda1": float(lambda1),
     }
     for metric in METRIC_COLUMNS:
         row[metric] = chebyshev_metrics[metric] - trapezoid_metrics[metric]
     return row
+
+
+def _n_from_N(N: float) -> float | int:
+    if not np.isfinite(N):
+        return np.nan
+    return int(N) - 1
 
 
 def _nearest_value(values: pd.Series, requested_value: float) -> float:
@@ -910,7 +915,7 @@ def _contour_metric_grid(
     cmap: str,
 ) -> None:
     if data.empty:
-        axis.text(0.5, 0.5, "No valid n >= M", ha="center", va="center")
+        axis.text(0.5, 0.5, "No valid N <= m", ha="center", va="center")
         return
 
     grid = data.pivot_table(index=y_column, columns=x_column, values=metric)
@@ -943,14 +948,14 @@ def _function_subset(comparisons: pd.DataFrame, function_name: str) -> pd.DataFr
     return comparisons[comparisons["function"] == function_name].copy()
 
 
-def _selected_sample_counts(
+def _selected_m_values(
     data: pd.DataFrame,
-    selected_sample_counts: Sequence[int] | None,
+    selected_m_values: Sequence[int] | None,
 ) -> list[int]:
-    if selected_sample_counts is None:
-        return [int(value) for value in sorted(data["sample_count"].dropna().unique())]
-    available = set(int(value) for value in data["sample_count"].dropna().unique())
-    return [int(value) for value in selected_sample_counts if int(value) in available]
+    if selected_m_values is None:
+        return [int(value) for value in sorted(data["m"].dropna().unique())]
+    available = set(int(value) for value in data["m"].dropna().unique())
+    return [int(value) for value in selected_m_values if int(value) in available]
 
 
 def _noise_band_labels(values: pd.Series, band_count: int) -> dict[float, str]:
@@ -1013,53 +1018,53 @@ def _robust_axis_range(
 
 def _axis_range_advantages(
     band_summary: pd.DataFrame,
-    y_range_min_m: int | None,
+    y_range_min_N: int | None,
 ) -> np.ndarray:
-    if y_range_min_m is None:
+    if y_range_min_N is None:
         return band_summary["advantage"].to_numpy(dtype=float)
-    focused = band_summary[band_summary["chebyshev_nodes"] >= y_range_min_m]
+    focused = band_summary[band_summary["N"] >= y_range_min_N]
     if focused.empty:
         return band_summary["advantage"].to_numpy(dtype=float)
     return focused["advantage"].to_numpy(dtype=float)
 
 
-def _median_advantage_by_m(data: pd.DataFrame, metric: str) -> pd.Series:
+def _median_advantage_by_N(data: pd.DataFrame, metric: str) -> pd.Series:
     advantage = data.assign(advantage=-data[metric])
-    return advantage.groupby("chebyshev_nodes")["advantage"].median().sort_index()
+    return advantage.groupby("N")["advantage"].median().sort_index()
 
 
-def _best_m_for_metric(
+def _best_N_for_metric(
     data: pd.DataFrame, metric: str
 ) -> dict[str, float | int] | None:
-    summary = _median_advantage_by_m(data, metric)
+    summary = _median_advantage_by_N(data, metric)
     if summary.empty:
         return None
-    best_m = _best_m_from_advantage(summary)
-    return {"chebyshev_nodes": int(best_m), "advantage": float(summary.loc[best_m])}
+    best_N = _best_N_from_advantage(summary)
+    return {"N": int(best_N), "advantage": float(summary.loc[best_N])}
 
 
-def _best_m_from_advantage(advantage_by_m: pd.Series) -> int:
+def _best_N_from_advantage(advantage_by_N: pd.Series) -> int:
     candidates = (
-        advantage_by_m.dropna()
+        advantage_by_N.dropna()
         .rename("advantage")
         .reset_index()
-        .sort_values(["advantage", "chebyshev_nodes"], ascending=[False, True])
+        .sort_values(["advantage", "N"], ascending=[False, True])
     )
     if candidates.empty:
         raise ValueError("No finite advantage values")
-    return int(candidates.iloc[0]["chebyshev_nodes"])
+    return int(candidates.iloc[0]["N"])
 
 
-def _best_m_from_score(score_by_m: pd.Series) -> int:
+def _best_N_from_score(score_by_N: pd.Series) -> int:
     candidates = (
-        score_by_m.dropna()
+        score_by_N.dropna()
         .rename("score")
         .reset_index()
-        .sort_values(["score", "chebyshev_nodes"], ascending=[True, True])
+        .sort_values(["score", "N"], ascending=[True, True])
     )
     if candidates.empty:
         raise ValueError("No finite score values")
-    return int(candidates.iloc[0]["chebyshev_nodes"])
+    return int(candidates.iloc[0]["N"])
 
 
 def _ascii_sparkline(values: np.ndarray) -> str:
