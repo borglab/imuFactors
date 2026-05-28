@@ -258,6 +258,11 @@ def normalized_rmse(result: SpectrogramFit) -> np.ndarray:
     return np.sqrt(np.mean((result.rmse / result.scale.reshape(1, -1)) ** 2, axis=1))
 
 
+def aggressive_window_scores(result: SpectrogramFit) -> np.ndarray:
+    """Return the score used to rank high-activity, high-order windows."""
+    return _zscore(result.activity) + 1.5 * _zscore(result.high_order_ratio)
+
+
 def characteristic_windows(result: SpectrogramFit) -> dict[str, int]:
     """Choose one easy and one aggressive interval from fit diagnostics."""
     easy_score = (
@@ -265,13 +270,9 @@ def characteristic_windows(result: SpectrogramFit) -> dict[str, int]:
         + _zscore(result.high_order_ratio)
         + _zscore(normalized_rmse(result))
     )
-    aggressive_score = _zscore(result.activity) + 1.5 * _zscore(
-        result.high_order_ratio
-    )
+    aggressive_score = aggressive_window_scores(result)
     easy = int(np.nanargmin(easy_score))
     aggressive = int(np.nanargmax(aggressive_score))
-    if aggressive == easy and result.window_count > 1:
-        aggressive = int(np.nanargmax(result.activity))
     return {"easy": easy, "aggressive": aggressive}
 
 

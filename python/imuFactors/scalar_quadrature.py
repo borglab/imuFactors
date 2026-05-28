@@ -57,6 +57,7 @@ class _ChebyshevExperimentPlan:
     fit_plan: spectral.BasisPlan
     final_weights: np.ndarray
     curve_weights: np.ndarray
+    lambda1: float = 0.0
 
     @classmethod
     def build(
@@ -65,12 +66,14 @@ class _ChebyshevExperimentPlan:
         evaluation_times: np.ndarray,
         node_count: int,
         interval: tuple[float, float],
+        lambda1: float = 0.0,
     ) -> "_ChebyshevExperimentPlan":
         fit_plan = spectral.basis_plan_from_coordinates(
             node_count,
             sample_times,
             basis="chebyshev2",
             interval=interval,
+            lambda1=lambda1,
         )
         final_weights = spectral.chebyshev2_integration_weights(node_count, interval)
         curve_weights = spectral.chebyshev2_integral_curve_matrix(
@@ -84,6 +87,7 @@ class _ChebyshevExperimentPlan:
             fit_plan=fit_plan,
             final_weights=final_weights,
             curve_weights=curve_weights,
+            lambda1=float(lambda1),
         )
 
     def fit_node_values(self, sample_values: np.ndarray) -> np.ndarray:
@@ -111,13 +115,18 @@ def chebyshev_trial_curves(
     evaluation_times: Sequence[float],
     node_count: int,
     interval: tuple[float, float] = DEFAULT_INTERVAL,
+    lambda1: float = 0.0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Fit scalar samples with GTSAM Chebyshev2 and evaluate integral curves."""
 
     sample_time_array = np.asarray(sample_times, dtype=float)
     evaluation_time_array = np.asarray(evaluation_times, dtype=float)
     plan = _ChebyshevExperimentPlan.build(
-        sample_time_array, evaluation_time_array, int(node_count), interval
+        sample_time_array,
+        evaluation_time_array,
+        int(node_count),
+        interval,
+        lambda1=lambda1,
     )
     final, curves = plan.integral_curves(np.asarray(sample_values, dtype=float))
     if np.asarray(sample_values).ndim == 1:
@@ -180,10 +189,12 @@ def run_scalar_monte_carlo(
     seed: int = 0,
     interval: tuple[float, float] = DEFAULT_INTERVAL,
     evaluation_count: int = 201,
+    lambda1: float = 0.0,
 ) -> ScalarMonteCarloResult:
     """Run scalar noisy integration comparisons over a Monte Carlo grid."""
 
     a, b = interval
+    lambda1 = float(lambda1)
     evaluation_times = np.linspace(a, b, evaluation_count)
     sample_counts = [int(sample_count) for sample_count in sample_counts]
     chebyshev_node_counts = [int(node_count) for node_count in chebyshev_node_counts]
@@ -191,7 +202,7 @@ def run_scalar_monte_carlo(
 
     method_rows: list[dict[str, float | int | str]] = []
     comparison_rows: list[dict[str, float | int | str]] = []
-    plan_cache: dict[tuple[int, int], _ChebyshevExperimentPlan] = {}
+    plan_cache: dict[tuple[int, int, float], _ChebyshevExperimentPlan] = {}
 
     for function_index, function in enumerate(functions):
         true_curve = _true_integral_curve(function, evaluation_times, interval)
@@ -215,10 +226,14 @@ def run_scalar_monte_carlo(
             for node_count in chebyshev_node_counts:
                 if node_count > sample_count:
                     continue
-                cache_key = (sample_count, node_count)
+                cache_key = (sample_count, node_count, lambda1)
                 if cache_key not in plan_cache:
                     plan_cache[cache_key] = _ChebyshevExperimentPlan.build(
-                        sample_times, evaluation_times, node_count, interval
+                        sample_times,
+                        evaluation_times,
+                        node_count,
+                        interval,
+                        lambda1=lambda1,
                     )
                 valid_plans[node_count] = plan_cache[cache_key]
 
@@ -251,6 +266,7 @@ def run_scalar_monte_carlo(
                         sample_count,
                         np.nan,
                         trapezoid_metrics,
+                        lambda1=0.0,
                     )
                 )
 
@@ -280,6 +296,7 @@ def run_scalar_monte_carlo(
                             sample_count,
                             node_count,
                             chebyshev_metrics,
+                            lambda1=lambda1,
                         )
                     )
                     comparison_rows.append(
@@ -291,6 +308,7 @@ def run_scalar_monte_carlo(
                             node_count,
                             chebyshev_metrics,
                             trapezoid_metrics,
+                            lambda1=lambda1,
                         )
                     )
 
@@ -835,6 +853,8 @@ def _method_row(
     sample_count: int,
     chebyshev_nodes: float,
     metrics: dict[str, float],
+    *,
+    lambda1: float,
 ) -> dict[str, float | int | str]:
     row: dict[str, float | int | str] = {
         "function": function_name,
@@ -843,6 +863,7 @@ def _method_row(
         "noise_std": noise_std,
         "sample_count": sample_count,
         "chebyshev_nodes": chebyshev_nodes,
+        "lambda1": float(lambda1),
     }
     row.update(metrics)
     return row
@@ -856,6 +877,8 @@ def _comparison_row(
     node_count: int,
     chebyshev_metrics: dict[str, float],
     trapezoid_metrics: dict[str, float],
+    *,
+    lambda1: float,
 ) -> dict[str, float | int | str]:
     row: dict[str, float | int | str] = {
         "function": function_name,
@@ -863,6 +886,7 @@ def _comparison_row(
         "noise_std": noise_std,
         "sample_count": sample_count,
         "chebyshev_nodes": node_count,
+        "lambda1": float(lambda1),
     }
     for metric in METRIC_COLUMNS:
         row[metric] = chebyshev_metrics[metric] - trapezoid_metrics[metric]

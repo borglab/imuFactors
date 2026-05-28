@@ -171,6 +171,21 @@ class SpectrogramTests(unittest.TestCase):
             spectral.basis_tick_labels(result.basis, result.coefficient_count),
         )
 
+    def test_aggressive_window_scores_match_characteristic_selection(self) -> None:
+        result = spectrogram.fit_spectral_windows(
+            _write_synthetic_csv(),
+            coefficient_count=5,
+            basis="chebyshev2",
+            columns=["w_x", "a_x"],
+            window_seconds=0.5,
+        )
+
+        scores = spectrogram.aggressive_window_scores(result)
+        selected = spectrogram.characteristic_windows(result)
+
+        self.assertEqual(scores.shape, (result.window_count,))
+        self.assertEqual(selected["aggressive"], int(np.nanargmax(scores)))
+
     def test_chebyshev2_lambda1_penalizes_first_derivative(self) -> None:
         unregularized = spectrogram.fit_spectral_windows(
             _write_synthetic_csv(),
