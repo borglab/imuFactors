@@ -1,4 +1,4 @@
-"""Spectral Chebyshev fits and spectrogram views for merged EuRoC CSVs."""
+"""Spectral basis fits and spectrogram views for merged EuRoC CSVs."""
 
 from __future__ import annotations
 
@@ -14,13 +14,21 @@ from plotly.subplots import make_subplots
 
 
 WINDOW_SECONDS = 1.0
+GRAVITY = 9.81
 DEFAULT_SIGNAL_GROUP = "imu"
+DEFAULT_BASIS = "chebyshev"
+BASIS_OPTIONS = ("chebyshev", "fourier")
+BASIS_DISPLAY_NAMES = {
+    "chebyshev": "Chebyshev",
+    "fourier": "Fourier",
+}
 
 SIGNAL_GROUPS = {
     "imu": ["w_x", "w_y", "w_z", "a_x", "a_y", "a_z"],
     "imu_norms": ["gyro_norm", "accel_norm"],
     "gyro": ["w_x", "w_y", "w_z"],
     "accel": ["a_x", "a_y", "a_z"],
+    "accel_gravity_compensated": ["a_gc_x", "a_gc_y", "a_gc_z"],
     "position": ["p_x", "p_y", "p_z"],
     "velocity": ["v_x", "v_y", "v_z"],
     "gyro_bias": ["b_w_x", "b_w_y", "b_w_z"],
@@ -49,10 +57,11 @@ SIGNAL_GROUPS = {
 
 
 @dataclass
-class ChebyshevSpectrogramFit:
-    """Fixed-interval spectral Chebyshev fits for a selected signal block."""
+class SpectrogramFit:
+    """Fixed-interval spectral basis fits for a selected signal block."""
 
     path: Path
+    basis: str
     coefficient_count: int
     columns: list[str]
     dataframe: pd.DataFrame
@@ -62,7 +71,7 @@ class ChebyshevSpectrogramFit:
     sample_count: int
     window_seconds: float
     dt: float
-    tau: np.ndarray
+    basis_coordinates: np.ndarray
     weight_matrix: np.ndarray
     coeffs: np.ndarray
     coeffs_standardized: np.ndarray
@@ -81,9 +90,27 @@ class ChebyshevSpectrogramFit:
         return self.coefficient_count - 1
 
     @property
+    def max_harmonic(self) -> int:
+        """Maximum Fourier harmonic represented by ``coefficient_count``."""
+        return self.coefficient_count // 2
+
+    @property
+    def basis_name(self) -> str:
+        """Human-readable basis name."""
+        return basis_display_name(self.basis)
+
+    @property
     def window_count(self) -> int:
         """Number of complete fixed-duration intervals."""
         return int(self.starts.size)
+
+    @property
+    def tau(self) -> np.ndarray:
+        """Compatibility alias for the fitted basis coordinates."""
+        return self.basis_coordinates
+
+
+ChebyshevSpectrogramFit = SpectrogramFit
 
 
 def discover_euroc_files(data_dir: str | Path) -> list[Path]:
@@ -96,6 +123,8 @@ def load_euroc_csv(
     *,
     continuous_quaternions: bool = True,
     include_imu_norms: bool = True,
+    include_gravity_compensated_accel: bool = True,
+    gravity: float = GRAVITY,
 ) -> pd.DataFrame:
     """Load a merged EuRoC CSV and add useful derived signal columns."""
     dataframe = pd.read_csv(path)
@@ -108,6 +137,8 @@ def load_euroc_csv(
         dataframe.loc[:, quat_cols] = quat
     if include_imu_norms:
         add_imu_norm_columns(dataframe)
+    if include_gravity_compensated_accel:
+        add_gravity_compensated_accel_columns(dataframe, gravity=gravity)
     return dataframe
 
 
@@ -121,6 +152,44 @@ def add_imu_norm_columns(dataframe: pd.DataFrame) -> pd.DataFrame:
     if all(column in dataframe.columns for column in accel_columns):
         accel = dataframe[accel_columns].to_numpy(dtype=float)
         dataframe["accel_norm"] = np.linalg.norm(accel, axis=1)
+    return dataframe
+
+
+def add_gravity_compensated_accel_columns(
+    dataframe: pd.DataFrame,
+    *,
+    gravity: float = GRAVITY,
+) -> pd.DataFrame:
+    """Add body-frame accelerometer columns with static gravity removed.
+
+    The quaternion columns define ``nRb``, the rotation from body frame to
+    navigation frame. A stationary accelerometer should read
+    ``nRb.unrotate([0, 0, gravity])`` in body coordinates, so that vector is
+    subtracted from the measured body-frame accelerometer.
+    """
+    accel_columns = ["a_x", "a_y", "a_z"]
+    quat_columns = ["q_w", "q_x", "q_y", "q_z"]
+    if not all(column in dataframe.columns for column in accel_columns + quat_columns):
+        return dataframe
+
+    accel = dataframe[accel_columns].to_numpy(dtype=float)
+    quaternions = dataframe[quat_columns].to_numpy(dtype=float)
+    expected_static_accel = np.empty_like(accel)
+    n_gravity_opposite = np.array([0.0, 0.0, float(gravity)])
+
+    for index, quaternion in enumerate(quaternions):
+        nRb = gtsam.Rot3.Quaternion(
+            float(quaternion[0]),
+            float(quaternion[1]),
+            float(quaternion[2]),
+            float(quaternion[3]),
+        )
+        expected_static_accel[index, :] = nRb.unrotate(n_gravity_opposite)
+
+    compensated = accel - expected_static_accel
+    dataframe["a_gc_x"] = compensated[:, 0]
+    dataframe["a_gc_y"] = compensated[:, 1]
+    dataframe["a_gc_z"] = compensated[:, 2]
     return dataframe
 
 
@@ -149,6 +218,31 @@ def robust_center_scale(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     standard_sigma = np.nanstd(values, axis=0)
     scale = np.where(robust_sigma > 1e-12, robust_sigma, standard_sigma)
     return center, np.where(scale > 1e-12, scale, 1.0)
+
+
+def normalize_basis_name(basis: str) -> str:
+    """Normalize and validate a supported spectral basis name."""
+    normalized = basis.strip().lower().replace("_", "-")
+    aliases = {
+        "cheb": "chebyshev",
+        "chebyshev1": "chebyshev",
+        "chebyshev-1": "chebyshev",
+        "chebyshev1basis": "chebyshev",
+        "chebyshev-1-basis": "chebyshev",
+        "fourierbasis": "fourier",
+        "fourier-basis": "fourier",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized not in BASIS_OPTIONS:
+        raise ValueError(
+            f"Unknown basis {basis!r}; expected one of {', '.join(BASIS_OPTIONS)}"
+        )
+    return normalized
+
+
+def basis_display_name(basis: str) -> str:
+    """Return a human-readable basis name."""
+    return BASIS_DISPLAY_NAMES[normalize_basis_name(basis)]
 
 
 def interval_window_starts(
@@ -185,11 +279,13 @@ def one_second_window_starts(
     return interval_window_starts(time, window_seconds=window_seconds)
 
 
-def chebyshev1_design(
+def basis_design(
     coefficient_count: int,
     sample_count: int,
+    *,
+    basis: str = DEFAULT_BASIS,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return canonical samples, Chebyshev1 weight matrix, and LS solver."""
+    """Return basis coordinates, weight matrix, and least-squares solver."""
     if coefficient_count < 1:
         raise ValueError("coefficient_count must be positive")
     if coefficient_count > sample_count:
@@ -197,24 +293,44 @@ def chebyshev1_design(
             f"coefficient_count={coefficient_count} exceeds the "
             f"{sample_count} samples in a window"
         )
-    tau = np.linspace(-1.0, 1.0, sample_count)
-    weight_matrix = np.asarray(
-        gtsam.Chebyshev1Basis.WeightMatrix(int(coefficient_count), tau),
-        dtype=float,
-    )
-    return tau, weight_matrix, np.linalg.pinv(weight_matrix)
+    normalized_basis = normalize_basis_name(basis)
+    if normalized_basis == "chebyshev":
+        coordinates = np.linspace(-1.0, 1.0, sample_count)
+        weight_matrix = np.asarray(
+            gtsam.Chebyshev1Basis.WeightMatrix(int(coefficient_count), coordinates),
+            dtype=float,
+        )
+    elif normalized_basis == "fourier":
+        coordinates = np.linspace(0.0, 2.0 * np.pi, sample_count)
+        weight_matrix = np.asarray(
+            gtsam.FourierBasis.WeightMatrix(int(coefficient_count), coordinates),
+            dtype=float,
+        )
+    else:  # pragma: no cover - normalize_basis_name guards this branch.
+        raise AssertionError(f"unhandled basis {normalized_basis}")
+    return coordinates, weight_matrix, np.linalg.pinv(weight_matrix)
 
 
-def fit_spectral_chebyshev_windows(
+def chebyshev1_design(
+    coefficient_count: int,
+    sample_count: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return canonical Chebyshev1 samples, weight matrix, and LS solver."""
+    return basis_design(coefficient_count, sample_count, basis="chebyshev")
+
+
+def fit_spectral_windows(
     path: str | Path,
     coefficient_count: int,
     *,
+    basis: str = DEFAULT_BASIS,
     signal_group: str = DEFAULT_SIGNAL_GROUP,
     columns: Sequence[str] | None = None,
     window_seconds: float = WINDOW_SECONDS,
-) -> ChebyshevSpectrogramFit:
-    """Fit spectral Chebyshev coefficients for each complete interval."""
+) -> SpectrogramFit:
+    """Fit spectral basis coefficients for each complete interval."""
     csv_path = Path(path)
+    normalized_basis = normalize_basis_name(basis)
     dataframe = load_euroc_csv(csv_path)
     groups = available_signal_groups(dataframe)
     selected_columns = list(columns) if columns is not None else groups.get(signal_group)
@@ -232,8 +348,8 @@ def fit_spectral_chebyshev_windows(
         time, window_seconds=window_seconds
     )
     sample_count = steps_per_window + 1
-    tau, weight_matrix, solver = chebyshev1_design(
-        int(coefficient_count), sample_count
+    basis_coordinates, weight_matrix, solver = basis_design(
+        int(coefficient_count), sample_count, basis=normalized_basis
     )
 
     values = dataframe[selected_columns].to_numpy(dtype=float)
@@ -248,8 +364,9 @@ def fit_spectral_chebyshev_windows(
     activity = standardized_window_activity(samples, center, scale)
     high_order_ratio = high_order_energy_ratio(coeff_energy)
 
-    return ChebyshevSpectrogramFit(
+    return SpectrogramFit(
         path=csv_path,
+        basis=normalized_basis,
         coefficient_count=int(coefficient_count),
         columns=selected_columns,
         dataframe=dataframe,
@@ -259,7 +376,7 @@ def fit_spectral_chebyshev_windows(
         sample_count=sample_count,
         window_seconds=window_seconds,
         dt=dt,
-        tau=tau,
+        basis_coordinates=basis_coordinates,
         weight_matrix=weight_matrix,
         coeffs=coeffs,
         coeffs_standardized=coeffs_standardized,
@@ -271,6 +388,25 @@ def fit_spectral_chebyshev_windows(
         scale=scale,
         activity=activity,
         high_order_ratio=high_order_ratio,
+    )
+
+
+def fit_spectral_chebyshev_windows(
+    path: str | Path,
+    coefficient_count: int,
+    *,
+    signal_group: str = DEFAULT_SIGNAL_GROUP,
+    columns: Sequence[str] | None = None,
+    window_seconds: float = WINDOW_SECONDS,
+) -> SpectrogramFit:
+    """Compatibility wrapper for Chebyshev spectral fitting."""
+    return fit_spectral_windows(
+        path,
+        coefficient_count,
+        basis="chebyshev",
+        signal_group=signal_group,
+        columns=columns,
+        window_seconds=window_seconds,
     )
 
 
@@ -329,12 +465,12 @@ def high_order_energy_ratio(coeff_energy: np.ndarray) -> np.ndarray:
     return high_energy / np.maximum(non_dc_energy, 1e-12)
 
 
-def normalized_rmse(result: ChebyshevSpectrogramFit) -> np.ndarray:
+def normalized_rmse(result: SpectrogramFit) -> np.ndarray:
     """Return per-window RMS fit error after component scale normalization."""
     return np.sqrt(np.mean((result.rmse / result.scale.reshape(1, -1)) ** 2, axis=1))
 
 
-def characteristic_windows(result: ChebyshevSpectrogramFit) -> dict[str, int]:
+def characteristic_windows(result: SpectrogramFit) -> dict[str, int]:
     """Choose one easy and one aggressive interval from fit diagnostics."""
     easy_score = (
         _zscore(result.activity)
@@ -351,19 +487,48 @@ def characteristic_windows(result: ChebyshevSpectrogramFit) -> dict[str, int]:
     return {"easy": easy, "aggressive": aggressive}
 
 
-def window_start_seconds(result: ChebyshevSpectrogramFit, window_index: int) -> float:
+def window_start_seconds(result: SpectrogramFit, window_index: int) -> float:
     """Return window start time relative to the beginning of the file."""
     return float(result.time[result.starts[window_index]] - result.time[0])
 
 
-def summary_table(result: ChebyshevSpectrogramFit) -> pd.DataFrame:
+def basis_order_summary(result: SpectrogramFit) -> str:
+    """Return a compact basis-order description for tables."""
+    if result.basis == "chebyshev":
+        return f"degree {result.degree}"
+    if result.basis == "fourier":
+        if result.coefficient_count == 1:
+            return "constant only"
+        return f"max harmonic {result.max_harmonic}"
+    return str(result.coefficient_count - 1)
+
+
+def basis_tick_labels(result: SpectrogramFit) -> list[str]:
+    """Return coefficient labels for the fitted basis."""
+    if result.basis == "chebyshev":
+        return [f"T{k}" for k in range(result.coefficient_count)]
+    if result.basis == "fourier":
+        labels = ["1"]
+        harmonic = 1
+        for index in range(1, result.coefficient_count):
+            if index % 2 == 1:
+                labels.append(f"cos{harmonic}")
+            else:
+                labels.append(f"sin{harmonic}")
+                harmonic += 1
+        return labels
+    return [str(k) for k in range(result.coefficient_count)]
+
+
+def summary_table(result: SpectrogramFit) -> pd.DataFrame:
     """Return a compact dataframe describing the current fit."""
     duration = float(result.time[-1] - result.time[0])
     rows = [
         ("file", result.path.name),
+        ("basis", result.basis_name),
         ("selected columns", ", ".join(result.columns)),
         ("N", result.coefficient_count),
-        ("polynomial degree", result.degree),
+        ("basis order", basis_order_summary(result)),
         ("interval length [s]", result.window_seconds),
         ("complete intervals", result.window_count),
         ("samples per closed window", result.sample_count),
@@ -375,7 +540,7 @@ def summary_table(result: ChebyshevSpectrogramFit) -> pd.DataFrame:
 
 
 def interval_metrics_table(
-    result: ChebyshevSpectrogramFit,
+    result: SpectrogramFit,
     selected: dict[str, int],
 ) -> pd.DataFrame:
     """Return diagnostics for selected interval labels."""
@@ -396,7 +561,7 @@ def interval_metrics_table(
 
 
 def plot_window_characteristics(
-    result: ChebyshevSpectrogramFit,
+    result: SpectrogramFit,
     selected: dict[str, int] | None = None,
 ) -> go.Figure:
     """Plot diagnostics used to identify easy and aggressive windows."""
@@ -454,13 +619,13 @@ def plot_window_characteristics(
 
 
 def plot_interval_fit(
-    result: ChebyshevSpectrogramFit,
+    result: SpectrogramFit,
     window_index: int,
     label: str = "selected",
     *,
     max_components: int = 6,
 ) -> go.Figure:
-    """Plot original samples and spectral Chebyshev fit for one interval."""
+    """Plot original samples and spectral basis fit for one interval."""
     component_count = min(max_components, len(result.columns))
     columns = result.columns[:component_count]
     seconds = np.linspace(0.0, result.window_seconds, result.sample_count)
@@ -491,7 +656,7 @@ def plot_interval_fit(
                 y=result.reconstructed[window_index, :, component],
                 mode="lines",
                 line=dict(width=2),
-                name=f"{column} Cheb fit",
+                name=f"{column} {result.basis_name} fit",
                 legendgroup=column,
             ),
             row=row,
@@ -511,7 +676,7 @@ def plot_interval_fit(
 
 
 def plot_interval_coefficients(
-    result: ChebyshevSpectrogramFit,
+    result: SpectrogramFit,
     window_index: int,
     label: str = "selected",
     *,
@@ -530,7 +695,7 @@ def plot_interval_coefficients(
     fig = go.Figure(
         data=go.Heatmap(
             z=matrix,
-            x=[f"T{k}" for k in range(result.coefficient_count)],
+            x=basis_tick_labels(result),
             y=result.columns,
             colorscale="RdBu",
             zmid=0.0,
@@ -545,7 +710,7 @@ def plot_interval_coefficients(
             f"window {window_index}, start "
             f"{window_start_seconds(result, window_index):.1f}s"
         ),
-        xaxis_title="Chebyshev spectral basis",
+        xaxis_title=f"{result.basis_name} spectral basis",
         yaxis_title="signal component",
         height=max(360, 26 * len(result.columns) + 160),
         margin=dict(l=120, r=40, t=80, b=60),
@@ -554,7 +719,7 @@ def plot_interval_coefficients(
 
 
 def plot_coefficient_spectrogram(
-    result: ChebyshevSpectrogramFit,
+    result: SpectrogramFit,
     *,
     log_scale: bool = True,
 ) -> go.Figure:
@@ -570,7 +735,7 @@ def plot_coefficient_spectrogram(
     fig = go.Figure(
         data=go.Heatmap(
             z=z,
-            x=[f"T{k}" for k in range(result.coefficient_count)],
+            x=basis_tick_labels(result),
             y=starts_s,
             colorscale="Viridis",
             colorbar_title=colorbar_title,
@@ -578,7 +743,7 @@ def plot_coefficient_spectrogram(
     )
     fig.update_layout(
         title="Coefficient spectrogram (m intervals x N basis weights)",
-        xaxis_title="Chebyshev spectral basis",
+        xaxis_title=f"{result.basis_name} spectral basis",
         yaxis_title="window start time [s]",
         height=max(420, min(900, 220 + 3 * result.window_count)),
         margin=dict(l=80, r=40, t=80, b=60),
@@ -587,16 +752,16 @@ def plot_coefficient_spectrogram(
 
 
 def plot_average_spectra(
-    result: ChebyshevSpectrogramFit,
+    result: SpectrogramFit,
     *,
     part_count: int = 4,
 ) -> go.Figure:
     """Plot mean coefficient spectra for the whole file and trajectory parts."""
-    basis = np.arange(result.coefficient_count)
+    basis_indices = np.arange(result.coefficient_count)
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
-            x=basis,
+            x=basis_indices,
             y=np.mean(result.coeff_energy, axis=0),
             mode="lines+markers",
             line=dict(width=4, color="black"),
@@ -606,7 +771,7 @@ def plot_average_spectra(
     for label, start, stop in trajectory_parts(result, part_count):
         fig.add_trace(
             go.Scatter(
-                x=basis,
+                x=basis_indices,
                 y=np.mean(result.coeff_energy[start:stop], axis=0),
                 mode="lines+markers",
                 name=label,
@@ -614,7 +779,7 @@ def plot_average_spectra(
         )
     fig.update_layout(
         title="Average standardized coefficient spectra",
-        xaxis_title="Chebyshev spectral basis index k",
+        xaxis_title=f"{result.basis_name} spectral basis index k",
         yaxis_title="mean RMS coefficient energy across selected components",
         height=450,
         margin=dict(l=80, r=40, t=80, b=60),
@@ -623,7 +788,7 @@ def plot_average_spectra(
 
 
 def plot_average_spectrogram_parts(
-    result: ChebyshevSpectrogramFit,
+    result: SpectrogramFit,
     *,
     part_count: int = 4,
 ) -> go.Figure:
@@ -637,7 +802,7 @@ def plot_average_spectrogram_parts(
     fig = go.Figure(
         data=go.Heatmap(
             z=np.log10(np.vstack(rows) + 1e-12),
-            x=[f"T{k}" for k in range(result.coefficient_count)],
+            x=basis_tick_labels(result),
             y=labels,
             colorscale="Viridis",
             colorbar_title="log10 mean RMS weight",
@@ -645,7 +810,7 @@ def plot_average_spectrogram_parts(
     )
     fig.update_layout(
         title="Average coefficient spectrograms: whole file and trajectory parts",
-        xaxis_title="Chebyshev spectral basis",
+        xaxis_title=f"{result.basis_name} spectral basis",
         yaxis_title="trajectory section",
         height=360,
         margin=dict(l=130, r=40, t=80, b=60),
@@ -654,7 +819,7 @@ def plot_average_spectrogram_parts(
 
 
 def trajectory_parts(
-    result: ChebyshevSpectrogramFit,
+    result: SpectrogramFit,
     part_count: int,
 ) -> list[tuple[str, int, int]]:
     """Return labeled contiguous trajectory sections in window-index space."""
