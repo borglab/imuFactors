@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Mapping, Sequence
 
 import gtsam
 import numpy as np
@@ -17,9 +17,10 @@ WINDOW_SECONDS = 1.0
 GRAVITY = 9.81
 DEFAULT_SIGNAL_GROUP = "imu"
 DEFAULT_BASIS = "chebyshev"
-BASIS_OPTIONS = ("chebyshev", "fourier")
+BASIS_OPTIONS = ("chebyshev", "chebyshev2", "fourier")
 BASIS_DISPLAY_NAMES = {
     "chebyshev": "Chebyshev",
+    "chebyshev2": "Chebyshev2 pseudo-spectral",
     "fourier": "Fourier",
 }
 
@@ -229,6 +230,13 @@ def normalize_basis_name(basis: str) -> str:
         "chebyshev-1": "chebyshev",
         "chebyshev1basis": "chebyshev",
         "chebyshev-1-basis": "chebyshev",
+        "chebyshev2basis": "chebyshev2",
+        "chebyshev-2": "chebyshev2",
+        "chebyshev-2-basis": "chebyshev2",
+        "chebyshev2-pseudospectral": "chebyshev2",
+        "chebyshev2-pseudo-spectral": "chebyshev2",
+        "pseudospectral": "chebyshev2",
+        "pseudo-spectral": "chebyshev2",
         "fourierbasis": "fourier",
         "fourier-basis": "fourier",
     }
@@ -298,6 +306,14 @@ def basis_design(
         coordinates = np.linspace(-1.0, 1.0, sample_count)
         weight_matrix = np.asarray(
             gtsam.Chebyshev1Basis.WeightMatrix(int(coefficient_count), coordinates),
+            dtype=float,
+        )
+    elif normalized_basis == "chebyshev2":
+        coordinates = np.linspace(0.0, 1.0, sample_count)
+        weight_matrix = np.asarray(
+            gtsam.Chebyshev2.WeightMatrix(
+                int(coefficient_count), coordinates, 0.0, 1.0
+            ),
             dtype=float,
         )
     elif normalized_basis == "fourier":
@@ -496,6 +512,8 @@ def basis_order_summary(result: SpectrogramFit) -> str:
     """Return a compact basis-order description for tables."""
     if result.basis == "chebyshev":
         return f"degree {result.degree}"
+    if result.basis == "chebyshev2":
+        return f"{result.coefficient_count} CGL node values"
     if result.basis == "fourier":
         if result.coefficient_count == 1:
             return "constant only"
@@ -507,6 +525,8 @@ def basis_tick_labels(result: SpectrogramFit) -> list[str]:
     """Return coefficient labels for the fitted basis."""
     if result.basis == "chebyshev":
         return [f"T{k}" for k in range(result.coefficient_count)]
+    if result.basis == "chebyshev2":
+        return [f"cgl{k}" for k in range(result.coefficient_count)]
     if result.basis == "fourier":
         labels = ["1"]
         harmonic = 1
@@ -518,6 +538,13 @@ def basis_tick_labels(result: SpectrogramFit) -> list[str]:
                 harmonic += 1
         return labels
     return [str(k) for k in range(result.coefficient_count)]
+
+
+def basis_axis_title(result: SpectrogramFit) -> str:
+    """Return an x-axis title matching the fitted parameterization."""
+    if result.basis == "chebyshev2":
+        return "Chebyshev2 pseudo-spectral CGL nodes"
+    return f"{result.basis_name} spectral basis"
 
 
 def summary_table(result: SpectrogramFit) -> pd.DataFrame:
@@ -710,7 +737,7 @@ def plot_interval_coefficients(
             f"window {window_index}, start "
             f"{window_start_seconds(result, window_index):.1f}s"
         ),
-        xaxis_title=f"{result.basis_name} spectral basis",
+        xaxis_title=basis_axis_title(result),
         yaxis_title="signal component",
         height=max(360, 26 * len(result.columns) + 160),
         margin=dict(l=120, r=40, t=80, b=60),
@@ -743,8 +770,9 @@ def plot_coefficient_spectrogram(
     )
     fig.update_layout(
         title="Coefficient spectrogram (m intervals x N basis weights)",
-        xaxis_title=f"{result.basis_name} spectral basis",
+        xaxis_title=basis_axis_title(result),
         yaxis_title="window start time [s]",
+        yaxis_autorange="reversed",
         height=max(420, min(900, 220 + 3 * result.window_count)),
         margin=dict(l=80, r=40, t=80, b=60),
     )
@@ -779,7 +807,7 @@ def plot_average_spectra(
         )
     fig.update_layout(
         title="Average standardized coefficient spectra",
-        xaxis_title=f"{result.basis_name} spectral basis index k",
+        xaxis_title=f"{basis_axis_title(result)} index k",
         yaxis_title="mean RMS coefficient energy across selected components",
         height=450,
         margin=dict(l=80, r=40, t=80, b=60),
@@ -810,10 +838,59 @@ def plot_average_spectrogram_parts(
     )
     fig.update_layout(
         title="Average coefficient spectrograms: whole file and trajectory parts",
-        xaxis_title=f"{result.basis_name} spectral basis",
+        xaxis_title=basis_axis_title(result),
         yaxis_title="trajectory section",
         height=360,
         margin=dict(l=130, r=40, t=80, b=60),
+    )
+    return fig
+
+
+def plot_dataset_average_spectrograms(
+    results: Mapping[str, SpectrogramFit],
+    *,
+    log_scale: bool = True,
+) -> go.Figure:
+    """Compare whole-file average coefficient spectra across datasets."""
+    if not results:
+        raise ValueError("results must contain at least one dataset")
+
+    labels = list(results.keys())
+    first = next(iter(results.values()))
+    for label, result in results.items():
+        if result.coefficient_count != first.coefficient_count:
+            raise ValueError(
+                f"{label} has N={result.coefficient_count}, expected "
+                f"N={first.coefficient_count}"
+            )
+        if result.basis != first.basis:
+            raise ValueError(
+                f"{label} uses basis={result.basis!r}, expected {first.basis!r}"
+            )
+
+    rows = np.vstack(
+        [np.mean(result.coeff_energy, axis=0) for result in results.values()]
+    )
+    colorbar_title = "mean RMS weight"
+    if log_scale:
+        rows = np.log10(rows + 1e-12)
+        colorbar_title = "log10 mean RMS weight"
+
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=rows,
+            x=basis_tick_labels(first),
+            y=labels,
+            colorscale="Viridis",
+            colorbar_title=colorbar_title,
+        )
+    )
+    fig.update_layout(
+        title="Whole-file average coefficient spectrograms across datasets",
+        xaxis_title=basis_axis_title(first),
+        yaxis_title="dataset",
+        height=max(420, 40 * len(labels) + 180),
+        margin=dict(l=100, r=40, t=80, b=60),
     )
     return fig
 
