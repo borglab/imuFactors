@@ -160,6 +160,54 @@ class ScalarQuadratureTests(unittest.TestCase):
         pd.testing.assert_frame_equal(first.method_metrics, second.method_metrics)
         pd.testing.assert_frame_equal(first.comparisons, second.comparisons)
 
+    def test_win_rate_summary_groups_by_noise_m_and_N(self) -> None:
+        comparisons = pd.DataFrame(
+            {
+                "function": ["linear"] * 4,
+                "noise_fraction": [0.0, 0.0, 0.1, 0.1],
+                "noise_std": [0.0, 0.0, 0.1, 0.1],
+                "m": [10, 10, 10, 10],
+                "N": [3, 3, 3, 5],
+                "end_error": [0.0, 0.0, 0.0, 0.0],
+                "rmse_error": [-0.2, 0.1, -0.3, 0.4],
+                "max_error": [0.0, 0.0, 0.0, 0.0],
+            }
+        )
+
+        summary = scalar_quadrature.win_rate_summary(
+            comparisons,
+            group_by=("noise_fraction", "m", "N"),
+            metric="rmse_error",
+        )
+
+        noise_free_N3 = summary[
+            (summary["noise_fraction"] == 0.0) & (summary["N"] == 3)
+        ].iloc[0]
+        self.assertEqual(noise_free_N3["rows"], 2)
+        self.assertEqual(noise_free_N3["win_rate"], 0.5)
+        self.assertAlmostEqual(noise_free_N3["median_advantage"], 0.05)
+
+        noisy_N3 = summary[
+            (summary["noise_fraction"] == 0.1) & (summary["N"] == 3)
+        ].iloc[0]
+        self.assertEqual(noisy_N3["win_rate"], 1.0)
+        self.assertAlmostEqual(noisy_N3["mean_advantage"], 0.3)
+
+    def test_win_rate_summary_rejects_bad_inputs(self) -> None:
+        comparisons = pd.DataFrame(
+            {
+                "m": [10],
+                "N": [3],
+                "rmse_error": [-0.2],
+            }
+        )
+
+        with self.assertRaises(ValueError):
+            scalar_quadrature.win_rate_summary(comparisons, metric="not_a_metric")
+
+        with self.assertRaises(KeyError):
+            scalar_quadrature.win_rate_summary(comparisons, group_by=("missing",))
+
     def test_plot_fixed_m_comparison_returns_figure(self) -> None:
         comparisons = pd.DataFrame(
             {
@@ -207,6 +255,10 @@ class ScalarQuadratureTests(unittest.TestCase):
         self.assertEqual(summary.loc[0, "best_max_error_N"], 5)
         self.assertEqual(summary.loc[0, "robust_N"], 5)
         self.assertEqual(summary.loc[0, "win_rate"], 1.0)
+        self.assertEqual(summary.loc[0, "win_rate_metric"], "rmse_error")
+        self.assertEqual(summary.loc[0, "low_noise_win_rate"], 1.0)
+        self.assertEqual(summary.loc[0, "mid_noise_win_rate"], 1.0)
+        self.assertTrue(pd.isna(summary.loc[0, "high_noise_win_rate"]))
 
     def test_plotly_advantage_views_return_figures(self) -> None:
         comparisons = pd.DataFrame(
@@ -236,6 +288,9 @@ class ScalarQuadratureTests(unittest.TestCase):
 
         self.assertGreater(len(curve_figure.data), 0)
         self.assertEqual(len(table_figure.data), 1)
+        self.assertIn("low win", table_figure.data[0].header.values)
+        self.assertIn("med win", table_figure.data[0].header.values)
+        self.assertIn("high win", table_figure.data[0].header.values)
 
     def test_advantage_curve_uses_robust_y_range(self) -> None:
         rows = []
