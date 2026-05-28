@@ -1,4 +1,4 @@
-"""Tests for spectral Chebyshev EuRoC spectrogram helpers."""
+"""Tests for EuRoC spectral basis spectrogram helpers."""
 
 from __future__ import annotations
 
@@ -14,26 +14,14 @@ PYTHON_DIR = Path(__file__).resolve().parents[1]
 if str(PYTHON_DIR) not in sys.path:
     sys.path.insert(0, str(PYTHON_DIR))
 
-from imuFactors.chebyshev_spectrogram import (
-    available_signal_groups,
-    characteristic_windows,
-    fit_spectral_chebyshev_windows,
-    interval_window_starts,
-    load_euroc_csv,
-    plot_average_spectra,
-    plot_average_spectrogram_parts,
-    plot_coefficient_spectrogram,
-    plot_interval_coefficients,
-    plot_interval_fit,
-    plot_window_characteristics,
-)
+import imuFactors.spectrogram as spectrogram
 
 
-class ChebyshevSpectrogramTests(unittest.TestCase):
+class SpectrogramTests(unittest.TestCase):
     def test_one_second_window_starts_uses_closed_windows(self) -> None:
         time = np.arange(0.0, 2.5, 0.005)
 
-        starts, steps, dt = interval_window_starts(time)
+        starts, steps, dt = spectrogram.interval_window_starts(time)
 
         np.testing.assert_array_equal(starts, [0, 200])
         self.assertEqual(steps, 200)
@@ -42,32 +30,52 @@ class ChebyshevSpectrogramTests(unittest.TestCase):
     def test_half_second_window_starts_uses_requested_interval(self) -> None:
         time = np.arange(0.0, 2.0, 0.005)
 
-        starts, steps, _ = interval_window_starts(time, window_seconds=0.5)
+        starts, steps, _ = spectrogram.interval_window_starts(
+            time, window_seconds=0.5
+        )
 
         np.testing.assert_array_equal(starts, [0, 100, 200])
         self.assertEqual(steps, 100)
 
     def test_load_adds_imu_norm_signal_group(self) -> None:
-        dataframe = load_euroc_csv(_write_synthetic_csv())
+        dataframe = spectrogram.load_euroc_csv(_write_synthetic_csv())
 
         self.assertIn("gyro_norm", dataframe.columns)
         self.assertIn("accel_norm", dataframe.columns)
-        groups = available_signal_groups(dataframe)
+        groups = spectrogram.available_signal_groups(dataframe)
         self.assertEqual(groups["imu_norms"], ["gyro_norm", "accel_norm"])
         np.testing.assert_allclose(
             dataframe.loc[0, ["gyro_norm", "accel_norm"]],
             [0.0, np.sqrt(5.0)],
         )
 
-    def test_fit_spectral_chebyshev_windows_recovers_linear_signal(self) -> None:
+    def test_load_adds_gravity_compensated_accel_signal_group(self) -> None:
+        dataframe = spectrogram.load_euroc_csv(_write_synthetic_csv())
+
+        self.assertIn("a_gc_x", dataframe.columns)
+        self.assertIn("a_gc_y", dataframe.columns)
+        self.assertIn("a_gc_z", dataframe.columns)
+        groups = spectrogram.available_signal_groups(dataframe)
+        self.assertEqual(
+            groups["accel_gravity_compensated"],
+            ["a_gc_x", "a_gc_y", "a_gc_z"],
+        )
+        np.testing.assert_allclose(
+            dataframe.loc[0, ["a_gc_x", "a_gc_y", "a_gc_z"]],
+            [1.0, 2.0, -spectrogram.GRAVITY],
+        )
+
+    def test_chebyshev_fit_recovers_linear_signal(self) -> None:
         with self.subTest("fit"):
             path = _write_synthetic_csv()
-            result = fit_spectral_chebyshev_windows(
+            result = spectrogram.fit_spectral_windows(
                 path,
                 coefficient_count=3,
+                basis="chebyshev",
                 columns=["w_x", "a_x"],
             )
 
+            self.assertEqual(result.basis, "chebyshev")
             self.assertEqual(result.coefficient_count, 3)
             self.assertEqual(result.degree, 2)
             self.assertEqual(result.window_count, 2)
@@ -77,9 +85,10 @@ class ChebyshevSpectrogramTests(unittest.TestCase):
             np.testing.assert_allclose(result.reconstructed, result.samples, atol=1e-12)
 
     def test_fit_can_use_imu_norms_and_custom_interval(self) -> None:
-        result = fit_spectral_chebyshev_windows(
+        result = spectrogram.fit_spectral_windows(
             _write_synthetic_csv(),
             coefficient_count=4,
+            basis="chebyshev",
             signal_group="imu_norms",
             window_seconds=0.5,
         )
@@ -90,28 +99,56 @@ class ChebyshevSpectrogramTests(unittest.TestCase):
         self.assertEqual(result.window_count, 4)
         self.assertEqual(result.coeffs.shape, (4, 4, 2))
 
+    def test_fit_can_use_gravity_compensated_accel(self) -> None:
+        result = spectrogram.fit_spectral_windows(
+            _write_synthetic_csv(),
+            coefficient_count=4,
+            basis="chebyshev",
+            signal_group="accel_gravity_compensated",
+        )
+
+        self.assertEqual(result.columns, ["a_gc_x", "a_gc_y", "a_gc_z"])
+        self.assertEqual(result.coeffs.shape, (2, 4, 3))
+
+    def test_fourier_fit_uses_gtsam_fourier_basis(self) -> None:
+        result = spectrogram.fit_spectral_windows(
+            _write_synthetic_csv(),
+            coefficient_count=5,
+            basis="fourier",
+            columns=["w_x", "a_x"],
+        )
+
+        self.assertEqual(result.basis, "fourier")
+        self.assertEqual(result.max_harmonic, 2)
+        self.assertEqual(result.coeffs.shape, (2, 5, 2))
+        self.assertEqual(
+            spectrogram.basis_tick_labels(result),
+            ["1", "cos1", "sin1", "cos2", "sin2"],
+        )
+
     def test_signal_groups_and_plots_return_figures(self) -> None:
         path = _write_synthetic_csv()
         dataframe = pd.read_csv(path)
-        groups = available_signal_groups(dataframe)
+        groups = spectrogram.available_signal_groups(dataframe)
 
         self.assertIn("imu", groups)
         self.assertIn("gyro", groups)
 
-        result = fit_spectral_chebyshev_windows(
+        result = spectrogram.fit_spectral_windows(
             path,
             coefficient_count=4,
+            basis="fourier",
             signal_group="imu",
         )
-        selected = characteristic_windows(result)
+        selected = spectrogram.characteristic_windows(result)
 
         figures = [
-            plot_window_characteristics(result, selected),
-            plot_interval_fit(result, selected["easy"]),
-            plot_interval_coefficients(result, selected["easy"]),
-            plot_coefficient_spectrogram(result),
-            plot_average_spectra(result),
-            plot_average_spectrogram_parts(result),
+            spectrogram.plot_window_characteristics(result, selected),
+            spectrogram.plot_interval_fit(result, selected["easy"]),
+            spectrogram.plot_interval_coefficients(result, selected["easy"]),
+            spectrogram.plot_coefficient_spectrogram(result),
+            spectrogram.plot_average_spectra(result),
+            spectrogram.plot_average_spectrogram_parts(result),
         ]
 
         for figure in figures:
