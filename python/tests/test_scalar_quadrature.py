@@ -18,7 +18,10 @@ from imuFactors.quadrature import scalar
 from imuFactors.quadrature.scalar import (
     ScalarFunction,
     chebyshev_trial_curves,
+    plot_advantage_curves_by_sample_count,
     plot_fixed_sample_comparison,
+    plot_robust_m_table,
+    robust_m_summary,
     run_scalar_monte_carlo,
     scalar_function_from_chebyshev2_nodes,
     trapezoid_integral_curve,
@@ -59,9 +62,7 @@ class ScalarQuadratureTests(unittest.TestCase):
             @staticmethod
             def IntegrationMatrix(node_count, a, b):
                 calls.append("IntegrationMatrix")
-                return np.array(
-                    [[0.0, 0.0], [0.0, 0.0], [0.25, 0.75]]
-                )
+                return np.array([[0.0, 0.0], [0.0, 0.0], [0.25, 0.75]])
 
             @staticmethod
             def assert_interval(a, b):
@@ -87,9 +88,7 @@ class ScalarQuadratureTests(unittest.TestCase):
         sample_values = 2.0 * sample_times + 1.0
         evaluation_times = np.linspace(0.0, 1.0, 9)
 
-        curve = trapezoid_integral_curve(
-            sample_times, sample_values, evaluation_times
-        )
+        curve = trapezoid_integral_curve(sample_times, sample_values, evaluation_times)
 
         expected = evaluation_times**2 + evaluation_times
         np.testing.assert_allclose(curve, expected, atol=1e-12)
@@ -169,6 +168,124 @@ class ScalarQuadratureTests(unittest.TestCase):
         )
 
         self.assertEqual(len(figure.axes), 2)
+
+    def test_robust_m_summary_prefers_highest_median_advantage(self) -> None:
+        comparisons = pd.DataFrame(
+            {
+                "function": ["linear"] * 4,
+                "noise_fraction": [0.0, 0.1, 0.0, 0.1],
+                "noise_std": [0.0, 0.1, 0.0, 0.1],
+                "sample_count": [10, 10, 10, 10],
+                "chebyshev_nodes": [3, 3, 5, 5],
+                "end_error": [0.1, 0.2, -0.3, -0.4],
+                "rmse_error": [0.2, 0.3, -0.4, -0.5],
+                "max_error": [0.3, 0.4, -0.5, -0.6],
+            }
+        )
+
+        summary = robust_m_summary(
+            comparisons,
+            "linear",
+            selected_sample_counts=[10],
+        )
+
+        self.assertEqual(summary.loc[0, "best_end_error_m"], 5)
+        self.assertEqual(summary.loc[0, "best_rmse_error_m"], 5)
+        self.assertEqual(summary.loc[0, "best_max_error_m"], 5)
+        self.assertEqual(summary.loc[0, "robust_m"], 5)
+        self.assertEqual(summary.loc[0, "win_rate"], 1.0)
+
+    def test_plotly_advantage_views_return_figures(self) -> None:
+        comparisons = pd.DataFrame(
+            {
+                "function": ["linear", "linear", "linear", "linear"],
+                "noise_fraction": [0.0, 0.1, 0.0, 0.1],
+                "noise_std": [0.0, 0.1, 0.0, 0.1],
+                "sample_count": [10, 10, 10, 10],
+                "chebyshev_nodes": [4, 4, 5, 5],
+                "end_error": [0.0, 0.1, -0.1, 0.2],
+                "rmse_error": [0.0, -0.1, -0.2, 0.1],
+                "max_error": [0.0, 0.2, -0.1, 0.3],
+            }
+        )
+
+        curve_figure = plot_advantage_curves_by_sample_count(
+            comparisons,
+            "linear",
+            selected_sample_counts=[10],
+            metric="rmse_error",
+        )
+        table_figure = plot_robust_m_table(
+            comparisons,
+            "linear",
+            selected_sample_counts=[10],
+        )
+
+        self.assertGreater(len(curve_figure.data), 0)
+        self.assertEqual(len(table_figure.data), 1)
+
+    def test_advantage_curve_uses_robust_y_range(self) -> None:
+        rows = []
+        for index, node_count in enumerate(range(2, 22)):
+            rows.append(
+                {
+                    "function": "linear",
+                    "noise_fraction": 0.01 * index,
+                    "noise_std": 0.01 * index,
+                    "sample_count": 30,
+                    "chebyshev_nodes": node_count,
+                    "end_error": -float(index),
+                    "rmse_error": -1000.0 if node_count == 21 else -float(index),
+                    "max_error": -float(index),
+                }
+            )
+        comparisons = pd.DataFrame(rows)
+
+        figure = plot_advantage_curves_by_sample_count(
+            comparisons,
+            "linear",
+            selected_sample_counts=[30],
+            metric="rmse_error",
+        )
+
+        y_range = figure.layout.yaxis.range
+        self.assertLess(y_range[1], 1000.0)
+        self.assertLessEqual(y_range[0], 0.0)
+
+    def test_advantage_curve_y_range_can_ignore_small_m_values(self) -> None:
+        comparisons = pd.DataFrame(
+            {
+                "function": ["linear"] * 9,
+                "noise_fraction": [0.01] * 9,
+                "noise_std": [0.01] * 9,
+                "sample_count": [20] * 9,
+                "chebyshev_nodes": list(range(2, 11)),
+                "end_error": [0.0] * 9,
+                "rmse_error": [
+                    20.0,
+                    18.0,
+                    16.0,
+                    -0.01,
+                    -0.02,
+                    -0.01,
+                    0.0,
+                    -0.01,
+                    -0.02,
+                ],
+                "max_error": [0.0] * 9,
+            }
+        )
+
+        figure = plot_advantage_curves_by_sample_count(
+            comparisons,
+            "linear",
+            selected_sample_counts=[20],
+            metric="rmse_error",
+            y_range_min_m=5,
+        )
+
+        y_range = figure.layout.yaxis.range
+        self.assertGreater(y_range[0], -1.0)
 
 
 if __name__ == "__main__":
