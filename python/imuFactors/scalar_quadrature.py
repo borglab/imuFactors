@@ -601,7 +601,7 @@ def plot_advantage_curves_by_m(
                 col=col_index,
             )
 
-        best = _best_N_for_metric(panel, metric)
+        best = _best_N_for_metric(panel, metric, tie_break_target=float(np.sqrt(m)))
         if best is not None:
             fig.add_trace(
                 go.Scatter(
@@ -700,8 +700,11 @@ def robust_N_summary(
             metric: _median_advantage_by_N(panel, metric).reindex(N_grid)
             for metric in metrics
         }
+        tie_break_target = float(np.sqrt(m))
         best_by_metric = {
-            metric: _best_N_from_advantage(metric_summary)
+            metric: _best_N_from_advantage(
+                metric_summary, tie_break_target=tie_break_target
+            )
             for metric, metric_summary in metric_summaries.items()
         }
         ranks = pd.concat(
@@ -712,7 +715,7 @@ def robust_N_summary(
             axis=1,
         )
         rank_score = ranks.mean(axis=1)
-        robust_N = _best_N_from_score(rank_score)
+        robust_N = _best_N_from_score(rank_score, tie_break_target=tie_break_target)
         robust_rows = panel[panel["N"] == robust_N]
         win_rate_metric = "rmse_error" if "rmse_error" in metrics else metrics[0]
         robust_advantages = -robust_rows[win_rate_metric].to_numpy(dtype=float)
@@ -1134,37 +1137,60 @@ def _median_advantage_by_N(data: pd.DataFrame, metric: str) -> pd.Series:
 
 
 def _best_N_for_metric(
-    data: pd.DataFrame, metric: str
+    data: pd.DataFrame,
+    metric: str,
+    *,
+    tie_break_target: float | None = None,
 ) -> dict[str, float | int] | None:
     summary = _median_advantage_by_N(data, metric)
     if summary.empty:
         return None
-    best_N = _best_N_from_advantage(summary)
+    best_N = _best_N_from_advantage(summary, tie_break_target=tie_break_target)
     return {"N": int(best_N), "advantage": float(summary.loc[best_N])}
 
 
-def _best_N_from_advantage(advantage_by_N: pd.Series) -> int:
-    candidates = (
-        advantage_by_N.dropna()
-        .rename("advantage")
-        .reset_index()
-        .sort_values(["advantage", "N"], ascending=[False, True])
-    )
+def _best_N_from_advantage(
+    advantage_by_N: pd.Series,
+    *,
+    tie_break_target: float | None = None,
+) -> int:
+    candidates = advantage_by_N.dropna().rename("advantage").reset_index()
     if candidates.empty:
         raise ValueError("No finite advantage values")
+    candidates = _add_N_tie_break_distance(candidates, tie_break_target)
+    candidates = candidates.sort_values(
+        ["advantage", "tie_break_distance", "N"], ascending=[False, True, True]
+    )
     return int(candidates.iloc[0]["N"])
 
 
-def _best_N_from_score(score_by_N: pd.Series) -> int:
-    candidates = (
-        score_by_N.dropna()
-        .rename("score")
-        .reset_index()
-        .sort_values(["score", "N"], ascending=[True, True])
-    )
+def _best_N_from_score(
+    score_by_N: pd.Series,
+    *,
+    tie_break_target: float | None = None,
+) -> int:
+    candidates = score_by_N.dropna().rename("score").reset_index()
     if candidates.empty:
         raise ValueError("No finite score values")
+    candidates = _add_N_tie_break_distance(candidates, tie_break_target)
+    candidates = candidates.sort_values(
+        ["score", "tie_break_distance", "N"], ascending=[True, True, True]
+    )
     return int(candidates.iloc[0]["N"])
+
+
+def _add_N_tie_break_distance(
+    candidates: pd.DataFrame,
+    tie_break_target: float | None,
+) -> pd.DataFrame:
+    candidates = candidates.copy()
+    if tie_break_target is None:
+        candidates["tie_break_distance"] = 0.0
+    else:
+        candidates["tie_break_distance"] = np.abs(
+            candidates["N"].to_numpy(dtype=float) - float(tie_break_target)
+        )
+    return candidates
 
 
 def _ascii_sparkline(values: np.ndarray) -> str:
