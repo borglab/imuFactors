@@ -185,6 +185,32 @@ class SpectrogramTests(unittest.TestCase):
         self.assertEqual(scores.shape, (result.window_count,))
         self.assertEqual(selected["aggressive"], int(np.nanargmax(scores)))
 
+    def test_interval_diagnostics_score_only_requested_segment(self) -> None:
+        result = spectrogram.fit_spectral_windows(
+            _write_middle_spike_csv(),
+            N=8,
+            basis="chebyshev2",
+            columns=["w_x"],
+            window_seconds=0.5,
+        )
+
+        diagnostics = spectrogram.interval_window_diagnostics(
+            result,
+            (0.2, 0.3),
+            N=6,
+        )
+        scores = spectrogram.interval_aggressive_window_scores(
+            result,
+            (0.2, 0.3),
+            N=6,
+        )
+
+        self.assertEqual(int(np.nanargmax(result.activity)), 0)
+        self.assertEqual(int(np.nanargmax(diagnostics["activity"])), 1)
+        self.assertEqual(int(np.nanargmax(scores)), 1)
+        self.assertEqual(scores.shape, (result.window_count,))
+        self.assertEqual(diagnostics["N"], 6)
+
     def test_chebyshev2_lambda1_penalizes_first_derivative(self) -> None:
         unregularized = spectrogram.fit_spectral_windows(
             _write_synthetic_csv(),
@@ -318,6 +344,43 @@ def _write_synthetic_csv() -> Path:
             "a_x": 1.0 + time,
             "a_y": 2.0 - time,
             "a_z": 0.5 * time,
+        }
+    )
+    rows.to_csv(path, index=False)
+    return path
+
+
+def _write_middle_spike_csv() -> Path:
+    path = Path("/tmp/imu_factors_middle_spike.csv")
+    time = np.arange(0.0, 1.005, 0.005)
+    outside_first_middle = 30.0 * np.exp(-0.5 * ((time - 0.05) / 0.01) ** 2)
+    inside_second_middle = 10.0 * np.exp(-0.5 * ((time - 0.75) / 0.01) ** 2)
+    gyro = outside_first_middle + inside_second_middle
+    rows = pd.DataFrame(
+        {
+            "t": time,
+            "q_w": 1.0,
+            "q_x": 0.0,
+            "q_y": 0.0,
+            "q_z": 0.0,
+            "v_x": 0.0,
+            "v_y": 0.0,
+            "v_z": 0.0,
+            "p_x": 0.0,
+            "p_y": 0.0,
+            "p_z": 0.0,
+            "b_w_x": 0.0,
+            "b_w_y": 0.0,
+            "b_w_z": 0.0,
+            "b_a_x": 0.0,
+            "b_a_y": 0.0,
+            "b_a_z": 0.0,
+            "w_x": gyro,
+            "w_y": 0.0,
+            "w_z": 0.0,
+            "a_x": 0.0,
+            "a_y": 0.0,
+            "a_z": 0.0,
         }
     )
     rows.to_csv(path, index=False)

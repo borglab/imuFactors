@@ -249,6 +249,80 @@ def aggressive_window_scores(result: SpectrogramFit) -> np.ndarray:
     return _zscore(result.activity) + 1.5 * _zscore(result.high_order_ratio)
 
 
+def interval_window_diagnostics(
+    result: SpectrogramFit,
+    interval: tuple[float, float],
+    *,
+    N: int | None = None,
+) -> dict[str, np.ndarray | int]:
+    """Compute local diagnostics inside a relative interval of each window.
+
+    The interval is specified in seconds inside each fitted window. The local
+    high-order ratio is measured by fitting a Chebyshev2 basis to only the
+    interval samples; ``N`` is that diagnostic fit size and must not exceed the
+    number of samples in the interval.
+    """
+
+    a, b = _validated_relative_interval(result, interval)
+    relative_seconds = _window_relative_seconds(result)
+    tolerance = max(1e-12, 0.25 * result.dt)
+    mask = (relative_seconds >= a - tolerance) & (relative_seconds <= b + tolerance)
+    segment_seconds = relative_seconds[mask]
+    if segment_seconds.size < 2:
+        raise ValueError("interval must include at least two samples")
+
+    local_N = int(N) if N is not None else min(result.N, int(segment_seconds.size))
+    if local_N < 1:
+        raise ValueError("N must be positive")
+    if local_N > segment_seconds.size:
+        raise ValueError(
+            f"N={local_N} exceeds the {segment_seconds.size} samples in the interval"
+        )
+
+    segment_samples = result.samples[:, mask, :]
+    activity = standardized_window_activity(
+        segment_samples, result.center, result.scale
+    )
+    plan = spectral.basis_plan_from_coordinates(
+        local_N,
+        segment_seconds,
+        basis="chebyshev2",
+        interval=(a, b),
+        window_seconds=b - a,
+    )
+    local_coeffs = plan.fit(segment_samples)
+    local_reconstructed = plan.reconstruct(local_coeffs)
+    local_rmse = np.sqrt(np.mean((local_reconstructed - segment_samples) ** 2, axis=1))
+    _, coeff_energy = standardized_coefficient_energy(
+        local_coeffs, result.center, result.scale
+    )
+    high_order_ratio = high_order_energy_ratio(coeff_energy)
+    normalized = np.sqrt(
+        np.mean((local_rmse / result.scale.reshape(1, -1)) ** 2, axis=1)
+    )
+    aggressive_score = _zscore(activity) + 1.5 * _zscore(high_order_ratio)
+    return {
+        "relative_seconds": segment_seconds,
+        "activity": activity,
+        "high_order_ratio": high_order_ratio,
+        "normalized_rmse": normalized,
+        "aggressive_score": aggressive_score,
+        "N": local_N,
+    }
+
+
+def interval_aggressive_window_scores(
+    result: SpectrogramFit,
+    interval: tuple[float, float],
+    *,
+    N: int | None = None,
+) -> np.ndarray:
+    """Return aggressive scores computed only inside a relative interval."""
+
+    diagnostics = interval_window_diagnostics(result, interval, N=N)
+    return np.asarray(diagnostics["aggressive_score"], dtype=float)
+
+
 def characteristic_windows(result: SpectrogramFit) -> dict[str, int]:
     """Choose one easy and one aggressive interval from fit diagnostics."""
     easy_score = (
@@ -265,6 +339,22 @@ def characteristic_windows(result: SpectrogramFit) -> dict[str, int]:
 def window_start_seconds(result: SpectrogramFit, window_index: int) -> float:
     """Return window start time relative to the beginning of the file."""
     return float(result.time[result.starts[window_index]] - result.time[0])
+
+
+def _window_relative_seconds(result: SpectrogramFit) -> np.ndarray:
+    return np.linspace(0.0, result.window_seconds, result.m)
+
+
+def _validated_relative_interval(
+    result: SpectrogramFit,
+    interval: tuple[float, float],
+) -> tuple[float, float]:
+    a, b = (float(interval[0]), float(interval[1]))
+    if not (0.0 <= a < b <= result.window_seconds):
+        raise ValueError(
+            "interval must satisfy 0 <= start < end <= result.window_seconds"
+        )
+    return a, b
 
 
 def basis_order_summary(result: SpectrogramFit) -> str:

@@ -260,6 +260,31 @@ class ScalarQuadratureTests(unittest.TestCase):
         self.assertEqual(summary.loc[0, "mid_noise_win_rate"], 1.0)
         self.assertTrue(pd.isna(summary.loc[0, "high_noise_win_rate"]))
 
+    def test_robust_N_summary_ties_choose_N_closest_to_sqrt_m(self) -> None:
+        comparisons = pd.DataFrame(
+            {
+                "function": ["linear"] * 4,
+                "noise_fraction": [0.0, 0.1, 0.0, 0.1],
+                "noise_std": [0.0, 0.1, 0.0, 0.1],
+                "m": [36, 36, 36, 36],
+                "N": [4, 4, 7, 7],
+                "end_error": [-0.2, -0.2, -0.2, -0.2],
+                "rmse_error": [-0.3, -0.3, -0.3, -0.3],
+                "max_error": [-0.4, -0.4, -0.4, -0.4],
+            }
+        )
+
+        summary = scalar_quadrature.robust_N_summary(
+            comparisons,
+            "linear",
+            selected_m_values=[36],
+        )
+
+        self.assertEqual(summary.loc[0, "best_end_error_N"], 7)
+        self.assertEqual(summary.loc[0, "best_rmse_error_N"], 7)
+        self.assertEqual(summary.loc[0, "best_max_error_N"], 7)
+        self.assertEqual(summary.loc[0, "robust_N"], 7)
+
     def test_plotly_advantage_views_return_figures(self) -> None:
         comparisons = pd.DataFrame(
             {
