@@ -10,7 +10,7 @@ include(CTest)
 option(IMUFACTORS_BUILD_INTEGRATION_TESTS "Build long-running integration Monte Carlo tests" OFF)
 
 # Find GTSAM (allow local hint to gtsam-private build)
-find_package(GTSAM REQUIRED HINTS "/home/scottiyio/gtsam-private/build" "$ENV{HOME}/git/gtsam-private/build")
+find_package(GTSAM REQUIRED HINTS "../gtsam-private/build" "$ENV{HOME}/git/gtsam-private/build")
 
 if(TARGET GTSAM::gtsam)
     set(IMUFACTORS_GTSAM_TARGET GTSAM::gtsam)
