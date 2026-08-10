@@ -208,3 +208,11 @@ __marimo__/
 data/.DS_Store
 python/.DS_Store
 .DS_Store
+
+# Reproducible raw Monte Carlo tables from the PsyChMagPI report variants.
+# Keep the compact summaries and figures, which are the reviewable report assets.
+reports/psychmagpi_gyro_report*_assets/*_trial_metrics.csv
+reports/psychmagpi_gyro_report*_assets/*_trial_metrics.csv.gz
+reports/psychmagpi_gyro_report*_assets/interpolation_*_metrics.csv.gz
+reports/psychmagpi_gyro_report*_assets/*_trials.csv
+reports/psychmagpi_gyro_report*_assets/*_trials.csv.gz
