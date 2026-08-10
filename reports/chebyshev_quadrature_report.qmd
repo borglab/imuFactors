@@ -2,7 +2,7 @@
 title: "Chebyshev Quadrature Versus Trapezoid Integration"
 subtitle: "Scalar, random-polynomial, and EuRoC aggressive-snippet evidence"
 author: "Frank Dellaert"
-date: "2026-05-29"
+date: "2026-05-31"
 format:
   pdf:
     toc: true
@@ -20,25 +20,35 @@ fontsize: 10pt
 
 # Executive Summary
 
-The evidence supports a conditional, not universal, case for Chebyshev2 quadrature. The corrected Chebyshev2 integration path now evaluates the antiderivative in an `N+1` representation, and the regularized runs use the derivative-matrix Tikhonov term with `lambda1 = 0.005`. Those fixes make the comparison fairer, but they do not make Chebyshev2 dominate trapezoid integration in every regime.
+The evidence supports a conditional, actionable case for Chebyshev2 quadrature. The corrected Chebyshev2 integration path now evaluates the antiderivative in an `N+1` representation, and the regularized runs use the derivative-matrix Tikhonov term with `lambda1 = 0.005`. Those fixes make the comparison fairer, but they still leave one important operating distinction: smooth low-noise signals and noisy aggressive IMU snippets behave differently.
 
-The consistent pattern is:
+For the practical fixed-size rule `N_sqrt = ceil(sqrt(m))`, the decision view from Sections 3, 4, and 6 is:
 
-- Chebyshev2 is strongest when the signal is smooth and the chosen `N` is modest, usually near or below `sqrt(m)`.
-- Trapezoid remains a strong baseline because the samples are uniformly spaced and the data are noisy. It is local and less exposed to global fit artifacts.
-- Tikhonov regularization helps most when the Chebyshev2 fit would otherwise use too much high-order freedom. It can improve robustness, but it is still a modeling choice rather than a guaranteed win.
-- The EuRoC snippets are the most relevant evidence. They show that Chebyshev2 can win on aggressive 200 ms windows, but the advantage depends on `N`, noise level, and dataset.
+- Low-noise synthetic signals: use Chebyshev2 without Tikhonov. analytic scalar: 78% with `lambda1=0`, random degree-4: 80% with `lambda1=0`
+- High-noise signals: use Chebyshev2 with Tikhonov. analytic scalar: 100% with `lambda1=0.005`, random degree-4: 84% with `lambda1=0.005`, EuRoC aggressive: 97% with `lambda1=0.005`
+- Low-noise EuRoC aggressive snippets are the exception: even the better Chebyshev2 choice wins only 16% with `lambda1=0`, so trapezoid remains the safer low-noise baseline for those underfit, high-curvature snippets.
+
+![RMSE win rate by noise fraction at `N_sqrt = ceil(sqrt(m))`.](chebyshev_quadrature_report_assets/summary_sqrt_m_win_rate_by_noise.png){width=100%}
+
+![Best Chebyshev2 lambda choice by noise band at `N_sqrt = ceil(sqrt(m))`; cells report RMSE win rate over trapezoid.](chebyshev_quadrature_report_assets/summary_sqrt_m_action_matrix.png){width=92%}
+
+The broader pattern is:
+
+- Chebyshev2 is strongest when the signal is smooth and the chosen `N` is modest.
+- Trapezoid remains a strong baseline for uniformly spaced low-noise aggressive snippets because it is local and less exposed to global fit artifacts.
+- Tikhonov regularization helps most when the Chebyshev2 fit would otherwise use too much high-order freedom. It improves robustness in the high-noise regime, but it should not be applied by default in low-noise synthetic cases.
+- The EuRoC snippets are the most relevant stress test. They show a strong high-noise Chebyshev2 win at `N_sqrt`, but they do not support the stronger claim that Chebyshev2 dominates trapezoid in every low-noise aggressive window.
 
 Summary over the decision-view comparisons:
 
-| Family                           | lambda1 | Overall RMSE win rate | Median RMSE advantage | Mean robust-N win rate | Robust rows with positive advantage |
-| -------------------------------- | ------- | --------------------- | --------------------- | ---------------------- | ----------------------------------- |
-| analytic scalar functions        | 0       | 63%                   | 0.0001375             | 85%                    | 100%                                |
-| analytic scalar functions        | 0.005   | 65%                   | 0.0001984             | 88%                    | 100%                                |
-| random degree-4 polynomials      | 0       | 58%                   | 5.902e-05             | 100%                   | 100%                                |
-| random degree-4 polynomials      | 0.005   | 61%                   | 7.695e-05             | 96%                    | 100%                                |
-| EuRoC aggressive 200 ms snippets | 0       | 38%                   | -2.246e-05            | 68%                    | 87%                                 |
-| EuRoC aggressive 200 ms snippets | 0.005   | 46%                   | -9.268e-06            | 71%                    | 95%                                 |
+| Family                           | lambda1 | RMSE win | Median adv. | Robust-N win | Positive robust rows |
+| -------------------------------- | ------- | -------- | ----------- | ------------ | -------------------- |
+| analytic scalar functions        | 0       | 63%      | 0.0001375   | 85%          | 100%                 |
+| analytic scalar functions        | 0.005   | 65%      | 0.0001984   | 88%          | 100%                 |
+| random degree-4 polynomials      | 0       | 58%      | 5.902e-05   | 100%         | 100%                 |
+| random degree-4 polynomials      | 0.005   | 61%      | 7.695e-05   | 96%          | 100%                 |
+| EuRoC aggressive 200 ms snippets | 0       | 38%      | -2.246e-05  | 68%          | 87%                  |
+| EuRoC aggressive 200 ms snippets | 0.005   | 46%      | -9.268e-06  | 71%          | 95%                  |
 
 How to read the figures: positive advantage means `trapezoid error - Chebyshev2 error > 0`, so Chebyshev2 has lower error. The black diamond marks the best median RMSE `N`, and the dashed vertical line marks `sqrt(m)`.
 

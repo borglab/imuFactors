@@ -65,6 +65,17 @@ MIDDLE_INTERVAL = (0.4, 0.6)
 SELECTION_INTERVAL = MIDDLE_INTERVAL
 SELECTION_N = 10
 CACHE_VERSION = 2
+NOISE_BAND_ORDER = ("low", "mid", "high")
+FAMILY_ORDER = (
+    "analytic scalar functions",
+    "random degree-4 polynomials",
+    "EuRoC aggressive 200 ms snippets",
+)
+FAMILY_LABELS = {
+    "analytic scalar functions": "analytic\nscalar",
+    "random degree-4 polynomials": "random\ndegree-4",
+    "EuRoC aggressive 200 ms snippets": "EuRoC\naggressive",
+}
 
 
 @dataclass(frozen=True)
@@ -81,6 +92,16 @@ class FamilyArtifacts:
     pairs: list[FigurePair]
     comparisons: pd.DataFrame
     robust_summary: pd.DataFrame
+
+
+@dataclass(frozen=True)
+class ExecutiveSummaryArtifacts:
+    sqrt_rows: pd.DataFrame
+    noise_summary: pd.DataFrame
+    band_summary: pd.DataFrame
+    recommended_summary: pd.DataFrame
+    win_rate_path: Path
+    action_matrix_path: Path
 
 
 def main() -> None:
@@ -129,15 +150,19 @@ def main() -> None:
 
     summary_table = summarize_families(families)
     summary_table.to_csv(ASSET_DIR / "overall_summary.csv", index=False)
+    executive_summary_artifacts = generate_executive_summary_assets(families)
     random_node_table = random_node_dataframe(random_nodes)
     random_node_table.to_csv(ASSET_DIR / "random_degree4_node_values.csv")
     euroc_metadata = euroc_metadata_dataframe(euroc_cache)
-    euroc_metadata.to_csv(ASSET_DIR / "euroc_aggressive_snippet_metadata.csv", index=False)
+    euroc_metadata.to_csv(
+        ASSET_DIR / "euroc_aggressive_snippet_metadata.csv", index=False
+    )
 
     write_report_qmd(
         old_image_paths=old_image_paths,
         family_artifacts=families,
         summary_table=summary_table,
+        executive_summary_artifacts=executive_summary_artifacts,
         random_node_table=random_node_table,
         euroc_metadata=euroc_metadata,
         euroc_preview_path=euroc_preview_path,
@@ -164,7 +189,9 @@ def build_analytic_functions() -> list[scalar_quadrature.ScalarFunction]:
     ]
 
 
-def build_random_polynomial_functions() -> tuple[list[scalar_quadrature.ScalarFunction], np.ndarray]:
+def build_random_polynomial_functions() -> (
+    tuple[list[scalar_quadrature.ScalarFunction], np.ndarray]
+):
     rng = np.random.default_rng(POLYNOMIAL_SEED)
     node_values = rng.uniform(-0.5, 0.5, size=(3, POLYNOMIAL_N))
     functions = [
@@ -342,7 +369,9 @@ def cache_is_current(cache: dict[str, np.ndarray]) -> bool:
         and int(cache["selection_N"]) == SELECTION_N
         and np.allclose(cache["selection_interval"], SELECTION_INTERVAL)
         and int(cache["reference_N"]) == REFERENCE_N
-        and np.isclose(float(cache["reference_window_seconds"]), REFERENCE_WINDOW_SECONDS)
+        and np.isclose(
+            float(cache["reference_window_seconds"]), REFERENCE_WINDOW_SECONDS
+        )
     )
 
 
@@ -350,7 +379,9 @@ def dataset_name(path: Path) -> str:
     return path.stem.removeprefix("euroc_")
 
 
-def selected_window_row(path: Path, result: spectrogram.SpectrogramFit) -> dict[str, object]:
+def selected_window_row(
+    path: Path, result: spectrogram.SpectrogramFit
+) -> dict[str, object]:
     diagnostics = spectrogram.interval_window_diagnostics(
         result,
         SELECTION_INTERVAL,
@@ -369,8 +400,12 @@ def selected_window_row(path: Path, result: spectrogram.SpectrogramFit) -> dict[
         "snippet_end_seconds": window_start_s + SELECTION_INTERVAL[1],
         "aggressive_score": float(scores[window_index]),
         "selection_activity": float(diagnostics["activity"][window_index]),
-        "selection_high_order_ratio": float(diagnostics["high_order_ratio"][window_index]),
-        "selection_normalized_rmse": float(diagnostics["normalized_rmse"][window_index]),
+        "selection_high_order_ratio": float(
+            diagnostics["high_order_ratio"][window_index]
+        ),
+        "selection_normalized_rmse": float(
+            diagnostics["normalized_rmse"][window_index]
+        ),
         "window_activity": float(result.activity[window_index]),
         "window_high_order_ratio": float(result.high_order_ratio[window_index]),
         "window_normalized_rmse": float(full_nrms[window_index]),
@@ -380,7 +415,9 @@ def selected_window_row(path: Path, result: spectrogram.SpectrogramFit) -> dict[
     }
 
 
-def build_aggressive_window_cache(data_files: list[Path], cache_path: Path) -> dict[str, np.ndarray]:
+def build_aggressive_window_cache(
+    data_files: list[Path], cache_path: Path
+) -> dict[str, np.ndarray]:
     rows = []
     for path in data_files:
         print(f"fitting {dataset_name(path)}...")
@@ -404,15 +441,33 @@ def build_aggressive_window_cache(data_files: list[Path], cache_path: Path) -> d
         "csv_paths": np.array([row["csv_path"] for row in rows]),
         "window_indices": np.array([row["window_index"] for row in rows], dtype=int),
         "start_seconds": np.array([row["start_seconds"] for row in rows], dtype=float),
-        "snippet_start_seconds": np.array([row["snippet_start_seconds"] for row in rows], dtype=float),
-        "snippet_end_seconds": np.array([row["snippet_end_seconds"] for row in rows], dtype=float),
-        "aggressive_scores": np.array([row["aggressive_score"] for row in rows], dtype=float),
-        "selection_activity": np.array([row["selection_activity"] for row in rows], dtype=float),
-        "selection_high_order_ratio": np.array([row["selection_high_order_ratio"] for row in rows], dtype=float),
-        "selection_normalized_rmse": np.array([row["selection_normalized_rmse"] for row in rows], dtype=float),
-        "window_activity": np.array([row["window_activity"] for row in rows], dtype=float),
-        "window_high_order_ratio": np.array([row["window_high_order_ratio"] for row in rows], dtype=float),
-        "window_normalized_rmse": np.array([row["window_normalized_rmse"] for row in rows], dtype=float),
+        "snippet_start_seconds": np.array(
+            [row["snippet_start_seconds"] for row in rows], dtype=float
+        ),
+        "snippet_end_seconds": np.array(
+            [row["snippet_end_seconds"] for row in rows], dtype=float
+        ),
+        "aggressive_scores": np.array(
+            [row["aggressive_score"] for row in rows], dtype=float
+        ),
+        "selection_activity": np.array(
+            [row["selection_activity"] for row in rows], dtype=float
+        ),
+        "selection_high_order_ratio": np.array(
+            [row["selection_high_order_ratio"] for row in rows], dtype=float
+        ),
+        "selection_normalized_rmse": np.array(
+            [row["selection_normalized_rmse"] for row in rows], dtype=float
+        ),
+        "window_activity": np.array(
+            [row["window_activity"] for row in rows], dtype=float
+        ),
+        "window_high_order_ratio": np.array(
+            [row["window_high_order_ratio"] for row in rows], dtype=float
+        ),
+        "window_normalized_rmse": np.array(
+            [row["window_normalized_rmse"] for row in rows], dtype=float
+        ),
         "raw_samples": np.stack([row["raw_samples"] for row in rows]),
         "cgl_node_values": np.stack([row["cgl_node_values"] for row in rows]),
         "sample_seconds": sample_seconds,
@@ -440,7 +495,9 @@ def build_euroc_functions(
 ) -> list[scalar_quadrature.ScalarFunction]:
     return [
         scalar_quadrature.scalar_function_from_chebyshev2_nodes(
-            f"{dataset} center-200ms aggressive gyro_norm", cgl_node_values, FULL_INTERVAL
+            f"{dataset} center-200ms aggressive gyro_norm",
+            cgl_node_values,
+            FULL_INTERVAL,
         )
         for dataset, cgl_node_values in zip(cache["datasets"], cache["cgl_node_values"])
     ]
@@ -539,6 +596,311 @@ def summarize_families(families: Sequence[FamilyArtifacts]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def generate_executive_summary_assets(
+    families: Sequence[FamilyArtifacts],
+) -> ExecutiveSummaryArtifacts:
+    sqrt_rows = sqrt_m_comparison_rows(families)
+    noise_summary = summarize_sqrt_m_by_noise(sqrt_rows)
+    band_summary = summarize_sqrt_m_by_band(sqrt_rows)
+    recommended_summary = best_lambda_by_noise_band(band_summary)
+
+    sqrt_rows.to_csv(ASSET_DIR / "sqrt_m_comparison_rows.csv", index=False)
+    noise_summary.to_csv(ASSET_DIR / "sqrt_m_noise_summary.csv", index=False)
+    band_summary.to_csv(ASSET_DIR / "sqrt_m_band_summary.csv", index=False)
+    recommended_summary.to_csv(
+        ASSET_DIR / "sqrt_m_recommended_summary.csv", index=False
+    )
+
+    win_rate_path = write_plotly_image(
+        plot_sqrt_m_win_rate_curves(noise_summary),
+        ASSET_DIR / "summary_sqrt_m_win_rate_by_noise.png",
+        width=1500,
+        height=460,
+    )
+    action_matrix_path = write_plotly_image(
+        plot_sqrt_m_action_matrix(recommended_summary),
+        ASSET_DIR / "summary_sqrt_m_action_matrix.png",
+        width=1100,
+        height=420,
+    )
+
+    return ExecutiveSummaryArtifacts(
+        sqrt_rows=sqrt_rows,
+        noise_summary=noise_summary,
+        band_summary=band_summary,
+        recommended_summary=recommended_summary,
+        win_rate_path=win_rate_path,
+        action_matrix_path=action_matrix_path,
+    )
+
+
+def sqrt_m_comparison_rows(families: Sequence[FamilyArtifacts]) -> pd.DataFrame:
+    rows = []
+    band_labels = noise_band_labels()
+    for artifacts in families:
+        comparisons = artifacts.comparisons.copy()
+        comparisons["N_sqrt"] = comparisons["m"].map(
+            lambda m: int(np.ceil(np.sqrt(float(m))))
+        )
+        comparisons = comparisons[comparisons["N"] == comparisons["N_sqrt"]].copy()
+        comparisons["family"] = artifacts.family
+        comparisons["lambda1"] = artifacts.lambda1
+        comparisons["rmse_advantage"] = -pd.to_numeric(
+            comparisons["rmse_error"], errors="coerce"
+        )
+        comparisons["noise_band"] = comparisons["noise_fraction"].map(band_labels)
+        rows.append(comparisons)
+    if not rows:
+        return pd.DataFrame()
+    return pd.concat(rows, ignore_index=True)
+
+
+def summarize_sqrt_m_by_noise(sqrt_rows: pd.DataFrame) -> pd.DataFrame:
+    return (
+        sqrt_rows.groupby(["family", "lambda1", "noise_fraction"], as_index=False)
+        .agg(
+            win_rate=("rmse_advantage", lambda values: float(np.mean(values > 0.0))),
+            median_advantage=("rmse_advantage", "median"),
+            mean_advantage=("rmse_advantage", "mean"),
+            rows=("rmse_advantage", "size"),
+        )
+        .sort_values(["family", "lambda1", "noise_fraction"])
+        .reset_index(drop=True)
+    )
+
+
+def summarize_sqrt_m_by_band(sqrt_rows: pd.DataFrame) -> pd.DataFrame:
+    return (
+        sqrt_rows.groupby(["family", "lambda1", "noise_band"], as_index=False)
+        .agg(
+            win_rate=("rmse_advantage", lambda values: float(np.mean(values > 0.0))),
+            median_advantage=("rmse_advantage", "median"),
+            mean_advantage=("rmse_advantage", "mean"),
+            rows=("rmse_advantage", "size"),
+        )
+        .assign(noise_band_order=lambda frame: frame["noise_band"].map(noise_band_rank))
+        .sort_values(["family", "noise_band_order", "lambda1"])
+        .reset_index(drop=True)
+    )
+
+
+def best_lambda_by_noise_band(band_summary: pd.DataFrame) -> pd.DataFrame:
+    if band_summary.empty:
+        return band_summary.copy()
+    ranked = band_summary.copy()
+    ranked["lambda_tie_break"] = ranked["lambda1"].map(lambda value: float(value))
+    return (
+        ranked.sort_values(
+            [
+                "family",
+                "noise_band_order",
+                "win_rate",
+                "median_advantage",
+                "lambda_tie_break",
+            ],
+            ascending=[True, True, False, False, True],
+        )
+        .groupby(["family", "noise_band"], as_index=False)
+        .head(1)
+        .drop(columns=["lambda_tie_break"])
+        .sort_values(["family", "noise_band_order"])
+        .reset_index(drop=True)
+    )
+
+
+def plot_sqrt_m_win_rate_curves(noise_summary: pd.DataFrame) -> go.Figure:
+    fig = make_subplots(
+        rows=1,
+        cols=len(FAMILY_ORDER),
+        shared_yaxes=True,
+        subplot_titles=[
+            FAMILY_LABELS[family].replace("\n", "<br>") for family in FAMILY_ORDER
+        ],
+        horizontal_spacing=0.055,
+    )
+    lambda_styles = {
+        0.0: dict(label="no Tikhonov", color="#222222", dash="solid"),
+        REGULARIZED_LAMBDA1: dict(label="Tikhonov 0.005", color="#2a6f97", dash="dash"),
+    }
+    for col_index, family in enumerate(FAMILY_ORDER, start=1):
+        family_data = noise_summary[noise_summary["family"] == family]
+        for lambda1, style in lambda_styles.items():
+            data = family_data[np.isclose(family_data["lambda1"], lambda1)]
+            if data.empty:
+                continue
+            fig.add_trace(
+                go.Scatter(
+                    x=data["noise_fraction"],
+                    y=100.0 * data["win_rate"],
+                    mode="lines+markers",
+                    line=dict(width=2, color=style["color"], dash=style["dash"]),
+                    marker=dict(size=6, color=style["color"]),
+                    name=style["label"],
+                    legendgroup=style["label"],
+                    showlegend=col_index == 1,
+                    hovertemplate=(
+                        "noise=%{x:.3g}<br>"
+                        "win rate=%{y:.0f}%<br>"
+                        f"{style['label']}<extra></extra>"
+                    ),
+                ),
+                row=1,
+                col=col_index,
+            )
+        fig.add_hline(
+            y=50.0,
+            line_width=1,
+            line_color="rgba(0,0,0,0.35)",
+            row=1,
+            col=col_index,
+        )
+        for boundary in noise_band_boundaries():
+            fig.add_vline(
+                x=boundary,
+                line_width=1,
+                line_dash="dot",
+                line_color="rgba(0,0,0,0.18)",
+                row=1,
+                col=col_index,
+            )
+
+    fig.update_layout(
+        title=dict(text="RMSE win rate at N_sqrt = ceil(sqrt(m))", x=0.5),
+        template="plotly_white",
+        height=430,
+        width=1500,
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.18,
+            xanchor="center",
+            x=0.5,
+        ),
+        margin=dict(l=70, r=30, t=90, b=100),
+    )
+    fig.update_xaxes(
+        title_text="noise fraction",
+        tickvals=[0.0, 0.05, 0.10, 0.15, 0.20, 0.225],
+        ticktext=["0", "0.05", "0.10", "0.15", "0.20", "0.225"],
+        showgrid=False,
+        ticks="outside",
+    )
+    fig.update_yaxes(
+        title_text="Cheb2 lower-RMSE win rate",
+        range=[0, 105],
+        tickvals=[0, 25, 50, 75, 100],
+        ticksuffix="%",
+        showgrid=True,
+        gridcolor="rgba(0,0,0,0.08)",
+        ticks="outside",
+    )
+    for col_index in range(2, len(FAMILY_ORDER) + 1):
+        fig.update_yaxes(title_text="", row=1, col=col_index)
+    return fig
+
+
+def plot_sqrt_m_action_matrix(recommended_summary: pd.DataFrame) -> go.Figure:
+    family_labels = [
+        FAMILY_LABELS[family].replace("\n", "<br>") for family in FAMILY_ORDER
+    ]
+    band_labels = [noise_band_display_label(band) for band in NOISE_BAND_ORDER]
+    z = np.full((len(FAMILY_ORDER), len(NOISE_BAND_ORDER)), np.nan)
+    text = np.full((len(FAMILY_ORDER), len(NOISE_BAND_ORDER)), "", dtype=object)
+    customdata = np.full((len(FAMILY_ORDER), len(NOISE_BAND_ORDER), 2), np.nan)
+
+    for row_index, family in enumerate(FAMILY_ORDER):
+        for col_index, band in enumerate(NOISE_BAND_ORDER):
+            match = recommended_summary[
+                (recommended_summary["family"] == family)
+                & (recommended_summary["noise_band"] == band)
+            ]
+            if match.empty:
+                continue
+            record = match.iloc[0]
+            win_rate = 100.0 * float(record["win_rate"])
+            z[row_index, col_index] = win_rate
+            lambda_text = (
+                "lambda1=0" if np.isclose(record["lambda1"], 0.0) else "lambda1=0.005"
+            )
+            text[row_index, col_index] = f"{win_rate:.0f}%<br>{lambda_text}"
+            customdata[row_index, col_index, 0] = float(record["median_advantage"])
+            customdata[row_index, col_index, 1] = float(record["rows"])
+
+    fig = go.Figure(
+        data=[
+            go.Heatmap(
+                z=z,
+                x=band_labels,
+                y=family_labels,
+                text=text,
+                customdata=customdata,
+                texttemplate="%{text}",
+                textfont=dict(size=15, color="black"),
+                colorscale=[
+                    [0.0, "#f7f7f7"],
+                    [0.5, "#d9ead3"],
+                    [1.0, "#74c476"],
+                ],
+                zmin=0,
+                zmax=100,
+                showscale=True,
+                colorbar=dict(title="win rate", ticksuffix="%"),
+                hovertemplate=(
+                    "%{y}<br>%{x}<br>"
+                    "win rate=%{z:.0f}%<br>"
+                    "median advantage=%{customdata[0]:.4g}<br>"
+                    "rows=%{customdata[1]:.0f}<extra></extra>"
+                ),
+            )
+        ]
+    )
+    fig.update_layout(
+        title="Better lambda at N_sqrt by noise band",
+        template="plotly_white",
+        height=380,
+        width=1100,
+        margin=dict(l=125, r=55, t=80, b=60),
+    )
+    fig.update_xaxes(side="top", ticks="", showgrid=False)
+    fig.update_yaxes(autorange="reversed", ticks="", showgrid=False)
+    return fig
+
+
+def noise_band_labels() -> dict[float, str]:
+    groups = np.array_split(
+        np.asarray(NOISE_FRACTIONS, dtype=float), len(NOISE_BAND_ORDER)
+    )
+    labels: dict[float, str] = {}
+    for name, group in zip(NOISE_BAND_ORDER, groups):
+        for value in group:
+            labels[float(value)] = name
+    return labels
+
+
+def noise_band_boundaries() -> list[float]:
+    groups = np.array_split(
+        np.asarray(NOISE_FRACTIONS, dtype=float), len(NOISE_BAND_ORDER)
+    )
+    return [
+        float((groups[index][-1] + groups[index + 1][0]) / 2.0)
+        for index in range(len(groups) - 1)
+    ]
+
+
+def noise_band_display_label(band: str) -> str:
+    values = [value for value, label in noise_band_labels().items() if label == band]
+    if not values:
+        return band
+    return f"{band}<br>{min(values):.3g}-{max(values):.3g}"
+
+
+def noise_band_rank(band: str) -> int:
+    try:
+        return NOISE_BAND_ORDER.index(str(band))
+    except ValueError:
+        return len(NOISE_BAND_ORDER)
+
+
 def random_node_dataframe(node_values: np.ndarray) -> pd.DataFrame:
     node_times = spectral.chebyshev2_points(POLYNOMIAL_N, INTERVAL)
     return pd.DataFrame(
@@ -573,24 +935,32 @@ def write_report_qmd(
     old_image_paths: dict[str, Path],
     family_artifacts: Sequence[FamilyArtifacts],
     summary_table: pd.DataFrame,
+    executive_summary_artifacts: ExecutiveSummaryArtifacts,
     random_node_table: pd.DataFrame,
     euroc_metadata: pd.DataFrame,
     euroc_preview_path: Path,
 ) -> None:
     sections = []
     sections.append(report_header())
-    sections.append(executive_summary(summary_table))
+    sections.append(executive_summary(summary_table, executive_summary_artifacts))
     sections.append(old_reproduction_section(old_image_paths))
     sections.append(
         decision_family_section(
             "Decision-oriented analytic scalar views",
             "The same three analytic functions are now shown through the decision-oriented Plotly exports. The unregularized block is the baseline; the regularized block uses lambda1 = 0.005. Positive RMSE advantage means trapezoid error minus Chebyshev2 error is positive, so Chebyshev2 is better.",
-            [artifact for artifact in family_artifacts if artifact.family == "analytic scalar functions"],
+            [
+                artifact
+                for artifact in family_artifacts
+                if artifact.family == "analytic scalar functions"
+            ],
         )
     )
     sections.append(random_polynomial_section(random_node_table, family_artifacts))
     sections.append(euroc_section(euroc_metadata, euroc_preview_path, family_artifacts))
-    QMD_PATH.write_text("\n\n".join(sections) + "\n", encoding="utf-8")
+    QMD_PATH.write_text(
+        "\n\n".join(section.rstrip() for section in sections) + "\n",
+        encoding="utf-8",
+    )
     print(f"wrote {QMD_PATH}")
 
 
@@ -599,7 +969,7 @@ def report_header() -> str:
 title: "Chebyshev Quadrature Versus Trapezoid Integration"
 subtitle: "Scalar, random-polynomial, and EuRoC aggressive-snippet evidence"
 author: "Frank Dellaert"
-date: "2026-05-29"
+date: "2026-05-31"
 format:
   pdf:
     toc: true
@@ -616,7 +986,10 @@ fontsize: 10pt
 """
 
 
-def executive_summary(summary_table: pd.DataFrame) -> str:
+def executive_summary(
+    summary_table: pd.DataFrame,
+    executive_summary_artifacts: ExecutiveSummaryArtifacts,
+) -> str:
     display = summary_table.copy()
     display["lambda1"] = display["lambda1"].map(lambda value: f"{value:g}")
     for column in [
@@ -643,23 +1016,48 @@ def executive_summary(summary_table: pd.DataFrame) -> str:
             columns={
                 "family": "Family",
                 "lambda1": "lambda1",
-                "overall_rmse_win_rate": "Overall RMSE win rate",
-                "overall_median_rmse_advantage": "Median RMSE advantage",
-                "robust_N_mean_win_rate": "Mean robust-N win rate",
-                "robust_N_positive_advantage_rows": "Robust rows with positive advantage",
+                "overall_rmse_win_rate": "RMSE win",
+                "overall_median_rmse_advantage": "Median adv.",
+                "robust_N_mean_win_rate": "Robust-N win",
+                "robust_N_positive_advantage_rows": "Positive robust rows",
             }
         )
     )
+    synthetic_low = recommendation_sentence(
+        executive_summary_artifacts.recommended_summary,
+        families=("analytic scalar functions", "random degree-4 polynomials"),
+        band="low",
+    )
+    high_noise = recommendation_sentence(
+        executive_summary_artifacts.recommended_summary,
+        families=FAMILY_ORDER,
+        band="high",
+    )
+    euroc_low = recommendation_value(
+        executive_summary_artifacts.recommended_summary,
+        family="EuRoC aggressive 200 ms snippets",
+        band="low",
+    )
     return f"""# Executive Summary
 
-The evidence supports a conditional, not universal, case for Chebyshev2 quadrature. The corrected Chebyshev2 integration path now evaluates the antiderivative in an `N+1` representation, and the regularized runs use the derivative-matrix Tikhonov term with `lambda1 = 0.005`. Those fixes make the comparison fairer, but they do not make Chebyshev2 dominate trapezoid integration in every regime.
+The evidence supports a conditional, actionable case for Chebyshev2 quadrature. The corrected Chebyshev2 integration path now evaluates the antiderivative in an `N+1` representation, and the regularized runs use the derivative-matrix Tikhonov term with `lambda1 = 0.005`. Those fixes make the comparison fairer, but they still leave one important operating distinction: smooth low-noise signals and noisy aggressive IMU snippets behave differently.
 
-The consistent pattern is:
+For the practical fixed-size rule `N_sqrt = ceil(sqrt(m))`, the decision view from Sections 3, 4, and 6 is:
 
-- Chebyshev2 is strongest when the signal is smooth and the chosen `N` is modest, usually near or below `sqrt(m)`.
-- Trapezoid remains a strong baseline because the samples are uniformly spaced and the data are noisy. It is local and less exposed to global fit artifacts.
-- Tikhonov regularization helps most when the Chebyshev2 fit would otherwise use too much high-order freedom. It can improve robustness, but it is still a modeling choice rather than a guaranteed win.
-- The EuRoC snippets are the most relevant evidence. They show that Chebyshev2 can win on aggressive 200 ms windows, but the advantage depends on `N`, noise level, and dataset.
+- Low-noise synthetic signals: use Chebyshev2 without Tikhonov. {synthetic_low}
+- High-noise signals: use Chebyshev2 with Tikhonov. {high_noise}
+- Low-noise EuRoC aggressive snippets are the exception: even the better Chebyshev2 choice wins only {euroc_low}, so trapezoid remains the safer low-noise baseline for those underfit, high-curvature snippets.
+
+![RMSE win rate by noise fraction at `N_sqrt = ceil(sqrt(m))`.](chebyshev_quadrature_report_assets/summary_sqrt_m_win_rate_by_noise.png){{width=100%}}
+
+![Best Chebyshev2 lambda choice by noise band at `N_sqrt = ceil(sqrt(m))`; cells report RMSE win rate over trapezoid.](chebyshev_quadrature_report_assets/summary_sqrt_m_action_matrix.png){{width=92%}}
+
+The broader pattern is:
+
+- Chebyshev2 is strongest when the signal is smooth and the chosen `N` is modest.
+- Trapezoid remains a strong baseline for uniformly spaced low-noise aggressive snippets because it is local and less exposed to global fit artifacts.
+- Tikhonov regularization helps most when the Chebyshev2 fit would otherwise use too much high-order freedom. It improves robustness in the high-noise regime, but it should not be applied by default in low-noise synthetic cases.
+- The EuRoC snippets are the most relevant stress test. They show a strong high-noise Chebyshev2 win at `N_sqrt`, but they do not support the stronger claim that Chebyshev2 dominates trapezoid in every low-noise aggressive window.
 
 Summary over the decision-view comparisons:
 
@@ -667,6 +1065,39 @@ Summary over the decision-view comparisons:
 
 How to read the figures: positive advantage means `trapezoid error - Chebyshev2 error > 0`, so Chebyshev2 has lower error. The black diamond marks the best median RMSE `N`, and the dashed vertical line marks `sqrt(m)`.
 """
+
+
+def recommendation_sentence(
+    recommended_summary: pd.DataFrame,
+    *,
+    families: Sequence[str],
+    band: str,
+) -> str:
+    values = [
+        recommendation_value(recommended_summary, family=family, band=band)
+        for family in families
+    ]
+    names = [FAMILY_LABELS[family].replace("\n", " ") for family in families]
+    return ", ".join(f"{name}: {value}" for name, value in zip(names, values))
+
+
+def recommendation_value(
+    recommended_summary: pd.DataFrame,
+    *,
+    family: str,
+    band: str,
+) -> str:
+    row = recommended_summary[
+        (recommended_summary["family"] == family)
+        & (recommended_summary["noise_band"] == band)
+    ]
+    if row.empty:
+        return "not available"
+    record = row.iloc[0]
+    lambda_label = (
+        "lambda1=0" if np.isclose(record["lambda1"], 0.0) else "lambda1=0.005"
+    )
+    return f"{100.0 * float(record['win_rate']):.0f}% with `{lambda_label}`"
 
 
 def old_reproduction_section(old_image_paths: dict[str, Path]) -> str:
@@ -701,9 +1132,7 @@ def random_polynomial_section(
     random_node_table: pd.DataFrame,
     family_artifacts: Sequence[FamilyArtifacts],
 ) -> str:
-    table = markdown_table(
-        random_node_table.reset_index(names="Function").round(4)
-    )
+    table = markdown_table(random_node_table.reset_index(names="Function").round(4))
     intro = f"""The random-polynomial notebook broadens the scalar comparison beyond the three hand-picked analytic functions. Each degree-4 polynomial is defined by fixed random values at five CGL nodes on `[0, 1]`; the same Monte Carlo grid is then used for no Tikhonov and for `lambda1 = 0.005`.
 
 {table}
@@ -782,14 +1211,20 @@ def markdown_table(frame: pd.DataFrame) -> str:
         max(len(headers[index]), *(len(row[index]) for row in rows))
         for index in range(len(headers))
     ]
-    header = "| " + " | ".join(
-        headers[index].ljust(widths[index]) for index in range(len(headers))
-    ) + " |"
-    separator = "| " + " | ".join("-" * widths[index] for index in range(len(headers))) + " |"
+    header = (
+        "| "
+        + " | ".join(
+            headers[index].ljust(widths[index]) for index in range(len(headers))
+        )
+        + " |"
+    )
+    separator = (
+        "| " + " | ".join("-" * widths[index] for index in range(len(headers))) + " |"
+    )
     body = [
-        "| " + " | ".join(
-            row[index].ljust(widths[index]) for index in range(len(headers))
-        ) + " |"
+        "| "
+        + " | ".join(row[index].ljust(widths[index]) for index in range(len(headers)))
+        + " |"
         for row in rows
     ]
     return "\n".join([header, separator, *body])
