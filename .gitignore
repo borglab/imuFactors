@@ -216,3 +216,14 @@ reports/psychmagpi_gyro_report*_assets/*_trial_metrics.csv.gz
 reports/psychmagpi_gyro_report*_assets/interpolation_*_metrics.csv.gz
 reports/psychmagpi_gyro_report*_assets/*_trials.csv
 reports/psychmagpi_gyro_report*_assets/*_trials.csv.gz
+
+# Generated PsyChMagPI/TAES experiment assets.
+reports/psychmagpi_gyro_report_assets/
+reports/psychmagpi_gyro_report_approximate_assets/
+reports/psychmagpi_gyro_exact_vs_approximate_assets/
+reports/taes_euroc_snippet_experiment_assets/
+
+# Rendered report PDFs; regenerate them from the committed QMD sources.
+reports/psychmagpi_gyro_report*.pdf
+reports/psychmagpi_gyro_exact_vs_approximate.pdf
+reports/taes_euroc_snippet_experiment_report.pdf
