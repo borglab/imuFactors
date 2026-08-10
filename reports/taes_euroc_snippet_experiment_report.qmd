@@ -1,0 +1,192 @@
+---
+title: "EuRoC Snippet Experiment for TAES Draft"
+subtitle: "Endpoint integration and interpolation results on smooth aggressive gyro proxies"
+author: "Frank Dellaert"
+date: "2026-06-14"
+format:
+  pdf:
+    number-sections: true
+    colorlinks: true
+    fig-pos: H
+    geometry:
+      - top=0.65in
+      - bottom=0.65in
+      - left=0.65in
+      - right=0.65in
+fontsize: 10pt
+---
+
+# Executive Summary
+
+This report stages the EuRoC snippet material used for the compact TAES experiment assets. It summarizes the endpoint, runtime, and interpolation evidence behind the paper-side figure and tables.
+
+Main conclusions:
+
+- I used the same eleven aggressive EuRoC snippets as the PsyChMagPI gyro report, with smooth Chebyshev2 vector proxies fitted on 1 s windows and measurements restricted to the center 200 ms interval.
+- For final endpoint integration, PsyChMagPI used the historical approximate `N -> N` integration matrix and beat D3 single-speed in 44% of matched trials, with median final SO(3) error 0.1625 degrees versus D3's 0.1619 degrees.
+- D3 single-speed was included as the classical coning baseline beyond D2/RK2, so the endpoint comparison is now aligned with the TAES draft's classical-method vocabulary.
+- In wrapped GTSAM timing, D3 was 0.9x the runtime of D2/RK2, while PsyChMagPI was 24.4x the runtime of D2/RK2.
+- I evaluated all interpolation evidence already developed for the EuRoC proxy study: gyro interpolation error, dense attitude trajectory error, and random-subinterval rotation error.
+- PsyChMagPI had the best median gyro NRMSE, 0.1039. PsyChMagPI had the best median trajectory RMS, 0.1369 degrees. PsyChMagPI had the best median random-subinterval RMS, 0.1119 degrees.
+
+Endpoint aggregate summary:
+
+| Method          | Trials | PsyCh win vs D3 | Median err. deg | Mean err. deg | Max err. deg | Converged |
+| --------------- | ------ | --------------- | --------------- | ------------- | ------------ | --------- |
+| D2/RK2          | 60500  |                 | 0.1619          | 0.2657        | 3.601        | 100%      |
+| D3 single-speed | 60500  |                 | 0.1619          | 0.2657        | 3.601        | 100%      |
+| PsyChMagPI      | 60500  | 44%             | 0.1625          | 0.2667        | 3.612        | 100%      |
+
+Runtime aggregate summary:
+
+| Method          | Timed calls | Median runtime | P90 runtime | Runtime/D2 | Median iters | Converged |
+| --------------- | ----------- | -------------- | ----------- | ---------- | ------------ | --------- |
+| D3 single-speed | 825         | 2.08 us        | 2.63 us     | 0.9x       | 0            | 100%      |
+| D2/RK2          | 825         | 2.25 us        | 2.79 us     | 1.0x       | 0            | 100%      |
+| PsyChMagPI      | 825         | 54.9 us        | 65.2 us     | 24.4x      | 6            | 100%      |
+
+# EuRoC Snippet Construction
+
+I used selected EuRoC windows only to define smooth aggressive gyro proxies, not as ground-truth attitude trajectories. Each snippet is a 1 s bias-corrected gyro window fitted by a Chebyshev2 vector proxy with `N=50`; every endpoint and interpolation metric below uses only the shaded 200 ms center interval.
+
+![EuRoC aggressive snippet overview.](taes_euroc_snippet_experiment_assets/snippet_overview.png){width=100%}
+
+The proxy preview below shows the three bias-corrected gyro components and the smooth 1 s vector fit. This figure is useful for paper figure selection because it exposes both the raw IMU contamination and the smooth proxy used for controlled Monte Carlo evaluation.
+
+![Raw bias-corrected gyro samples and Chebyshev2 vector proxies.](taes_euroc_snippet_experiment_assets/proxy_gyro_previews.png){width=100%}
+
+Snippet metadata:
+
+| Dataset | Window | Start s | Middle s | Raw samples | Fit rel. err | Noise scale | Aggressive score |
+| ------- | ------ | ------- | -------- | ----------- | ------------ | ----------- | ---------------- |
+| MH01    | 38     | 38      | 0.4-0.6  | 201         | 0.3007       | 0.3033      | 6.373            |
+| MH02    | 53     | 53      | 0.4-0.6  | 201         | 0.1704       | 0.3979      | 7.924            |
+| MH03    | 45     | 45      | 0.4-0.6  | 201         | 0.1673       | 0.5051      | 7.782            |
+| MH04    | 49     | 49      | 0.4-0.6  | 201         | 0.2291       | 0.4484      | 6.888            |
+| MH05    | 16     | 16      | 0.4-0.6  | 201         | 0.2817       | 0.1969      | 6.302            |
+| V101    | 23     | 23      | 0.4-0.6  | 201         | 0.1139       | 0.6964      | 13.87            |
+| V102    | 69     | 69      | 0.4-0.6  | 201         | 0.04755      | 0.9928      | 8.143            |
+| V103    | 68     | 68      | 0.4-0.6  | 201         | 0.07911      | 1.203       | 9.266            |
+| V201    | 85     | 85      | 0.4-0.6  | 201         | 0.1892       | 0.3403      | 6.465            |
+| V202    | 54     | 54      | 0.4-0.6  | 201         | 0.04676      | 1.339       | 6.555            |
+| V203    | 73     | 73      | 0.4-0.6  | 201         | 0.04369      | 0.8242      | 5.435            |
+
+# Final Integration on the Middle 200 ms Window
+
+I compared final rotation accuracy on identical noisy samples using D2/RK2, D3 single-speed, and PsyChMagPI with `N=ceil(sqrt(m))`. D2/RK2 composes trapezoidal per-sample Lie increments; D3 adds the adjacent-increment single-speed coning correction; PsyChMagPI fits a global CGL representation before SO(3) integration and uses the historical approximate `N -> N` integration matrix.
+
+![Endpoint median final attitude error.](taes_euroc_snippet_experiment_assets/endpoint_median_error.png){width=100%}
+
+![PsyChMagPI matched-trial win rate against D3 single-speed.](taes_euroc_snippet_experiment_assets/endpoint_win_rate.png){width=100%}
+
+Endpoint aggregate summary:
+
+| Method          | Trials | PsyCh win vs D3 | Median err. deg | Mean err. deg | Max err. deg | Converged |
+| --------------- | ------ | --------------- | --------------- | ------------- | ------------ | --------- |
+| D2/RK2          | 60500  |                 | 0.1619          | 0.2657        | 3.601        | 100%      |
+| D3 single-speed | 60500  |                 | 0.1619          | 0.2657        | 3.601        | 100%      |
+| PsyChMagPI      | 60500  | 44%             | 0.1625          | 0.2667        | 3.612        | 100%      |
+
+Endpoint summary by noise band and method:
+
+| Noise | Method          | PsyCh win vs D3 | Median err. deg | Mean err. deg |
+| ----- | --------------- | --------------- | --------------- | ------------- |
+| low   | D2/RK2          |                 | 0.04984         | 0.08491       |
+| low   | D3 single-speed |                 | 0.04984         | 0.08491       |
+| low   | PsyChMagPI      | 34%             | 0.05149         | 0.08945       |
+| mid   | D2/RK2          |                 | 0.182           | 0.2763        |
+| mid   | D3 single-speed |                 | 0.182           | 0.2763        |
+| mid   | PsyChMagPI      | 50%             | 0.1845          | 0.2758        |
+| high  | D2/RK2          |                 | 0.3363          | 0.4926        |
+| high  | D3 single-speed |                 | 0.3363          | 0.4926        |
+| high  | PsyChMagPI      | 51%             | 0.3411          | 0.4908        |
+
+The per-snippet view checks whether the aggregate result is dominated by one EuRoC sequence. I aggregated across all sample counts, noise levels, and seeds for each selected snippet.
+
+![Endpoint median error by snippet.](taes_euroc_snippet_experiment_assets/endpoint_by_snippet.png){width=100%}
+
+# Runtime Comparison
+
+I timed the endpoint methods to estimate the computational cost that would accompany the accuracy results. This is a Python-level wall-clock benchmark of wrapped GTSAM calls, not a final optimized C++ timing claim: D2/RK2 calls `gtsam.integrateSequentialRotations`, D3 calls `gtsam.integrateSingleSpeedConing`, and PsyChMagPI calls the current GTSAM PsyChMagPI wrapper path using the historical approximate `N -> N` integration matrix and including the sample-to-CGL fit used by the report.
+
+The benchmark used all eleven snippets, all sample counts, representative low/mid/high noise levels, and 5 deterministic noisy draws per snippet/sample/noise combination. Each row timed one final-rotation integration on the middle 200 ms window.
+
+![Runtime by sample count.](taes_euroc_snippet_experiment_assets/runtime_by_sample_count.png){width=100%}
+
+Runtime aggregate summary:
+
+| Method          | Timed calls | Median runtime | P90 runtime | Runtime/D2 | Median iters | Converged |
+| --------------- | ----------- | -------------- | ----------- | ---------- | ------------ | --------- |
+| D3 single-speed | 825         | 2.08 us        | 2.63 us     | 0.9x       | 0            | 100%      |
+| D2/RK2          | 825         | 2.25 us        | 2.79 us     | 1.0x       | 0            | 100%      |
+| PsyChMagPI      | 825         | 54.9 us        | 65.2 us     | 24.4x      | 6            | 100%      |
+
+Runtime by sample count:
+
+| m  | Method          | Median runtime | Runtime/D2 |
+| -- | --------------- | -------------- | ---------- |
+| 10 | D2/RK2          | 1.62 us        | 1.0x       |
+| 10 | D3 single-speed | 1.46 us        | 0.9x       |
+| 10 | PsyChMagPI      | 45.6 us        | 28.1x      |
+| 20 | D2/RK2          | 1.92 us        | 1.0x       |
+| 20 | D3 single-speed | 1.75 us        | 0.9x       |
+| 20 | PsyChMagPI      | 48.8 us        | 25.5x      |
+| 30 | D2/RK2          | 2.21 us        | 1.0x       |
+| 30 | D3 single-speed | 2.08 us        | 0.9x       |
+| 30 | PsyChMagPI      | 53.1 us        | 24.1x      |
+| 40 | D2/RK2          | 2.5 us         | 1.0x       |
+| 40 | D3 single-speed | 2.37 us        | 0.9x       |
+| 40 | PsyChMagPI      | 58.7 us        | 23.7x      |
+| 50 | D2/RK2          | 2.75 us        | 1.0x       |
+| 50 | D3 single-speed | 2.62 us        | 1.0x       |
+| 50 | PsyChMagPI      | 62.8 us        | 23.1x      |
+
+# Interpolation and Continuous-Trajectory Results
+
+I included all three interpolation checks because the TAES paper can use them to separate endpoint integration accuracy from continuous representation quality. The signal methods are componentwise linear interpolation, componentwise natural cubic interpolation, and PsyChMagPI; the trajectory checks also include RK2 and Magnus-2 sample-trajectory baselines.
+
+To measure signal fidelity, I compared each continuous angular-velocity estimate against the clean Chebyshev2 proxy on a dense 1001-point grid.
+
+![Gyro interpolation normalized RMSE.](taes_euroc_snippet_experiment_assets/interpolation_signal_nrmse.png){width=100%}
+
+Gyro interpolation summary:
+
+| Noise | Best method | Best NRMSE | PsyCh NRMSE | PsyCh denoise dB |
+| ----- | ----------- | ---------- | ----------- | ---------------- |
+| low   | Linear      | 0.04944    | 0.06083     | 0.00e+00         |
+| mid   | PsyChMagPI  | 0.1039     | 0.1039      | 5.19             |
+| high  | PsyChMagPI  | 0.1568     | 0.1568      | 6.315            |
+
+To measure dense attitude fidelity, I integrated each continuous gyro representation over the dense grid and compared the full attitude path against the clean reference trajectory.
+
+![Dense attitude trajectory RMS error.](taes_euroc_snippet_experiment_assets/interpolation_trajectory_rms.png){width=100%}
+
+Trajectory summary:
+
+| Noise | Best method | Best RMS deg | PsyCh RMS deg | PsyCh final deg |
+| ----- | ----------- | ------------ | ------------- | --------------- |
+| low   | Magnus-2    | 0.03806      | 0.04378       | 0.05157         |
+| mid   | PsyChMagPI  | 0.1369       | 0.1369        | 0.1846          |
+| high  | PsyChMagPI  | 0.2468       | 0.2468        | 0.3414          |
+
+To measure arbitrary interval fidelity, I compared relative rotations over deterministic random subintervals inside the 200 ms window.
+
+![Random-subinterval rotation RMS error.](taes_euroc_snippet_experiment_assets/interpolation_subinterval_rms.png){width=100%}
+
+Random-subinterval summary:
+
+| Noise | Duration | Best method | Best RMS deg | PsyCh RMS deg |
+| ----- | -------- | ----------- | ------------ | ------------- |
+| low   | short    | RK2         | 0.02355      | 0.03911       |
+| low   | mid      | RK2         | 0.04352      | 0.05254       |
+| low   | long     | RK2         | 0.05873      | 0.06366       |
+| mid   | short    | PsyChMagPI  | 0.06956      | 0.06956       |
+| mid   | mid      | PsyChMagPI  | 0.1419       | 0.1419        |
+| mid   | long     | Magnus-2    | 0.1966       | 0.1974        |
+| high  | short    | PsyChMagPI  | 0.1119       | 0.1119        |
+| high  | mid      | PsyChMagPI  | 0.244        | 0.244         |
+| high  | long     | Magnus-2    | 0.3458       | 0.3458        |
+
+# Output Files
+
+I wrote the paper-staging assets under `taes_euroc_snippet_experiment_assets`. The endpoint trial rows are in `endpoint_trial_metrics.csv.gz`, the runtime rows are in `runtime_trial_metrics.csv`, and interpolation trial rows and summaries are copied into the same asset directory so the paper figures can be regenerated without depending on the earlier report directory.
