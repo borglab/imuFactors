@@ -224,10 +224,12 @@ def _method_sort_key(method: str) -> tuple[int, str]:
     preferred_order = {
         "quadrature": 0,
         "manifold": 1,
-        "tangent": 2,
-        "delama_gal3": 3,
-        "gal3_imu_ekf": 4,
-        "navstate_imu_ekf": 5,
+        "galilean": 2,
+        "delama_gal3_python": 3,
+        "tangent": 4,
+        "delama_gal3": 5,
+        "gal3_imu_ekf": 6,
+        "navstate_imu_ekf": 7,
     }
     return preferred_order.get(method, 99), method
 

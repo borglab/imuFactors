@@ -334,6 +334,7 @@ inline void printQuadratureAppUsage(const char* programName,
   std::cout << "  Defaults without overrides: MH=(5.0, 7.0), Vicon=(13.0, "
                "10.0)\n";
   (void)defaultAlpha;
+  std::cout << "  --no-galilean           Omit Galilean preintegration\n";
 }
 
 /**

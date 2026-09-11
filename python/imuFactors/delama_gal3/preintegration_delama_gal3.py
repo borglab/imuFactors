@@ -23,8 +23,13 @@ def load_ground_truth_euroc(filename: str):
         DEVICE
     )
 
+    if data.ndim != 2 or data.shape[0] < 2 or data.shape[1] != 23 or not torch.isfinite(data).all():
+        raise ValueError(f"Expected at least two finite 23-column EuRoC rows in {filename}")
+
     t = (data[:, 0] - data[0, 0]).to(float).to(DEVICE)
-    dt = (t[1:] - t[:-1]).mean().item()
+    dt = (t[1] - t[0]).item()
+    if not np.isfinite(dt) or dt <= 0:
+        raise ValueError(f"Invalid first-sample timestep in {filename}")
 
     R_gt = SO3.from_quaternion(data[:, 1:5]).to(float).to(DEVICE)
     V_gt = data[:, 5:8].to(float).to(DEVICE)
@@ -136,6 +141,85 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def window_bounds(sample_count: int, interval: float, dt: float):
+    """C++ llround for positive intervals, with shared endpoint and next start."""
+    if not np.isfinite(interval) or not np.isfinite(dt) or interval <= 0 or dt <= 0:
+        raise ValueError("Interval and timestep must be finite and positive")
+    steps = max(1, int(np.floor(interval / dt + 0.5)))
+    starts = torch.arange(0, max(0, sample_count - steps), steps, device=DEVICE)
+    return steps, starts, starts + steps
+
+
+@torch.no_grad()
+def evaluate_interval(streams, interval: float, alpha: float = 8.4):
+    """Evaluate all complete windows with initial GT bias and zero covariance."""
+    if not np.isfinite(alpha) or alpha <= 0:
+        raise ValueError("Noise scale alpha must be finite and positive")
+    T, b_omega, b_acc, omegas, accs, time_vec, dt = streams
+    steps_per_window, starts, ends = window_bounds(len(T), interval, dt)
+    M = len(starts)
+    if M == 0:
+        raise ValueError(f"No complete windows for interval {interval}")
+    indices = starts[:, None] + torch.arange(steps_per_window, device=DEVICE)
+    w = torch.cat((omegas[indices] - b_omega[starts, None],
+                   accs[indices] - b_acc[starts, None],
+                   torch.zeros(M, steps_per_window, 3, device=DEVICE),
+                   torch.ones(M, steps_per_window, 1, device=DEVICE)), dim=2)
+    g = torch.tensor([0, 0, -9.81], device=DEVICE)
+    Q_g3 = torch.zeros(20, 20, device=DEVICE)
+    Q_g3[:3, :3] = (alpha * 1.6968e-4)**2 / dt * torch.eye(3, device=DEVICE)
+    Q_g3[3:6, 3:6] = (alpha * 2.0000e-3)**2 / dt * torch.eye(3, device=DEVICE)
+    # Initialize with zero covariance while using each window's
+    # ground-truth initial bias for measurement debiasing above.
+    Y_delama_gal3 = torch.eye(5, device=DEVICE).repeat(M, 1, 1)
+    gamma_delama_gal3 = torch.zeros(M, 10, device=DEVICE)
+    covariance_delama_gal3 = torch.zeros(M, 20, 20, device=DEVICE)
+
+    for k in range(steps_per_window):
+        Y_delama_gal3, gamma_delama_gal3, covariance_delama_gal3 = compound_delama_gal3(
+            Y_delama_gal3, gamma_delama_gal3, covariance_delama_gal3, w[:, k], dt, Q_g3
+        )
+
+    t_end = steps_per_window * dt
+    Y_true_end = (
+        SE3_2.inv(T[starts])
+        .bmm(inv_Gamma_G3(g, t_end).repeat(M, 1, 1))
+        .bmm(T[ends])
+    )
+
+    xi_Y_delama_gal3 = G3.log(Y_true_end.bmm(G3.inv(Y_delama_gal3)))
+
+    # The native error and covariance share the (rotation, velocity, position) order.
+    nees_endpoint = compute_ext_pose_nees(
+        covariance_delama_gal3[:, :9, :9], xi_Y_delama_gal3[:, :9]
+    )
+
+    rot_rmse_deg = torch.rad2deg(rmse_from_error_block(xi_Y_delama_gal3[:, :3]))
+    pos_rmse = rmse_from_error_block(xi_Y_delama_gal3[:, 6:9])
+    vel_rmse = rmse_from_error_block(xi_Y_delama_gal3[:, 3:6])
+
+    result = {
+        "alpha": alpha,
+        "preint_time": interval,
+        "M": M,
+        "starts": starts,
+        "ends": ends,
+        "times": time_vec,
+        "native_error": xi_Y_delama_gal3[:, :9],
+        "native_covariance": covariance_delama_gal3[:, :9, :9],
+        "steps_per_window": steps_per_window,
+        "window_duration_actual": t_end,
+        "endpoint_nees": nees_endpoint,
+        "anees_mean": nees_endpoint.mean().item(),
+        "anees_median": float(np.median(nees_endpoint.cpu().numpy())),
+        "anees_var": nees_endpoint.var(correction=0).item(),
+        "rmse_rotation_deg": rot_rmse_deg.item(),
+        "rmse_position_m": pos_rmse.item(),
+        "rmse_velocity_mps": vel_rmse.item(),
+    }
+    return result
+
+
 def main() -> None:
     args = build_parser().parse_args()
 
@@ -188,86 +272,15 @@ def main() -> None:
         }
         pdump(params, output_dir, sequence_name + "_params_delama_gal3.p")
 
-        Q = torch.zeros((12, 12), device=DEVICE)
-        Q[:3, :3] = sigma_gyro**2 * torch.eye(3, device=DEVICE)
-        Q[3:6, 3:6] = sigma_acc**2 * torch.eye(3, device=DEVICE)
-
-        Q_g3 = torch.zeros(20, 20, device=DEVICE)
-        Q_g3[:6, :6] = Q[:6, :6]
-
         per_sequence_results = {}
 
         for preint_time in preint_times:
-            steps_per_window = int(round(preint_time.item() / dt))
-            poses_per_window = steps_per_window + 1
-            M = int(len(T) / poses_per_window)
-            if M == 0:
+            if len(window_bounds(len(T), preint_time.item(), dt)[1]) == 0:
                 print("Skipping", preint_time.item(), "s (window too large for sequence)")
                 continue
-
-            new_len = M * poses_per_window
-            T_true = torch.reshape(T[:new_len], (M, poses_per_window, 5, 5))
-            b_omega_k = torch.reshape(b_omega[:new_len], (M, poses_per_window, 3))[:, :-1]
-            b_acc_k = torch.reshape(b_acc[:new_len], (M, poses_per_window, 3))[:, :-1]
-
-            omegas_k = torch.reshape(omegas[:new_len], (M, poses_per_window, 3))[:, :-1]
-            accs_k = torch.reshape(accs[:new_len], (M, poses_per_window, 3))[:, :-1]
-            initial_bias_omega = b_omega_k[:, :1, :]
-            initial_bias_acc = b_acc_k[:, :1, :]
-            omegas_unbiased = omegas_k - initial_bias_omega
-            accs_unbiased = accs_k - initial_bias_acc
-            w = torch.cat(
-                (
-                    omegas_unbiased,
-                    accs_unbiased,
-                    torch.zeros(M, steps_per_window, 3, device=DEVICE),
-                    torch.ones(M, steps_per_window, 1, device=DEVICE),
-                ),
-                dim=2,
-            )
-
-            # Initialize with zero covariance while using each window's
-            # ground-truth initial bias for measurement debiasing above.
-            Y_delama_gal3 = torch.eye(5, device=DEVICE).repeat(M, 1, 1)
-            gamma_delama_gal3 = torch.zeros(M, 10, device=DEVICE)
-            covariance_delama_gal3 = torch.zeros(M, 20, 20, device=DEVICE)
-
-            for k in range(steps_per_window):
-                Y_delama_gal3, gamma_delama_gal3, covariance_delama_gal3 = compound_delama_gal3(
-                    Y_delama_gal3, gamma_delama_gal3, covariance_delama_gal3, w[:, k], dt, Q_g3
-                )
-
-            t_end = steps_per_window * dt
-            Y_true_end = (
-                SE3_2.inv(T_true[:, 0])
-                .bmm(inv_Gamma_G3(g, t_end).repeat(M, 1, 1))
-                .bmm(T_true[:, -1])
-            )
-
-            xi_Y_delama_gal3 = G3.log(Y_true_end.bmm(G3.inv(Y_delama_gal3)))
-
-            # Requirement 3/4: extended-pose NEES, then average across windows.
-            nees_endpoint = compute_ext_pose_nees(
-                covariance_delama_gal3[:, :9, :9], xi_Y_delama_gal3[:, :9]
-            )
-
-            rot_rmse_deg = torch.rad2deg(rmse_from_error_block(xi_Y_delama_gal3[:, :3]))
-            pos_rmse = rmse_from_error_block(xi_Y_delama_gal3[:, 6:9])
-            vel_rmse = rmse_from_error_block(xi_Y_delama_gal3[:, 3:6])
-
-            result = {
-                "preint_time": preint_time.item(),
-                "M": M,
-                "steps_per_window": steps_per_window,
-                "window_duration_actual": t_end,
-                "endpoint_nees": nees_endpoint,
-                "anees_mean": nees_endpoint.mean().item(),
-                "anees_median": nees_endpoint.median().item(),
-                "anees_var": nees_endpoint.var().item(),
-                "rmse_rotation_deg": rot_rmse_deg.item(),
-                "rmse_position_m": pos_rmse.item(),
-                "rmse_velocity_mps": vel_rmse.item(),
-            }
+            result = evaluate_interval(
+                (T, b_omega, b_acc, omegas, accs, time_vec, dt),
+                preint_time.item(), alpha)
             per_sequence_results[preint_time.item()] = result
 
             window_label = f"{preint_time.item():.1f}s"

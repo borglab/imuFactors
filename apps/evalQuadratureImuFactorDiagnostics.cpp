@@ -10,12 +10,12 @@
 /**
  * @file   evalQuadratureImuFactorDiagnostics.cpp
  * @brief  Minimal NEES and error analysis for Quadrature, Manifold, and
- * Tangent IMU preintegration
+ * Galilean IMU preintegration
  */
 
 #include <gtsam/navigation/ImuFactor.h>
 #include <gtsam/navigation/ManifoldPreintegration.h>
-#include <gtsam/navigation/TangentPreintegration.h>
+#include <gtsam/navigation/GalileanImuFactor.h>
 
 #include "AppUtils.h"
 #include "QuadratureRunner.h"

@@ -325,3 +325,53 @@ pred_roll,pred_pitch,pred_yaw
 ## License
 
 See `LICENSE` in the repository root (BSD-3-Clause).
+## Unified Gal(3) factor comparison
+
+From the repository root, build and run the four-method comparison with the
+`py312` conda environment:
+
+```bash
+cmake -S . -B build
+make -C build -j6
+conda run -n py312 python python/run_unified_imu_comparison.py
+```
+
+This runs `quadrature`, `manifold`, `galilean` (GTSAM's
+`PreintegratedImuMeasurementsG`), and `delama_gal3_python` on all 11 bundled
+EuRoC sequences at 0.2, 0.5, and 1.0 seconds with uniform gyro/accelerometer
+noise scaling alpha=8.4. Use `--dataset MH01` for the end-to-end smoke run.
+PyTorch must be installed in that environment. Optional `--binary`,
+`--data-dir`, `--results-root`, and `--threads` arguments control paths and
+CPU parallelism; the comparison methods, noise scale, and intervals are fixed.
+
+The orchestrator stages the C++ result outside the viewer discovery tree,
+appends Python metrics and summaries using the existing CSV headers and run
+identity, checks complete window coverage, and publishes one package under
+`build/results/evalQuadratureImuFactorDiagnostics/<run_id>`. C++ metadata and
+dataset membership are preserved verbatim, so `output_root` and `cli_args`
+record the original staging location. Incomplete packages are never published.
+The existing viewer discovers the completed package automatically.
+
+Both implementations use the first CSV timestep and integrate `[start,start+N)`
+with `N=round(interval/dt)`, using `start+N` as both endpoint and next start.
+Delama retains its Gal(3) x gal(3) propagation, initial ground-truth bias, zero
+initial covariance, and native error/covariance pairing for normalized 9-DOF
+NEES with `1e-12` diagonal regularization. Its native rotation/velocity/position
+blocks are exported in rotation/position/velocity order (including both
+covariance axes). Delama error norms are group-log residual block norms;
+the C++ harness reports physical prediction error norms and factor-residual
+NEES. Rotation norms are radians; sigmas are square roots of block trace/3.
+Summaries use population variance, the ordinary median, and C++'s P95 order
+statistic at `floor(0.95*(n-1))`.
+
+The standalone `python/run_delama_gal3.py` still writes pickle and summary
+outputs, now through the same window evaluator. The factor harness accepts
+`--no-galilean`; the former `--delama-gal3` and `--no-delama-gal3` EKF switches
+have been removed. Historical tangent and EKF packages remain viewable.
+
+Relevant tests (run C++ tests with escalated permissions):
+
+```bash
+make -C build -j6 testImuNEES.run testAppUtils.run testDatasetSanity.run testResultsWriter.run
+PYTHONPATH=python conda run -n py312 python -m pytest python/tests -q
+```

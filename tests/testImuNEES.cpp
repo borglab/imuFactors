@@ -22,6 +22,7 @@
 #include "NEESEvaluator.h"
 #include "PIMs.h"
 
+#include <gtsam/navigation/GalileanImuFactor.h>
 #include <gtsam/navigation/ManifoldPreintegration.h>
 #include <gtsam/navigation/TangentPreintegration.h>
 
@@ -134,6 +135,29 @@ TEST(ImuFactor, WindowEvaluation) {
         evaluateWindow<PIMManifold>(window, params, initialCovariance);
     const auto quadratureWithPrior =
         evaluateWindow<PIMQuadrature>(window, params, initialCovariance, 3);
+
+    const auto galilean = evaluateWindow<PreintegratedImuMeasurementsG>(window, params);
+    const auto galileanZeroPrior = evaluateWindow<PreintegratedImuMeasurementsG>(
+        window, params, InitialCovarianceOptions{});
+    const auto galileanWithPrior = evaluateWindow<PreintegratedImuMeasurementsG>(
+        window, params, initialCovariance);
+    EXPECT(galilean.has_value());
+    EXPECT(galileanZeroPrior.has_value());
+    EXPECT(galileanWithPrior.has_value());
+    if (!galilean || !galileanZeroPrior || !galileanWithPrior) return;
+    EXPECT(isFinite(*galilean));
+    EXPECT(isFinite(*galileanWithPrior));
+    EXPECT(hasNonDecreasingPredictedSigma(*galilean, *galileanWithPrior));
+    DOUBLES_EQUAL(galilean->normalizedNees, galileanZeroPrior->normalizedNees, 1e-12);
+    DOUBLES_EQUAL(galilean->rotErrorNorm, galileanWithPrior->rotErrorNorm, 1e-12);
+    DOUBLES_EQUAL(galilean->posErrorNorm, galileanWithPrior->posErrorNorm, 1e-12);
+    DOUBLES_EQUAL(galilean->velErrorNorm, galileanWithPrior->velErrorNorm, 1e-12);
+    EXPECT(galileanWithPrior->normalizedNees <= galilean->normalizedNees);
+    const Vector3 galileanPredictError =
+        predictErrorNorms<PreintegratedImuMeasurementsG>(window, params);
+    DOUBLES_EQUAL(galileanPredictError.x(), galilean->rotErrorNorm, 1e-12);
+    DOUBLES_EQUAL(galileanPredictError.y(), galilean->posErrorNorm, 1e-12);
+    DOUBLES_EQUAL(galileanPredictError.z(), galilean->velErrorNorm, 1e-12);
 
     EXPECT(manifold.has_value());
     EXPECT(tangent.has_value());

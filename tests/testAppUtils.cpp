@@ -117,7 +117,7 @@ TEST(AppUtils, ParseQuadratureAlphaArguments) {
   EXPECT_DOUBLES_EQUAL(8.4, defaultOptions.alphaAcc, 1e-9);
   EXPECT(!defaultOptions.hasAlphaGyroOverride);
   EXPECT(!defaultOptions.hasAlphaAccOverride);
-  EXPECT(defaultOptions.includeDelamaGal3);
+  EXPECT(defaultOptions.includeGalilean);
   const AlphaPair machineHallDefault =
       alphaForDataset(defaultOptions, "MH01");
   EXPECT_DOUBLES_EQUAL(5.0, machineHallDefault.gyro, 1e-9);
@@ -148,14 +148,20 @@ TEST(AppUtils, ParseQuadratureAlphaArguments) {
   EXPECT_DOUBLES_EQUAL(2.0, gyroOnlyMachineHall.gyro, 1e-9);
   EXPECT_DOUBLES_EQUAL(7.0, gyroOnlyMachineHall.acc, 1e-9);
 
-  const QuadratureAppOptions noDelamaOptions =
-      parseQuadratureAppArguments({"--no-delama-gal3"}, "test", 8.4);
-  EXPECT(!noDelamaOptions.includeDelamaGal3);
+  const QuadratureAppOptions noGalileanOptions =
+      parseQuadratureAppArguments({"--no-galilean"}, "test", 8.4);
+  EXPECT(!noGalileanOptions.includeGalilean);
+  EXPECT(defaultOptions.includeGalilean);
+  for (const auto& removedFlag : {"--delama-gal3", "--no-delama-gal3"}) {
+    bool rejected = false;
+    try {
+      parseQuadratureAppArguments({removedFlag}, "test", 8.4);
+    } catch (const std::exception&) {
+      rejected = true;
+    }
+    EXPECT(rejected);
+  }
 
-  const QuadratureAppOptions explicitDelamaOptions =
-      parseQuadratureAppArguments({"--no-delama-gal3", "--delama-gal3"},
-                                  "test", 8.4);
-  EXPECT(explicitDelamaOptions.includeDelamaGal3);
 }
 
 /* ************************************************************************* */
