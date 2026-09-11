@@ -29,13 +29,17 @@ def read_csv(path):
     return fields, rows
 
 
-def validate_package(package, datasets, methods, integration_covariance=1e-8):
+def validate_package(package, datasets, methods, integration_covariance=1e-8, expected_configs=None):
     """Require exact method/interval coverage and matching complete windows."""
     import math
     from imuFactors.delama_gal3.canonical import WINDOW_FIELDS, SUMMARY_FIELDS
 
     from imuFactors.delama_gal3.preintegration_delama_gal3 import configuration_label, integration_covariance_value
     integration_covariance = integration_covariance_value(integration_covariance)
+    if expected_configs is None:
+        expected_configs = {name: configuration_label(8.4, integration_covariance) for name in datasets}
+    if set(expected_configs) != set(datasets):
+        raise ValueError("Expected exactly one configuration per requested dataset")
     tables = {name: read_csv(package / name) for name in CANONICAL_FILES}
     metadata = tables["run_metadata.csv"][1]
     if len(metadata) != 1 or not metadata[0].get("run_id") or not metadata[0].get("app_name"):
@@ -63,8 +67,8 @@ def validate_package(package, datasets, methods, integration_covariance=1e-8):
     if set(grouped) != expected or set(summary_keys) != expected or len(summary_keys) != len(expected):
         raise ValueError(f"Missing or unexpected method/interval coverage; expected {len(expected)} groups, got {len(grouped)} metrics / {len(summaries)} summaries")
     for row in tables["window_metrics.csv"][1] + summaries:
-        if row["config_label"] != configuration_label(8.4, integration_covariance):
-            raise ValueError("Expected endpoint_v2, uniform alpha=8.4 and requested integration covariance")
+        if row["config_label"] != expected_configs[row["dataset"]]:
+            raise ValueError("Expected endpoint_v2 and requested shared alpha/integration covariance configuration")
         for field, value in row.items():
             if field not in ("run_id", "app_name", "dataset", "method", "config_label") and not math.isfinite(float(value)):
                 raise ValueError(f"Non-finite canonical value: {field}")
