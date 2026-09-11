@@ -1,0 +1,63 @@
+{
+  "convention": "endpoint_v2",
+  "protocol": "group_mean_median",
+  "settings": {
+    "MH": {
+      "alpha": 6.686408847645678,
+      "integration_covariance": 1.843203928073361e-05
+    },
+    "V": {
+      "alpha": 14.265918553947698,
+      "integration_covariance": 0.0
+    }
+  },
+  "parameter_selection": "Full-group descriptive calibration: equal sequence/interval/manifold-Galilean mean of native normalized NEES medians = 1; preserve q/alpha^2 from the prior fit; not held-out",
+  "methods": [
+    "manifold",
+    "galilean",
+    "delama_gal3_python"
+  ],
+  "intervals": [
+    0.2,
+    0.5,
+    1.0
+  ],
+  "source_sha256": {
+    "MH01": "cf02607e5be797e5ae31ac933376c123ef25cf52cdd16bbcb61044783d7764dc",
+    "MH02": "64032bf934de15876cc319d7b3abc05d813e3054673c3b2c779250a3305f93e8",
+    "MH03": "09ae700eb5758226295be174689385f40638113b202b2dc8d2d15f7058d0b100",
+    "MH04": "fb98cea4ac1d726089e3477648fc7f57ddfed5249bc77affad9697748b5bf2c9",
+    "MH05": "c739a972fc1aff7d3de4a0a1132e83b2c737e7b47091b9f657a5be043e8632aa",
+    "V101": "4e49c39a6bd4eefd6b26a6724843b55b61bb83f1ccd16e3a9d7db1764d0d50c7",
+    "V102": "2b8101bd38212898ff3969a23ee7d0bc300ad95f3c8a3dd5df52dcce347c074d",
+    "V103": "c93f0c8c9fa86f1859f22da74c7e7e879d38a5f20ebb0653ca4dd26b4d53856b",
+    "V201": "de9ea7f67ad56074679d0557ef760ac60c1eec240fcf20607e5b0b06c4f8d932",
+    "V202": "f0fd12dbad1d62197cb77d1f17992e54f843a378d5c34072ea6b5a9c03e25ad5",
+    "V203": "ed248760149e2bb04455717b88d62405f0afe2b9cb571cac84c63413a087fadb"
+  },
+  "validation": {
+    "metric_rows": 28554,
+    "summary_rows": 99,
+    "method_interval_window_coverage": "passed",
+    "source_csvs_unchanged": true,
+    "all_methods_directly_rerun": true,
+    "no_window_exclusions": true,
+    "mean_of_block_medians": {
+      "MH": 1.0000002833333332,
+      "V": 1.00000025
+    },
+    "full_precision_galilean_parity": "passed: all 11 sequences and 3 intervals, at requested fixed settings",
+    "covariance_comparison": {
+      "atol": 5e-11,
+      "rtol": 1e-05,
+      "normalization": "divide both covariance matrices by (alpha/8.4)^2",
+      "max_raw_entry_difference": 5.035360009522239e-11
+    },
+    "viewer": "load, ordering, HTTP 200 and 33 comparison rows passed",
+    "paper_rows": 108,
+    "physical_errors_unchanged": true,
+    "python_tests": "86 passed",
+    "cpp_tests": "testImuNEES.run, testAppUtils.run, testDatasetSanity.run passed",
+    "paper_pdf": "14 pages, no final build warnings; pages 8, 10 and 11 visually verified and identical to the reviewed preview"
+  }
+}
