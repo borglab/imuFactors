@@ -24,6 +24,11 @@ if str(REPORT_DIR) not in sys.path:
 
 import generate_chebyshev_quadrature_report as chebyshev_report
 import generate_psychmagpi_gyro_report as psych_report
+from taes_euroc_endpoint_table import (
+    EUROC_RMS_METHOD_COLUMNS,
+    endpoint_rms_by_exact_noise,
+    euroc_rms_method_values,
+)
 from imuFactors.gyro_integration import (
     integrate_psychmagpi_rot3,
     rotation_error_degrees,
@@ -31,6 +36,10 @@ from imuFactors.gyro_integration import (
 from imuFactors.gyro_proxy_interpolation import (
     GyroInterpolationResult,
     angular_velocity_roughness,
+    run_gyro_proxy_interpolation_experiments,
+    summarize_signal_metrics,
+    summarize_subinterval_metrics,
+    summarize_trajectory_metrics,
 )
 from imuFactors.gyro_proxy_monte_carlo import (
     GyroProxySnippet,
@@ -75,10 +84,24 @@ INTERPOLATION_COLORS = {
 RAW_PSYCH_METHOD = "PsyChMagPI lambda0"
 REGULARIZED_PSYCH_METHOD = "PsyChMagPI scaled lambda"
 NOISE_BANDS = ("low", "mid", "high")
+REPORT_NOISE_GROUPS = ("none", "low", "mid", "high")
 SPEED_NUM_SEEDS = 5
 PSYCHMAGPI_USE_APPROXIMATE_INTEGRATION_MATRIX = True
-ENDPOINT_BENCHMARK_VERSION = 4
-SPEED_BENCHMARK_VERSION = 5
+PAPER_POLYNOMIAL_ALPHA = 2.0
+ENDPOINT_BENCHMARK_VERSION = 5
+SPEED_BENCHMARK_VERSION = 6
+INTERPOLATION_BENCHMARK_VERSION = 1
+
+
+def paper_node_count(sample_count: int) -> int:
+    """Return N for the paper rule n=floor(2*sqrt(M-1)), N=n+1."""
+    interval_count = int(sample_count) - 1
+    if interval_count < 1:
+        raise ValueError("sample_count must be at least 2")
+    polynomial_degree = int(
+        np.floor(PAPER_POLYNOMIAL_ALPHA * np.sqrt(float(interval_count)))
+    )
+    return min(int(sample_count), polynomial_degree + 1)
 
 
 def main() -> None:
@@ -158,7 +181,6 @@ def main() -> None:
     write_report_qmd(
         metadata=metadata,
         endpoint_metrics=endpoint_metrics,
-        endpoint_summary=endpoint_summary,
         endpoint_overall=endpoint_overall,
         speed_summary=speed_summary,
         speed_overall=speed_overall,
@@ -218,7 +240,7 @@ def run_endpoint_results(snippets: Sequence[GyroProxySnippet]) -> pd.DataFrame:
                 int(m),
                 psych_report.NUM_SEEDS,
             )
-            n_sqrt = int(np.ceil(np.sqrt(float(m))))
+            node_count = paper_node_count(int(m))
             for noise_fraction in psych_report.NOISE_FRACTIONS:
                 noise_std = float(noise_fraction) * float(snippet.noise_scale)
                 sample_batch = clean_samples[None, :, :] + noise_std * noises
@@ -227,7 +249,7 @@ def run_endpoint_results(snippets: Sequence[GyroProxySnippet]) -> pd.DataFrame:
                         endpoint_trial_rows(
                             snippet=snippet,
                             m=int(m),
-                            n_sqrt=n_sqrt,
+                            node_count=node_count,
                             noise_fraction=float(noise_fraction),
                             noise_band=label_map[float(noise_fraction)],
                             noise_std=noise_std,
@@ -252,7 +274,7 @@ def endpoint_trial_rows(
     *,
     snippet: GyroProxySnippet,
     m: int,
-    n_sqrt: int,
+    node_count: int,
     noise_fraction: float,
     noise_band: str,
     noise_std: float,
@@ -275,7 +297,7 @@ def endpoint_trial_rows(
             make_endpoint_row(
                 snippet=snippet,
                 m=m,
-                n_sqrt=n_sqrt,
+                node_count=node_count,
                 noise_fraction=noise_fraction,
                 noise_band=noise_band,
                 noise_std=noise_std,
@@ -292,7 +314,7 @@ def endpoint_trial_rows(
         gtsam.Rot3(),
         sample_times,
         sample_values,
-        N=n_sqrt,
+        N=node_count,
         tolerance=psych_report.PSYCHMAGPI_TOLERANCE,
         max_iterations=psych_report.PSYCHMAGPI_MAX_ITERATIONS,
         lambda1=0.0,
@@ -302,7 +324,7 @@ def endpoint_trial_rows(
         make_endpoint_row(
             snippet=snippet,
             m=m,
-            n_sqrt=n_sqrt,
+            node_count=node_count,
             noise_fraction=noise_fraction,
             noise_band=noise_band,
             noise_std=noise_std,
@@ -322,7 +344,7 @@ def make_endpoint_row(
     *,
     snippet: GyroProxySnippet,
     m: int,
-    n_sqrt: int,
+    node_count: int,
     noise_fraction: float,
     noise_band: str,
     noise_std: float,
@@ -338,7 +360,7 @@ def make_endpoint_row(
         "dataset": snippet.dataset,
         "window_index": int(snippet.window_index),
         "m": int(m),
-        "N_sqrt": int(n_sqrt),
+        "N_paper": int(node_count),
         "noise_fraction": float(noise_fraction),
         "noise_band": str(noise_band),
         "noise_std": float(noise_std),
@@ -450,7 +472,7 @@ def run_speed_results(snippets: Sequence[GyroProxySnippet]) -> pd.DataFrame:
                 int(m),
                 SPEED_NUM_SEEDS,
             )
-            n_sqrt = int(np.ceil(np.sqrt(float(m))))
+            node_count = paper_node_count(int(m))
             for noise_fraction in representative_fractions:
                 noise_std = float(noise_fraction) * float(snippet.noise_scale)
                 sample_batch = clean_samples[None, :, :] + noise_std * noises
@@ -459,7 +481,7 @@ def run_speed_results(snippets: Sequence[GyroProxySnippet]) -> pd.DataFrame:
                         speed_trial_rows(
                             snippet=snippet,
                             m=int(m),
-                            n_sqrt=n_sqrt,
+                            node_count=node_count,
                             noise_fraction=float(noise_fraction),
                             noise_band=label_map[float(noise_fraction)],
                             noise_std=noise_std,
@@ -497,7 +519,7 @@ def speed_trial_rows(
     *,
     snippet: GyroProxySnippet,
     m: int,
-    n_sqrt: int,
+    node_count: int,
     noise_fraction: float,
     noise_band: str,
     noise_std: float,
@@ -516,7 +538,7 @@ def speed_trial_rows(
         make_speed_row(
             snippet=snippet,
             m=m,
-            n_sqrt=n_sqrt,
+            node_count=node_count,
             noise_fraction=noise_fraction,
             noise_band=noise_band,
             noise_std=noise_std,
@@ -531,7 +553,7 @@ def speed_trial_rows(
         make_speed_row(
             snippet=snippet,
             m=m,
-            n_sqrt=n_sqrt,
+            node_count=node_count,
             noise_fraction=noise_fraction,
             noise_band=noise_band,
             noise_std=noise_std,
@@ -547,7 +569,7 @@ def speed_trial_rows(
             gtsam.Rot3(),
             sample_times,
             sample_values,
-            N=n_sqrt,
+            N=node_count,
             tolerance=psych_report.PSYCHMAGPI_TOLERANCE,
             max_iterations=psych_report.PSYCHMAGPI_MAX_ITERATIONS,
             lambda1=0.0,
@@ -558,7 +580,7 @@ def speed_trial_rows(
         make_speed_row(
             snippet=snippet,
             m=m,
-            n_sqrt=n_sqrt,
+            node_count=node_count,
             noise_fraction=noise_fraction,
             noise_band=noise_band,
             noise_std=noise_std,
@@ -602,7 +624,7 @@ def make_speed_row(
     *,
     snippet: GyroProxySnippet,
     m: int,
-    n_sqrt: int,
+    node_count: int,
     noise_fraction: float,
     noise_band: str,
     noise_std: float,
@@ -616,7 +638,7 @@ def make_speed_row(
         "dataset": snippet.dataset,
         "window_index": int(snippet.window_index),
         "m": int(m),
-        "N_sqrt": int(n_sqrt),
+        "N_paper": int(node_count),
         "noise_fraction": float(noise_fraction),
         "noise_band": str(noise_band),
         "noise_std": float(noise_std),
@@ -685,9 +707,38 @@ def summarize_speed_overall(metrics: pd.DataFrame) -> pd.DataFrame:
 def load_interpolation_result(
     snippets: Sequence[GyroProxySnippet],
 ) -> GyroInterpolationResult:
-    result = psych_report.load_or_run_interpolation_experiments(
+    metric_paths = {
+        "signal_metrics": ASSET_DIR / "interpolation_signal_metrics.csv.gz",
+        "trajectory_metrics": ASSET_DIR / "interpolation_trajectory_metrics.csv.gz",
+        "subinterval_metrics": ASSET_DIR / "interpolation_subinterval_metrics.csv.gz",
+        "signal_summary": ASSET_DIR / "interpolation_signal_summary.csv",
+        "trajectory_summary": ASSET_DIR / "interpolation_trajectory_summary.csv",
+        "subinterval_summary": ASSET_DIR / "interpolation_subinterval_summary.csv",
+    }
+    metadata_path = ASSET_DIR / "interpolation_benchmark_metadata.csv"
+    if metadata_path.exists() and all(path.exists() for path in metric_paths.values()):
+        metadata = pd.read_csv(metadata_path)
+        if (
+            len(metadata) == 1
+            and int(metadata.iloc[0]["benchmark_version"])
+            == INTERPOLATION_BENCHMARK_VERSION
+        ):
+            return GyroInterpolationResult(
+                **{name: pd.read_csv(path) for name, path in metric_paths.items()}
+            )
+
+    result = run_gyro_proxy_interpolation_experiments(
         snippets,
-        asset_dir=psych_report.ASSET_DIR,
+        m_values=psych_report.SAMPLE_COUNTS,
+        noise_fractions=psych_report.NOISE_FRACTIONS,
+        num_seeds=psych_report.NUM_SEEDS,
+        seed=psych_report.RANDOM_SEED,
+        dense_count=psych_report.INTERPOLATION_DENSE_COUNT,
+        subintervals_per_duration_bin=(
+            psych_report.INTERPOLATION_SUBINTERVALS_PER_BIN
+        ),
+        c_lambda=psych_report.INTERPOLATION_C_LAMBDA,
+        node_count_rule=paper_node_count,
     )
     return unregularized_interpolation_result(result)
 
@@ -717,6 +768,8 @@ def filter_unregularized_methods(frame: pd.DataFrame) -> pd.DataFrame:
     ]
     if drop_columns:
         filtered = filtered.drop(columns=drop_columns)
+    if "N_sqrt" in filtered:
+        filtered = filtered.rename(columns={"N_sqrt": "N_paper"})
     return filtered.reset_index(drop=True)
 
 
@@ -745,6 +798,15 @@ def write_interpolation_csvs(result: GyroInterpolationResult) -> None:
         ASSET_DIR / "interpolation_subinterval_summary.csv",
         index=False,
     )
+    pd.DataFrame(
+        [
+            {
+                "benchmark_version": INTERPOLATION_BENCHMARK_VERSION,
+                "alpha": PAPER_POLYNOMIAL_ALPHA,
+                "rule": "n=floor(alpha*sqrt(M-1)); N=n+1",
+            }
+        ]
+    ).to_csv(ASSET_DIR / "interpolation_benchmark_metadata.csv", index=False)
 
 
 def plot_snippet_overview(snippets: Sequence[GyroProxySnippet]) -> go.Figure:
@@ -1206,7 +1268,6 @@ def write_report_qmd(
     *,
     metadata: pd.DataFrame,
     endpoint_metrics: pd.DataFrame,
-    endpoint_summary: pd.DataFrame,
     endpoint_overall: pd.DataFrame,
     speed_summary: pd.DataFrame,
     speed_overall: pd.DataFrame,
@@ -1215,9 +1276,18 @@ def write_report_qmd(
 ) -> None:
     sections = [
         report_header(),
-        executive_summary(endpoint_overall, speed_overall, interpolation_result),
+        executive_summary(
+            endpoint_metrics,
+            endpoint_overall,
+            speed_overall,
+            interpolation_result,
+        ),
         snippet_section(metadata, figure_paths),
-        endpoint_section(endpoint_overall, endpoint_summary, figure_paths),
+        endpoint_section(
+            endpoint_overall,
+            endpoint_metrics,
+            figure_paths,
+        ),
         speed_section(speed_summary, speed_overall, figure_paths),
         interpolation_section(interpolation_result, figure_paths),
         assets_section(),
@@ -1253,6 +1323,7 @@ fontsize: 10pt
 
 
 def executive_summary(
+    endpoint_metrics: pd.DataFrame,
     endpoint_overall: pd.DataFrame,
     speed_overall: pd.DataFrame,
     interpolation_result: GyroInterpolationResult,
@@ -1271,6 +1342,15 @@ def executive_summary(
     d3_endpoint = endpoint_overall[
         endpoint_overall["method"].astype(str) == "D3 single-speed"
     ].iloc[0]
+    no_noise = endpoint_metrics[
+        np.isclose(endpoint_metrics["noise_fraction"].to_numpy(dtype=float), 0.0)
+    ]
+    no_noise_psych = no_noise[
+        no_noise["method"].astype(str) == "PsyChMagPI"
+    ]
+    no_noise_d3 = no_noise[
+        no_noise["method"].astype(str) == "D3 single-speed"
+    ]
     interpolation_sentence = interpolation_executive_sentence(interpolation_result)
     return f"""# Executive Summary
 
@@ -1279,6 +1359,8 @@ This report stages the EuRoC snippet material used for the compact TAES experime
 Main conclusions:
 
 - I used the same eleven aggressive EuRoC snippets as the PsyChMagPI gyro report, with smooth Chebyshev2 vector proxies fitted on 1 s windows and measurements restricted to the center 200 ms interval.
+- For `M` samples, PsyChMagPI used the paper's advocated rule `m=M-1`, `n=floor(2*sqrt(m))`, and `N=n+1`; the five sample counts therefore used `N={list(paper_node_count(m) for m in psych_report.SAMPLE_COUNTS)}`.
+- With no added noise, PsyChMagPI beat D3 single-speed in {format_percent(float(no_noise_psych["win_rate"].mean()))} of matched trials, with median endpoint error {psych_report.format_error(float(no_noise_psych["error_deg"].median()))} degrees versus D3's {psych_report.format_error(float(no_noise_d3["error_deg"].median()))} degrees.
 - For final endpoint integration, PsyChMagPI used the historical approximate `N -> N` integration matrix and beat D3 single-speed in {format_percent(float(psych_endpoint["win_rate"]))} of matched trials, with median final SO(3) error {psych_report.format_error(float(psych_endpoint["median_error_deg"]))} degrees versus D3's {psych_report.format_error(float(d3_endpoint["median_error_deg"]))} degrees.
 - D3 single-speed was included as the classical coning baseline beyond D2/RK2, so the endpoint comparison is now aligned with the TAES draft's classical-method vocabulary.
 - In wrapped GTSAM timing, D3 was {psych_report.format_ratio(float(d3_speed["slowdown_vs_d2"]))} the runtime of D2/RK2, while PsyChMagPI was {psych_report.format_ratio(float(psych_speed["slowdown_vs_d2"]))} the runtime of D2/RK2.
@@ -1315,14 +1397,15 @@ Snippet metadata:
 
 def endpoint_section(
     endpoint_overall: pd.DataFrame,
-    endpoint_summary: pd.DataFrame,
+    endpoint_metrics: pd.DataFrame,
     figure_paths: dict[str, Path],
 ) -> str:
-    band_table = endpoint_band_table(endpoint_summary)
+    band_table = endpoint_band_table(endpoint_metrics)
+    exact_noise_rms_table = endpoint_exact_noise_rms_table(endpoint_metrics)
     overall_table = endpoint_overall_table(endpoint_overall)
     return f"""# Final Integration on the Middle 200 ms Window
 
-I compared final rotation accuracy on identical noisy samples using D2/RK2, D3 single-speed, and PsyChMagPI with `N=ceil(sqrt(m))`. D2/RK2 composes trapezoidal per-sample Lie increments; D3 adds the adjacent-increment single-speed coning correction; PsyChMagPI fits a global CGL representation before SO(3) integration and uses the historical approximate `N -> N` integration matrix.
+I compared final rotation accuracy on identical noisy samples using D2/RK2, D3 single-speed, and PsyChMagPI with the paper's polynomial-degree rule: for `M` samples and `m=M-1` intervals, `n=floor(2*sqrt(m))` and `N=n+1` CGL nodes. D2/RK2 composes trapezoidal per-sample Lie increments; D3 adds the adjacent-increment single-speed coning correction; PsyChMagPI fits a global CGL representation before SO(3) integration and uses the historical approximate `N -> N` integration matrix.
 
 ![Endpoint median final attitude error.]({psych_report.relative_asset(figure_paths["endpoint_median"])}){{width=100%}}
 
@@ -1332,9 +1415,15 @@ Endpoint aggregate summary:
 
 {overall_table}
 
-Endpoint summary by noise band and method:
+Endpoint summary by explicit noise group and method. The no-noise trials are broken out from the positive low-noise trials:
 
 {band_table}
+
+Paper Table IV staging data use the same final-attitude RMS metric and method columns as Tables II and III. These rows fix `M=40` samples (195 Hz) and `N=13`, aggregate 1,100 cached trials per method and noise value, and do not bundle noise into bands. An em dash marks a method that was not run in the cached drone experiment.
+
+{exact_noise_rms_table}
+
+For snippet `i`, the component noise standard deviation is `sigma_i = alpha * range_t ||omega_i*(t)||`. Because that physical scale varies by snippet, the table lists the exact dimensionless `alpha` used by the experiment rather than a single rad/s value. The converged PS-CPI column uses the historical approximate `N -> N` integration matrix.
 
 The per-snippet view checks whether the aggregate result is dominated by one EuRoC sequence. I aggregated across all sample counts, noise levels, and seeds for each selected snippet.
 
@@ -1371,16 +1460,16 @@ def interpolation_section(
     interpolation_result: GyroInterpolationResult,
     figure_paths: dict[str, Path],
 ) -> str:
-    signal_table = interpolation_signal_table(interpolation_result.signal_summary)
+    signal_table = interpolation_signal_table(interpolation_result.signal_metrics)
     trajectory_table = interpolation_trajectory_table(
-        interpolation_result.trajectory_summary
+        interpolation_result.trajectory_metrics
     )
     subinterval_table = interpolation_subinterval_table(
-        interpolation_result.subinterval_summary
+        interpolation_result.subinterval_metrics
     )
     return f"""# Interpolation and Continuous-Trajectory Results
 
-I included all three interpolation checks because the TAES paper can use them to separate endpoint integration accuracy from continuous representation quality. The signal methods are componentwise linear interpolation, componentwise natural cubic interpolation, and PsyChMagPI; the trajectory checks also include RK2 and Magnus-2 sample-trajectory baselines.
+I included all three interpolation checks because the TAES paper can use them to separate endpoint integration accuracy from continuous representation quality. The signal methods are componentwise linear interpolation, componentwise natural cubic interpolation, and PsyChMagPI; the trajectory checks also include RK2 and Magnus-2 sample-trajectory baselines. PsyChMagPI uses the same paper rule `n=floor(2*sqrt(M-1))`, `N=n+1` as the endpoint experiment. Each table explicitly separates no-noise trials from positive low-noise trials and reports the strongest non-PS baseline beside PsyChMagPI.
 
 To measure signal fidelity, I compared each continuous angular-velocity estimate against the clean Chebyshev2 proxy on a dense 1001-point grid.
 
@@ -1544,7 +1633,8 @@ def aggregate_interpolation_subinterval_by_method(summary: pd.DataFrame) -> pd.D
     )
 
 
-def interpolation_signal_table(summary: pd.DataFrame) -> str:
+def interpolation_signal_table(metrics: pd.DataFrame) -> str:
+    summary = summarize_signal_metrics(with_explicit_noise_groups(metrics))
     aggregate = (
         summary.groupby(["method", "noise_band"], observed=True)
         .agg(
@@ -1554,15 +1644,16 @@ def interpolation_signal_table(summary: pd.DataFrame) -> str:
         .reset_index()
     )
     rows = []
-    for band in NOISE_BANDS:
+    for band in REPORT_NOISE_GROUPS:
         band_data = aggregate[aggregate["noise_band"].astype(str) == band]
-        best = band_data.sort_values("median_gyro_nrmse").iloc[0]
+        non_ps = band_data[band_data["method"].astype(str) != "PsyChMagPI"]
+        best = non_ps.sort_values("median_gyro_nrmse").iloc[0]
         psych = band_data[band_data["method"] == "PsyChMagPI"].iloc[0]
         rows.append(
             {
                 "Noise": band,
-                "Best method": best["method"],
-                "Best NRMSE": psych_report.format_error(
+                "Best non-PS": best["method"],
+                "Non-PS NRMSE": psych_report.format_error(
                     float(best["median_gyro_nrmse"])
                 ),
                 "PsyCh NRMSE": psych_report.format_error(
@@ -1576,7 +1667,8 @@ def interpolation_signal_table(summary: pd.DataFrame) -> str:
     return psych_report.markdown_table(pd.DataFrame(rows))
 
 
-def interpolation_trajectory_table(summary: pd.DataFrame) -> str:
+def interpolation_trajectory_table(metrics: pd.DataFrame) -> str:
+    summary = summarize_trajectory_metrics(with_explicit_noise_groups(metrics))
     aggregate = (
         summary.groupby(["method", "noise_band"], observed=True)
         .agg(
@@ -1589,15 +1681,16 @@ def interpolation_trajectory_table(summary: pd.DataFrame) -> str:
         .reset_index()
     )
     rows = []
-    for band in NOISE_BANDS:
+    for band in REPORT_NOISE_GROUPS:
         band_data = aggregate[aggregate["noise_band"].astype(str) == band]
-        best = band_data.sort_values("median_trajectory_rms_error_deg").iloc[0]
+        non_ps = band_data[band_data["method"].astype(str) != "PsyChMagPI"]
+        best = non_ps.sort_values("median_trajectory_rms_error_deg").iloc[0]
         psych = band_data[band_data["method"] == "PsyChMagPI"].iloc[0]
         rows.append(
             {
                 "Noise": band,
-                "Best method": best["method"],
-                "Best RMS deg": psych_report.format_error(
+                "Best non-PS": best["method"],
+                "Non-PS RMS deg": psych_report.format_error(
                     float(best["median_trajectory_rms_error_deg"])
                 ),
                 "PsyCh RMS deg": psych_report.format_error(
@@ -1611,10 +1704,11 @@ def interpolation_trajectory_table(summary: pd.DataFrame) -> str:
     return psych_report.markdown_table(pd.DataFrame(rows))
 
 
-def interpolation_subinterval_table(summary: pd.DataFrame) -> str:
+def interpolation_subinterval_table(metrics: pd.DataFrame) -> str:
+    summary = summarize_subinterval_metrics(with_explicit_noise_groups(metrics))
     aggregate = interpolation_subinterval_aggregate(summary)
     rows = []
-    for band in NOISE_BANDS:
+    for band in REPORT_NOISE_GROUPS:
         for duration in ("short", "mid", "long"):
             data = aggregate[
                 (aggregate["noise_band"].astype(str) == band)
@@ -1622,14 +1716,15 @@ def interpolation_subinterval_table(summary: pd.DataFrame) -> str:
             ]
             if data.empty:
                 continue
-            best = data.sort_values("median_rms_error_deg").iloc[0]
+            non_ps = data[data["method"].astype(str) != "PsyChMagPI"]
+            best = non_ps.sort_values("median_rms_error_deg").iloc[0]
             psych = data[data["method"] == "PsyChMagPI"].iloc[0]
             rows.append(
                 {
                     "Noise": band,
                     "Duration": duration,
-                    "Best method": best["method"],
-                    "Best RMS deg": psych_report.format_error(
+                    "Best non-PS": best["method"],
+                    "Non-PS RMS deg": psych_report.format_error(
                         float(best["median_rms_error_deg"])
                     ),
                     "PsyCh RMS deg": psych_report.format_error(
@@ -1673,9 +1768,10 @@ def endpoint_overall_table(overall: pd.DataFrame) -> str:
     )
 
 
-def endpoint_band_table(summary: pd.DataFrame) -> str:
+def endpoint_band_table(metrics: pd.DataFrame) -> str:
+    summary = summarize_endpoint_metrics(with_explicit_noise_groups(metrics))
     rows = []
-    for band in NOISE_BANDS:
+    for band in REPORT_NOISE_GROUPS:
         band_data = summary[summary["noise_band"].astype(str) == band]
         for method in ENDPOINT_METHOD_ORDER:
             data = band_data[band_data["method"].astype(str) == method]
@@ -1698,6 +1794,43 @@ def endpoint_band_table(summary: pd.DataFrame) -> str:
                 }
             )
     return psych_report.markdown_table(pd.DataFrame(rows))
+
+
+def endpoint_exact_noise_rms_table(metrics: pd.DataFrame) -> str:
+    """Format cached M=40 endpoint RMS errors in the Table II column order."""
+    summary = endpoint_rms_by_exact_noise(metrics)
+    rows = []
+    for _, summary_row in summary.iterrows():
+        row: dict[str, str] = {
+            "Noise fraction alpha": format_noise_fraction(
+                float(summary_row["Noise fraction alpha"])
+            )
+        }
+        for (label, _), value in zip(
+            EUROC_RMS_METHOD_COLUMNS,
+            euroc_rms_method_values(summary_row),
+        ):
+            row[label] = "&mdash;" if value is None else f"{value:.3f}"
+        rows.append(row)
+    return psych_report.markdown_table(pd.DataFrame(rows))
+
+
+def format_noise_fraction(value: float) -> str:
+    """Format exact EuRoC RMS noise fractions without dropping used precision."""
+    return "0.000" if np.isclose(value, 0.0) else f"{value:.3f}"
+
+
+def with_explicit_noise_groups(metrics: pd.DataFrame) -> pd.DataFrame:
+    """Relabel zero-noise trials without changing the three plot noise bands."""
+    display = metrics.copy()
+    if "lambda1" not in display:
+        display["lambda1"] = np.nan
+    if "win_rate" not in display:
+        display["win_rate"] = np.nan
+    display["noise_band"] = display["noise_band"].astype(object)
+    no_noise = np.isclose(display["noise_fraction"].to_numpy(dtype=float), 0.0)
+    display.loc[no_noise, "noise_band"] = "none"
+    return display
 
 
 def speed_overall_table(overall: pd.DataFrame) -> str:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, Sequence
+from typing import Callable, Iterable, Sequence
 
 import gtsam
 import numpy as np
@@ -83,8 +83,13 @@ def run_gyro_proxy_interpolation_experiments(
     dense_count: int = 1001,
     subintervals_per_duration_bin: int = 24,
     c_lambda: float = 1.0,
+    node_count_rule: Callable[[int], int] | None = None,
 ) -> GyroInterpolationResult:
-    """Run interpolation, trajectory, and subinterval experiments on snippets."""
+    """Run interpolation, trajectory, and subinterval experiments on snippets.
+
+    ``node_count_rule`` maps the number of uniformly spaced samples to the
+    number of CGL nodes. The historical default is ``ceil(sqrt(M))``.
+    """
     snippets = list(snippets)
     m_values = [int(value) for value in m_values]
     noise_fractions = [float(value) for value in noise_fractions]
@@ -129,7 +134,15 @@ def run_gyro_proxy_interpolation_experiments(
             for noise_fraction in noise_fractions:
                 noise_std = float(noise_fraction) * float(snippet.noise_scale)
                 sample_batch = clean_samples[None, :, :] + noise_std * noises
-                n_sqrt = int(np.ceil(np.sqrt(float(m))))
+                n_sqrt = (
+                    int(np.ceil(np.sqrt(float(m))))
+                    if node_count_rule is None
+                    else int(node_count_rule(m))
+                )
+                if not 2 <= n_sqrt <= m:
+                    raise ValueError(
+                        f"node_count_rule returned N={n_sqrt} for M={m} samples"
+                    )
                 scaled_lambda = scaled_tikhonov_lambda(
                     m=m,
                     noise_std=noise_std,

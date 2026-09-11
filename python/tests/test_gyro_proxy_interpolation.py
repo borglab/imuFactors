@@ -81,6 +81,24 @@ class GyroProxyInterpolationTests(unittest.TestCase):
         self.assertFalse(first.trajectory_summary.empty)
         self.assertFalse(first.subinterval_summary.empty)
 
+    def test_custom_node_count_rule_controls_psychmagpi_degree(self) -> None:
+        result = run_gyro_proxy_interpolation_experiments(
+            [constant_snippet(np.array([0.1, -0.2, 0.3]))],
+            m_values=[5],
+            noise_fractions=[0.0],
+            num_seeds=1,
+            seed=20260523,
+            dense_count=31,
+            subintervals_per_duration_bin=2,
+            node_count_rule=lambda sample_count: sample_count - 1,
+        )
+
+        self.assertEqual(set(result.signal_metrics["N_sqrt"]), {4})
+        psych = result.signal_metrics[
+            result.signal_metrics["method"].str.startswith("PsyChMagPI")
+        ]
+        self.assertEqual(set(psych["N"]), {4.0})
+
 
 def constant_snippet(omega: np.ndarray) -> GyroProxySnippet:
     sample_seconds = np.linspace(0.0, 1.0, 101)
