@@ -1,4 +1,4 @@
-"""Rerun the manuscript's three-method comparison with fixed MH/V noise settings."""
+"""Rerun the fixed MH/V comparison, optionally including quadrature for the viewer."""
 from __future__ import annotations
 
 import argparse
@@ -48,7 +48,10 @@ def write_csv(path, fields, rows):
         writer.writerows(rows)
 
 
-def run_comparison(binary, data_dir, results_root, threads=1, calibration=None):
+def run_comparison(binary, data_dir, results_root, threads=1, calibration=None,
+                   include_quadrature=False):
+    methods = ('quadrature', *METHODS) if include_quadrature else METHODS
+    expected_metrics, expected_summaries = 9518 * len(methods), 33 * len(methods)
     group_settings = GROUP_SETTINGS if calibration is None else calibration['settings']
     validate_settings(group_settings)
     protocol = 'fixed_group_refit' if calibration is None else calibration['protocol']
@@ -76,6 +79,8 @@ def run_comparison(binary, data_dir, results_root, threads=1, calibration=None):
     run_id = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
     identity = dict(run_id=run_id, app_name=('evalMedianGroupImuComparison'
                     if protocol == 'group_mean_median' else 'evalFixedGroupImuComparison'))
+    if include_quadrature:
+        identity['app_name'] += 'WithQuadrature'
     source_hashes = {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in sources.items()}
     with tempfile.TemporaryDirectory(prefix='fixed-group-staging-', dir=results_root.parent) as staging:
         staging = Path(staging)
@@ -104,7 +109,7 @@ def run_comparison(binary, data_dir, results_root, threads=1, calibration=None):
                 if filename == 'run_metadata.csv':
                     continue
                 for row in values:
-                    if filename in ('window_metrics.csv', 'window_summaries.csv') and row['method'] not in METHODS:
+                    if filename in ('window_metrics.csv', 'window_summaries.csv') and row['method'] not in methods:
                         continue
                     combined[filename].append({**row, **identity})
             streams = load_ground_truth_euroc(str(source))
@@ -116,14 +121,17 @@ def run_comparison(binary, data_dir, results_root, threads=1, calibration=None):
             print(f'Completed fixed settings: {name}, {settings}', flush=True)
         combined['run_metadata.csv'] = [{
             **cpp_metadata[0], **identity, 'timestamp_utc': datetime.now(timezone.utc).isoformat(),
-            'cli_args': 'run_fixed_group_imu_comparison.py ' + json.dumps(group_settings, sort_keys=True),
+            'cli_args': 'run_fixed_group_imu_comparison.py '
+                        + ('--include-quadrature ' if include_quadrature else '')
+                        + json.dumps(group_settings, sort_keys=True),
             'output_root': str(results_root),
             'repo_version': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
         }]
         for filename in CANONICAL_FILES:
             write_csv(package/filename, headers[filename], combined[filename])
-        validate_package(package, sources, METHODS, expected_configs=configs)
-        if len(combined['window_metrics.csv']) != 28554 or len(combined['window_summaries.csv']) != 99:
+        validate_package(package, sources, methods, expected_configs=configs)
+        if (len(combined['window_metrics.csv']) != expected_metrics or
+                len(combined['window_summaries.csv']) != expected_summaries):
             raise ValueError('Unexpected full-comparison row counts')
         if any(hashlib.sha256(path.read_bytes()).hexdigest() != source_hashes[name] for name,path in sources.items()):
             raise ValueError('Source CSV changed during the run')
@@ -131,11 +139,14 @@ def run_comparison(binary, data_dir, results_root, threads=1, calibration=None):
             convention='endpoint_v2', protocol=protocol, settings=group_settings,
             parameter_selection=('Rounded full-group Gaussian-NLL refits after LOSO protocol comparison; these rows are descriptive, not held-out'
                                  if calibration is None else calibration['parameter_selection']),
-            methods=list(METHODS), intervals=list(INTERVALS), source_sha256=source_hashes,
-            validation=dict(metric_rows=28554, summary_rows=99, method_interval_window_coverage='passed',
+            methods=list(methods), intervals=list(INTERVALS), source_sha256=source_hashes,
+            validation=dict(metric_rows=expected_metrics, summary_rows=expected_summaries,
+                            method_interval_window_coverage='passed',
                             source_csvs_unchanged=True, all_methods_directly_rerun=True, no_window_exclusions=True),
         )
         if protocol == 'group_mean_median':
+            verification['fit_methods'] = ['manifold', 'galilean']
+            verification['quadrature_in_calibration'] = False
             from statistics import mean, median
             medians = {}
             for name in sources:
@@ -172,10 +183,13 @@ def main():
     parser.add_argument('--threads', type=int, default=1)
     parser.add_argument('--calibration-json', type=Path,
                         help='Use a calibrated MH/V settings document instead of the original defaults')
+    parser.add_argument('--include-quadrature', action='store_true',
+                        help='Publish all four methods using the same settings without refitting noise')
     args = parser.parse_args()
     try:
         calibration = json.loads(args.calibration_json.read_text()) if args.calibration_json else None
-        run_comparison(args.binary, args.data_dir, args.results_root, args.threads, calibration)
+        run_comparison(args.binary, args.data_dir, args.results_root, args.threads,
+                       calibration, args.include_quadrature)
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
         parser.exit(1, f'Fixed-group comparison failed: {error}\n')
 

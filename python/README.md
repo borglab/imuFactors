@@ -513,3 +513,16 @@ individual median, a pooled median, or the mean of all window NEES values.
 One is a chosen median normalization; the ideal Gaussian median of normalized
 nine-dimensional NEES is approximately 0.927. Retain full parameter precision
 when rerunning; the manuscript rounds settings for display.
+
+To include quadrature in a separate viewer package at those same fitted settings:
+
+```bash
+conda run -n py312 python python/run_fixed_group_imu_comparison.py \
+  --calibration-json reports/euroc_median_calibration/calibration.json \
+  --include-quadrature
+```
+
+This directly reruns all four methods and publishes 38,072 window rows and 132
+summaries under `build/results/evalMedianGroupImuComparisonWithQuadrature`.
+Quadrature uses the existing parameters and does not enter the calibration
+objective. The three-method manuscript packages remain available.
