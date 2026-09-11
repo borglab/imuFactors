@@ -22,8 +22,8 @@ def canonical_blocks(error, covariance):
 
 def canonical_rows(result, run_id: str, app_name: str, dataset: str):
     """Export radians/meters/m/s and block RMS sigmas with aligned NEES."""
-    error, covariance = canonical_blocks(result["native_error"], result["native_covariance"])
-    nees = compute_ext_pose_nees(covariance, error)
+    error, covariance = result["physical_error"], result["reporting_covariance"]
+    nees = compute_ext_pose_nees(result["native_covariance"], result["native_error"])
     norms = error.reshape(-1, 3, 3).norm(dim=2)
     sigmas = covariance.diagonal(dim1=-2, dim2=-1).reshape(-1, 3, 3).mean(dim=2).clamp(min=0).sqrt()
     metrics = torch.stack((nees, norms[:, 0], sigmas[:, 0], norms[:, 1],
@@ -31,7 +31,7 @@ def canonical_rows(result, run_id: str, app_name: str, dataset: str):
     if not np.isfinite(metrics).all():
         raise ValueError(f"Non-finite Delama metrics for {dataset}, {result['preint_time']} s")
     identity = dict(zip(IDENTITY_FIELDS, (run_id, app_name, dataset, METHOD,
-                        f"alpha_g{result['alpha']:g}_a{result['alpha']:g}",
+                        result["config_label"],
                         result["preint_time"], result["steps_per_window"], 0)))
     rows = []
     for index, (start, end) in enumerate(zip(result["starts"].tolist(), result["ends"].tolist())):

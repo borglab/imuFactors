@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from collections import defaultdict
 import csv
+import json
 from pathlib import Path
 import os
 import subprocess
@@ -28,11 +29,13 @@ def read_csv(path):
     return fields, rows
 
 
-def validate_package(package, datasets, methods):
+def validate_package(package, datasets, methods, integration_covariance=1e-8):
     """Require exact method/interval coverage and matching complete windows."""
     import math
     from imuFactors.delama_gal3.canonical import WINDOW_FIELDS, SUMMARY_FIELDS
 
+    from imuFactors.delama_gal3.preintegration_delama_gal3 import configuration_label, integration_covariance_value
+    integration_covariance = integration_covariance_value(integration_covariance)
     tables = {name: read_csv(package / name) for name in CANONICAL_FILES}
     metadata = tables["run_metadata.csv"][1]
     if len(metadata) != 1 or not metadata[0].get("run_id") or not metadata[0].get("app_name"):
@@ -60,8 +63,8 @@ def validate_package(package, datasets, methods):
     if set(grouped) != expected or set(summary_keys) != expected or len(summary_keys) != len(expected):
         raise ValueError(f"Missing or unexpected method/interval coverage; expected {len(expected)} groups, got {len(grouped)} metrics / {len(summaries)} summaries")
     for row in tables["window_metrics.csv"][1] + summaries:
-        if row["config_label"] != "alpha_g8.4_a8.4":
-            raise ValueError("Expected uniform gyro/accelerometer alpha=8.4")
+        if row["config_label"] != configuration_label(8.4, integration_covariance):
+            raise ValueError("Expected endpoint_v2, uniform alpha=8.4 and requested integration covariance")
         for field, value in row.items():
             if field not in ("run_id", "app_name", "dataset", "method", "config_label") and not math.isfinite(float(value)):
                 raise ValueError(f"Non-finite canonical value: {field}")
@@ -97,7 +100,7 @@ def validate_package(package, datasets, methods):
     return identity, tables
 
 
-def run_comparison(binary, data_dir, results_root, dataset=None, threads=1):
+def run_comparison(binary, data_dir, results_root, dataset=None, threads=1, integration_covariance=1e-8):
     """Stage C++, append Delama, validate, then rename into viewer discovery."""
     if not binary.is_file() or not os.access(binary, os.X_OK):
         raise FileNotFoundError(f"Missing executable C++ binary: {binary}; build evalQuadratureImuFactorDiagnostics first")
@@ -105,9 +108,10 @@ def run_comparison(binary, data_dir, results_root, dataset=None, threads=1):
         import torch
     except ImportError as error:
         raise RuntimeError("PyTorch is required; install torch in the py312 conda environment") from error
-    from imuFactors.delama_gal3.preintegration_delama_gal3 import load_ground_truth_euroc, evaluate_interval
+    from imuFactors.delama_gal3.preintegration_delama_gal3 import load_ground_truth_euroc, evaluate_interval, integration_covariance_value
     from imuFactors.delama_gal3.canonical import canonical_rows
 
+    integration_covariance = integration_covariance_value(integration_covariance)
     torch.set_num_threads(threads)
     datasets = {path.stem.removeprefix("euroc_"): path.resolve()
                 for path in sorted(data_dir.glob("euroc_*.csv")) if path.is_file()}
@@ -120,7 +124,7 @@ def run_comparison(binary, data_dir, results_root, dataset=None, threads=1):
     results_root.parent.mkdir(parents=True, exist_ok=True)
     # Keep incomplete packages outside results_root, whose viewer scans recursively.
     with tempfile.TemporaryDirectory(prefix="imu-comparison-staging-", dir=results_root.parent) as staging:
-        command = [str(binary.resolve()), "--alpha", "8.4", "--data-dir", str(data_dir.resolve()), "--output-root", staging]
+        command = [str(binary.resolve()), "--alpha", "8.4", "--integration-covariance", repr(integration_covariance), "--data-dir", str(data_dir.resolve()), "--output-root", staging]
         if dataset:
             command += ["--dataset", next(iter(requested))]
         subprocess.run(command, check=True)
@@ -128,19 +132,33 @@ def run_comparison(binary, data_dir, results_root, dataset=None, threads=1):
         if len(packages) != 1:
             raise ValueError(f"Expected exactly one C++ package, found {len(packages)}")
         package = packages[0].parent
-        identity, tables = validate_package(package, datasets, CPP_METHODS)
+        identity, tables = validate_package(package, datasets, CPP_METHODS, integration_covariance)
         with (package / "window_metrics.csv").open("a", newline="") as metrics_handle, (package / "window_summaries.csv").open("a", newline="") as summaries_handle:
             metrics_writer = csv.DictWriter(metrics_handle, fieldnames=tables["window_metrics.csv"][0])
             summaries_writer = csv.DictWriter(summaries_handle, fieldnames=tables["window_summaries.csv"][0])
             for name, source in datasets.items():
                 streams = load_ground_truth_euroc(str(source))
                 for interval in INTERVALS:
-                    result = evaluate_interval(streams, interval, 8.4)
+                    result = evaluate_interval(streams, interval, 8.4, integration_covariance)
                     rows, summary = canonical_rows(result, identity["run_id"], identity["app_name"], name)
                     metrics_writer.writerows(rows)
                     summaries_writer.writerow(summary)
                     print(f"Delama {name} {interval:.1f}s: {len(rows)} windows", flush=True)
-        validate_package(package, datasets, METHODS)
+        _, completed = validate_package(package, datasets, METHODS, integration_covariance)
+        verification = {
+            "convention": "endpoint_v2", "alpha": 8.4,
+            "integration_covariance": integration_covariance,
+            "integration_covariance_units": "m^2/s (independent position drive)",
+            "error": "[Log(R_pred^T R_gt), p_gt-p_pred, v_gt-v_pred]",
+            "sigma": "sqrt(trace(reporting covariance block)/3)",
+            "nees": "native residual/covariance, diagonal regularization 1e-12, divided by 9",
+            "quaternions": "normalized; reject nonfinite or norm <= 1e-12; source CSVs unchanged",
+            "validation": {"method_interval_window_coverage": "passed",
+                           "metric_rows": len(completed["window_metrics.csv"][1]),
+                           "summary_rows": len(completed["window_summaries.csv"][1]),
+                           "datasets": sorted(datasets), "methods": list(METHODS)},
+        }
+        (package / "verification.json").write_text(json.dumps(verification, indent=2) + "\n")
         destination = results_root / identity["app_name"] / identity["run_id"]
         destination.parent.mkdir(parents=True, exist_ok=True)
         if destination.exists():
@@ -158,9 +176,11 @@ def main():
     parser.add_argument("--results-root", type=Path, default=root / "build/results")
     parser.add_argument("--dataset", help="One sequence for smoke testing, e.g. MH01; default: all 11")
     parser.add_argument("--threads", type=int, default=1, help="PyTorch CPU threads (default: 1)")
+    parser.add_argument("--integration-covariance", type=float, default=1e-8,
+                        help="Continuous position-drive covariance in m²/s (default: 1e-8).")
     args = parser.parse_args()
     try:
-        run_comparison(args.binary, args.data_dir, args.results_root, args.dataset, args.threads)
+        run_comparison(args.binary, args.data_dir, args.results_root, args.dataset, args.threads, args.integration_covariance)
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"Unified comparison failed: {error}\n")
 

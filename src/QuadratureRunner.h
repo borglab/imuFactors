@@ -15,6 +15,7 @@
 
 #include <cmath>
 #include <functional>
+#include <iomanip>
 #include <memory>
 #include <optional>
 #include <sstream>
@@ -34,12 +35,23 @@ using PIMManifold = PreintegratedImuMeasurementsT<ManifoldPreintegration>;
 
 struct QuadratureAppOptions {
   size_t maxIntervals = 0;
+  double integrationCovariance = 1e-8;
   double alphaGyro = 3.0;
   double alphaAcc = 3.0;
   bool hasAlphaGyroOverride = false;
   bool hasAlphaAccOverride = false;
   bool includeGalilean = true;
 };
+
+/** Parse finite, nonnegative continuous position-drive covariance in m²/s. */
+inline double parseIntegrationCovariance(const std::string& value) {
+  size_t consumed = 0;
+  const double covariance = std::stod(value, &consumed);
+  if (consumed != value.size() || !std::isfinite(covariance) || covariance < 0) {
+    throw std::runtime_error("Integration covariance must be finite and nonnegative");
+  }
+  return covariance;
+}
 
 inline QuadratureAppOptions parseQuadratureAppArguments(
     const std::vector<std::string>& arguments, const char* programName,
@@ -82,6 +94,13 @@ inline QuadratureAppOptions parseQuadratureAppArguments(
       options.alphaAcc =
           parsePositiveDoubleOption("--alpha-acc", arguments[++index]);
       options.hasAlphaAccOverride = true;
+      continue;
+    }
+    if (argument == "--integration-covariance") {
+      if (index + 1 >= arguments.size()) {
+        throw std::runtime_error("Missing value for --integration-covariance");
+      }
+      options.integrationCovariance = parseIntegrationCovariance(arguments[++index]);
       continue;
     }
     if (argument == "--no-galilean") {
@@ -133,18 +152,29 @@ inline std::string alphaConfigLabel(const AlphaPair& alpha) {
 }
 
 inline std::shared_ptr<PreintegrationParams> makePreintegrationParams(
-    double sigmaGyro, double sigmaAcc) {
+    double sigmaGyro, double sigmaAcc, double integrationCovariance = 1e-8) {
+  if (!std::isfinite(integrationCovariance) || integrationCovariance < 0) {
+    throw std::runtime_error("Integration covariance must be finite and nonnegative");
+  }
   auto params = PreintegrationParams::MakeSharedU(9.81);
   params->accelerometerCovariance = I_3x3 * sigmaAcc * sigmaAcc;
   params->gyroscopeCovariance = I_3x3 * sigmaGyro * sigmaGyro;
-  params->integrationCovariance = I_3x3 * 1e-8;
+  params->integrationCovariance = I_3x3 * integrationCovariance;
   return params;
 }
 
 inline std::shared_ptr<PreintegrationParams> makePreintegrationParams(
-    const AlphaPair& alpha) {
+    const AlphaPair& alpha, double integrationCovariance = 1e-8) {
   return makePreintegrationParams(alpha.gyro * 1.6968e-4,
-                                  alpha.acc * 2.0000e-3);
+                                  alpha.acc * 2.0000e-3, integrationCovariance);
+}
+
+/** Identify the endpoint convention and the shared independent position noise. */
+inline std::string endpointConfigLabel(const AlphaPair& alpha, double covariance) {
+  std::ostringstream stream;
+  stream << alphaConfigLabel(alpha) << "_endpoint_v2_intcov"
+         << std::setprecision(17) << covariance;
+  return stream.str();
 }
 
 class QuadratureRunner {

@@ -42,10 +42,12 @@ int main(int argc, char* argv[]) {
             appOptions, writer, datasetGroup, std::nullopt,
             [&appOptions](const std::string& datasetName) {
               return makePreintegrationParams(
-                  alphaForDataset(appOptions, datasetName));
+                  alphaForDataset(appOptions, datasetName),
+                  appOptions.integrationCovariance);
             },
             [&appOptions](const std::string& datasetName) {
-              return alphaConfigLabel(alphaForDataset(appOptions, datasetName));
+              return endpointConfigLabel(alphaForDataset(appOptions, datasetName),
+                  appOptions.integrationCovariance);
             });
       });
 }

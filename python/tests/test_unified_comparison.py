@@ -11,7 +11,7 @@ from imuFactors.delama_gal3.canonical import (
     WINDOW_FIELDS, SUMMARY_FIELDS, canonical_blocks, canonical_rows, summarize_rows,
 )
 from imuFactors.delama_gal3.preintegration_delama_gal3 import (
-    compute_ext_pose_nees, evaluate_interval, load_ground_truth_euroc, window_bounds,
+    configuration_label, compute_ext_pose_nees, evaluate_interval, load_ground_truth_euroc, window_bounds,
 )
 from imuFactors.delama_gal3.utils import DEVICE
 from run_unified_imu_comparison import (
@@ -60,18 +60,20 @@ def test_evaluator_initial_bias_and_canonical_shape(tmp_path):
     np.savetxt(source, data, delimiter=",", header=",".join(str(i) for i in range(23)), comments="")
     streams = load_ground_truth_euroc(str(source))
     assert streams[-1] == data[1, 0] - data[0, 0]
-    result = evaluate_interval(streams, .02)
+    result = evaluate_interval(streams, .02, integration_covariance=0)
     assert result["starts"].tolist() == [0, 4]
     assert result["ends"].tolist() == [4, 8]
     assert result["native_error"].abs().max() < 1e-10
     assert torch.isfinite(result["native_covariance"]).all()
-    smaller_noise = evaluate_interval(streams, .02, alpha=4.2)
+    smaller_noise = evaluate_interval(streams, .02, alpha=4.2, integration_covariance=0)
     torch.testing.assert_close(result["native_covariance"], 4 * smaller_noise["native_covariance"])
     smaller_rows, _ = canonical_rows(smaller_noise, "run", "app", "fake")
-    assert smaller_rows[0]["config_label"] == "alpha_g4.2_a4.2"
+    assert smaller_rows[0]["config_label"] == configuration_label(4.2, 0)
     # Distinct blocks make accidental position/velocity exchange visible in rows.
     result["native_error"][:] = torch.tensor([1, 0, 0, 2, 0, 0, 3, 0, 0], device=DEVICE)
     result["native_covariance"][:] = torch.diag(torch.tensor([1., 1., 1., 4., 4., 4., 9., 9., 9.], device=DEVICE))
+    result["physical_error"][:] = torch.tensor([1, 0, 0, 3, 0, 0, 2, 0, 0], device=DEVICE)
+    result["reporting_covariance"][:] = torch.diag(torch.tensor([1., 1., 1., 9., 9., 9., 4., 4., 4.], device=DEVICE))
     rows, summary = canonical_rows(result, "run", "app", "fake")
     assert list(rows[0]) == WINDOW_FIELDS
     assert list(summary) == SUMMARY_FIELDS
@@ -121,7 +123,7 @@ def package(tmp_path):
             group = []
             for index, start in enumerate(range(0, 201 - steps, steps)):
                 row = dict.fromkeys(WINDOW_FIELDS, 0)
-                row.update(**identity, dataset="MH01", method=method, config_label="alpha_g8.4_a8.4",
+                row.update(**identity, dataset="MH01", method=method, config_label=configuration_label(8.4, 1e-8),
                            interval_seconds=interval, samples_per_window=steps, window_index=index,
                            window_start_sample=start, window_end_sample=start+steps,
                            window_start_time=start*.005, window_end_time=(start+steps)*.005)

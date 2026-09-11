@@ -148,10 +148,26 @@ inline WindowResult makeWindowResult(const Vector9& error,
   return result;
 }
 
-/**
- * Reduce predict-vs-ground-truth state differences into reporting metrics while
- * keeping NEES tied to the factor residual.
- */
+/** Map prediction-tangent R/P/V covariance into physical reporting coordinates. */
+inline Matrix9 physicalReportingCovariance(const NavState& predicted,
+                                           const Matrix9& covariance) {
+  Matrix9 transport = Matrix9::Identity();
+  transport.block<3, 3>(3, 3) = predicted.R();
+  transport.block<3, 3>(6, 6) = predicted.R();
+  return transport * covariance * transport.transpose();
+}
+
+/** Physical endpoint error in R/P/V order, with translation in world coordinates. */
+inline Vector9 physicalEndpointError(const NavState& predicted,
+                                     const NavState& truth) {
+  Vector9 error;
+  error << Rot3::Logmap(predicted.attitude().between(truth.attitude())),
+      truth.position() - predicted.position(),
+      truth.velocity() - predicted.velocity();
+  return error;
+}
+
+/** Report physical endpoint errors while retaining the native factor NEES. */
 template <class PIMType>
 WindowResult makePredictionWindowResult(
     const PIMType& preintegrated, const Window& window,
@@ -159,18 +175,9 @@ WindowResult makePredictionWindowResult(
     double normalizedNees) {
   const NavState predicted =
       preintegrated.predict(window.initialTruth().navState, initialBias);
-  const NavState& groundTruth = window.terminalTruth().navState;
-  const Pose3 poseError = groundTruth.pose().between(predicted.pose());
-
-  WindowResult result;
-  result.normalizedNees = normalizedNees;
-  result.rotErrorNorm = Rot3::Logmap(poseError.rotation()).norm();
-  result.rotPredSigma = covarianceBlockSigma(covariance, 0);
-  result.posErrorNorm = poseError.translation().norm();
-  result.posPredSigma = covarianceBlockSigma(covariance, 3);
-  result.velErrorNorm = (predicted.velocity() - groundTruth.velocity()).norm();
-  result.velPredSigma = covarianceBlockSigma(covariance, 6);
-  return result;
+  return makeWindowResult(
+      physicalEndpointError(predicted, window.terminalTruth().navState),
+      physicalReportingCovariance(predicted, covariance), normalizedNees);
 }
 
 /**

@@ -194,6 +194,23 @@ TEST(AppUtils, RunForDatasetsHandlesEmptyAndExceptions) {
 }
 
 /* ************************************************************************* */
+TEST(AppUtils, IntegrationCovariance) {
+  for (const auto& value : {"0", "1e-8", "2e-6"}) {
+    const auto options = parseQuadratureAppArguments({"--integration-covariance", value}, "test");
+    const double covariance = std::stod(value);
+    DOUBLES_EQUAL(covariance, options.integrationCovariance, 1e-20);
+    const auto params = makePreintegrationParams(AlphaPair{8.4, 8.4}, covariance);
+    EXPECT((params->integrationCovariance - covariance * I_3x3).norm() < 1e-20);
+    EXPECT(endpointConfigLabel({8.4, 8.4}, covariance).find("endpoint_v2_intcov") != std::string::npos);
+  }
+  for (const auto& value : {"-1", "nan", "inf", "1e-8junk"}) {
+    bool rejected = false;
+    try { parseQuadratureAppArguments({"--integration-covariance", value}, "test"); }
+    catch (const std::exception&) { rejected = true; }
+    EXPECT(rejected);
+  }
+}
+
 int main() {
   TestResult tr;
   return TestRegistry::runAllTests(tr);
