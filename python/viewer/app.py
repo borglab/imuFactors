@@ -684,6 +684,14 @@ def create_dash_app(results_root: str | Path = "build/results") -> Dash:
                     ]
                 ),
                 html.P(
+                    "For endpoint_v2 configurations, errors are physical endpoint norms: "
+                    "rotation in radians, position in meters, velocity in m/s. "
+                    "Sigmas are component RMS values sqrt(trace(block)/3), not error-norm "
+                    "standard deviations. NEES uses each method's native residual and covariance "
+                    "with 1e-12 diagonal regularization. Older configurations retain their original conventions.",
+                    style={"color": "#5f4f3e", "fontSize": "14px"},
+                ),
+                html.P(
                     _format_cli_args(entry.cli_args),
                     style={
                         "marginTop": "18px",

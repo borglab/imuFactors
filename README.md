@@ -205,6 +205,7 @@ the same canonical package:
 --dataset <name>        # restrict to one dataset, e.g. MH01 or euroc_MH01.csv
 --max-intervals <count> # use only the first N default intervals
 --no-galilean          # omit Galilean preintegration
+--integration-covariance <q> # position-drive covariance in m²/s, default 1e-8
 ```
 
 Use `evalReducedNeesWithPriorCovariance` for the normalized-NEES comparison

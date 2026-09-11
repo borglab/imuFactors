@@ -342,7 +342,10 @@ EuRoC sequences at 0.2, 0.5, and 1.0 seconds with uniform gyro/accelerometer
 noise scaling alpha=8.4. Use `--dataset MH01` for the end-to-end smoke run.
 PyTorch must be installed in that environment. Optional `--binary`,
 `--data-dir`, `--results-root`, and `--threads` arguments control paths and
-CPU parallelism; the comparison methods, noise scale, and intervals are fixed.
+CPU parallelism; the comparison methods, alpha, and intervals are fixed.
+`--integration-covariance <q>` configures independent continuous position-drive
+covariance in m²/s (default `1e-8`). It must be finite and nonnegative; zero is
+valid. The same value is passed to all methods and is not scaled by alpha.
 
 The orchestrator stages the C++ result outside the viewer discovery tree,
 appends Python metrics and summaries using the existing CSV headers and run
@@ -357,21 +360,54 @@ with `N=round(interval/dt)`, using `start+N` as both endpoint and next start.
 Delama retains its Gal(3) x gal(3) propagation, initial ground-truth bias, zero
 initial covariance, and native error/covariance pairing for normalized 9-DOF
 NEES with `1e-12` diagonal regularization. Its native rotation/velocity/position
-blocks are exported in rotation/position/velocity order (including both
-covariance axes). Delama error norms are group-log residual block norms;
-the C++ harness reports physical prediction error norms and factor-residual
-NEES. Rotation norms are radians; sigmas are square roots of block trace/3.
+blocks remain available for NEES and legacy standalone RMSE fields. Canonical
+`endpoint_v2` rows instead report physical endpoint errors in R/P/V order:
+`[Log(R_predᵀ R_gt), p_gt − p_pred, v_gt − v_pred]`, in radians, meters, and m/s.
+Python transports its native covariance by the Gal(3) adjoint of the inverse
+predicted increment, permutes R/V/P to R/P/V, and rotates position and velocity
+perturbations into world coordinates. C++ rotates its prediction-tangent
+covariance into the same reporting coordinates. Displayed sigmas are component
+RMS values `sqrt(trace(block)/3)`, not standard deviations of the error norms.
+NEES retains the native residual/covariance pair: adding `1e-12 I` in different
+coordinates is not invariant under adjoint transport. Unregularized NEES is
+invariant when residual and covariance are transported together.
+
+Both loaders normalize ground-truth quaternions without modifying source CSVs;
+nonfinite quaternions or norms at most `1e-12` fail with the source row. Python
+adds independent `q * dt * I` to the native position covariance after each
+propagation step. Predicted means and the propagation algorithm are unchanged.
+Configuration labels include `endpoint_v2` and q; every new package includes
+`verification.json` with the conventions, noise parameters, and coverage checks.
+Historical packages retain their original reporting conventions.
+
 Summaries use population variance, the ordinary median, and C++'s P95 order
 statistic at `floor(0.95*(n-1))`.
 
 The standalone `python/run_delama_gal3.py` still writes pickle and summary
-outputs, now through the same window evaluator. The factor harness accepts
+outputs through the same window evaluator and accepts `--integration-covariance`.
+Legacy `rmse_rotation_deg`, `rmse_position_m`, and `rmse_velocity_mps` remain
+native-log metrics. New result fields `predicted_endpoints`, `physical_error`,
+`reporting_covariance`, and `predicted_increment` expose the physical evaluation. The factor harness accepts
 `--no-galilean`; the former `--delama-gal3` and `--no-delama-gal3` EKF switches
 have been removed. Historical tangent and EKF packages remain viewable.
 
 Relevant tests (run C++ tests with escalated permissions):
 
 ```bash
-make -C build -j6 testImuNEES.run testAppUtils.run testDatasetSanity.run testResultsWriter.run
+make -C build -j6 testImuNEES.run testAppUtils.run testDatasetSanity.run testResultsWriter.run exportGalileanParity
 PYTHONPATH=python conda run -n py312 python -m pytest python/tests -q
 ```
+
+The `exportGalileanParity` test helper emits full-precision predictions, native
+factor residuals, and covariance for a CSV and q. Python parity tests cover all
+11 sequences and all three intervals, with position/velocity/rotation tolerances
+`1e-8 m`, `1e-9 m/s`, and `1e-12` per matrix entry, and transported covariance
+`atol=5e-11, rtol=1e-5`. MH01 additionally checks q=0 and q=2e-6.
+
+Open the published run in the viewer:
+
+```bash
+conda run -n py312 python -m viewer.app --results-root build/results
+```
+
+Visit <http://127.0.0.1:8050> and select the new run ID.
