@@ -143,8 +143,10 @@ The shared method labels are:
 
 - `quadrature`
 - `manifold`
+- `galilean`
+- `delama_gal3_python`
 - `tangent`
-- `delama_gal3`
+- `delama_gal3` (historical EKF label)
 - `gal3_imu_ekf`
 - `navstate_imu_ekf`
 
@@ -202,12 +204,26 @@ the same canonical package:
 --output-root <path>    # results root directory, default ./results
 --dataset <name>        # restrict to one dataset, e.g. MH01 or euroc_MH01.csv
 --max-intervals <count> # use only the first N default intervals
+--no-galilean          # omit Galilean preintegration
+--integration-covariance <q> # position-drive covariance in m²/s, default 1e-8
 ```
 
 Use `evalReducedNeesWithPriorCovariance` for the normalized-NEES comparison
 with initial state/bias covariance folded into the analysis, and
 `evalQuadratureImuFactorDiagnostics` for the fuller NEES/error export over the
 same intervals and datasets.
+
+For the unified factor comparison, run from the repository root:
+
+```bash
+conda run -n py312 python python/run_unified_imu_comparison.py
+```
+
+This publishes one viewer package for quadrature, manifold, Galilean, and Python
+Delama over all 11 EuRoC sequences at 0.2, 0.5, and 1.0 seconds with uniform
+alpha=8.4. Use `--dataset MH01` for a smoke run. Tangent and EKFs are excluded;
+historical packages remain viewable. See the [Python workflow documentation](python/README.md#unified-gal3-factor-comparison)
+for staging, validation, and error conventions.
 
 ## Python Summary Viewer
 

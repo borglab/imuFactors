@@ -16,6 +16,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <fstream>
+#include <cstdio>
 
 #include "Dataset.h"
 #include "NEESEvaluator.h"
@@ -149,6 +151,31 @@ TEST(NEES, ComputeStatistics) {
 }
 
 /* ************************************************************************* */
+TEST(Dataset, QuaternionNormalizationAndRejection) {
+  const std::string filename = "quaternion-test.csv";
+  const auto write = [&](const std::string& quaternion) {
+    std::ofstream file(filename);
+    file << "header\n0," << quaternion;
+    for (int i = 0; i < 18; ++i) file << ",0";
+    file << "\n";
+  };
+  write("0.8,0.2,-0.3,0.4");
+  const Matrix3 expected = Dataset(filename).truth[0].navState.R();
+  write("-2.4,-0.6,0.9,-1.2");
+  EXPECT((Dataset(filename).truth[0].navState.R() - expected).norm() < 1e-14);
+  EXPECT((expected.transpose() * expected - I_3x3).norm() < 1e-14);
+  for (const auto& quaternion : {"0,0,0,0", "1e-14,0,0,0", "nan,0,0,0", "inf,0,0,0"}) {
+    write(quaternion);
+    bool rejected = false;
+    try { Dataset invalid(filename); }
+    catch (const std::exception& error) {
+      rejected = std::string(error.what()).find(filename + ", row 2") != std::string::npos;
+    }
+    EXPECT(rejected);
+  }
+  std::remove(filename.c_str());
+}
+
 int main() {
   TestResult tr;
   return TestRegistry::runAllTests(tr);

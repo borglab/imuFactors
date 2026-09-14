@@ -224,10 +224,12 @@ def _method_sort_key(method: str) -> tuple[int, str]:
     preferred_order = {
         "quadrature": 0,
         "manifold": 1,
-        "tangent": 2,
-        "delama_gal3": 3,
-        "gal3_imu_ekf": 4,
-        "navstate_imu_ekf": 5,
+        "galilean": 2,
+        "delama_gal3_python": 3,
+        "tangent": 4,
+        "delama_gal3": 5,
+        "gal3_imu_ekf": 6,
+        "navstate_imu_ekf": 7,
     }
     return preferred_order.get(method, 99), method
 
@@ -680,6 +682,14 @@ def create_dash_app(results_root: str | Path = "build/results") -> Dash:
                             style={"marginTop": "10px"},
                         ),
                     ]
+                ),
+                html.P(
+                    "For endpoint_v2 configurations, errors are physical endpoint norms: "
+                    "rotation in radians, position in meters, velocity in m/s. "
+                    "Sigmas are component RMS values sqrt(trace(block)/3), not error-norm "
+                    "standard deviations. NEES uses each method's native residual and covariance "
+                    "with 1e-12 diagonal regularization. Older configurations retain their original conventions.",
+                    style={"color": "#5f4f3e", "fontSize": "14px"},
                 ),
                 html.P(
                     _format_cli_args(entry.cli_args),

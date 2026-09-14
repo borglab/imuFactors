@@ -9,11 +9,13 @@
 
 #pragma once
 
+#include <gtsam/navigation/GalileanImuFactor.h>
 #include <gtsam/navigation/ManifoldPreintegration.h>
 #include <gtsam/navigation/TangentPreintegration.h>
 
 #include <cmath>
 #include <functional>
+#include <iomanip>
 #include <memory>
 #include <optional>
 #include <sstream>
@@ -22,23 +24,34 @@
 #include <vector>
 
 #include "AppUtils.h"
-#include "EKFNEESEvaluator.h"
 #include "ResultsAdapters.h"
 
 namespace gtsam {
 
 using PIMQuadrature = PreintegratedImuMeasurementsQ;
 using PIMTangent = PreintegratedImuMeasurementsT<TangentPreintegration>;
+using PIMGalilean = PreintegratedImuMeasurementsG;
 using PIMManifold = PreintegratedImuMeasurementsT<ManifoldPreintegration>;
 
 struct QuadratureAppOptions {
   size_t maxIntervals = 0;
+  double integrationCovariance = 1e-8;
   double alphaGyro = 3.0;
   double alphaAcc = 3.0;
   bool hasAlphaGyroOverride = false;
   bool hasAlphaAccOverride = false;
-  bool includeDelamaGal3 = true;
+  bool includeGalilean = true;
 };
+
+/** Parse finite, nonnegative continuous position-drive covariance in m²/s. */
+inline double parseIntegrationCovariance(const std::string& value) {
+  size_t consumed = 0;
+  const double covariance = std::stod(value, &consumed);
+  if (consumed != value.size() || !std::isfinite(covariance) || covariance < 0) {
+    throw std::runtime_error("Integration covariance must be finite and nonnegative");
+  }
+  return covariance;
+}
 
 inline QuadratureAppOptions parseQuadratureAppArguments(
     const std::vector<std::string>& arguments, const char* programName,
@@ -83,12 +96,15 @@ inline QuadratureAppOptions parseQuadratureAppArguments(
       options.hasAlphaAccOverride = true;
       continue;
     }
-    if (argument == "--no-delama-gal3") {
-      options.includeDelamaGal3 = false;
+    if (argument == "--integration-covariance") {
+      if (index + 1 >= arguments.size()) {
+        throw std::runtime_error("Missing value for --integration-covariance");
+      }
+      options.integrationCovariance = parseIntegrationCovariance(arguments[++index]);
       continue;
     }
-    if (argument == "--delama-gal3") {
-      options.includeDelamaGal3 = true;
+    if (argument == "--no-galilean") {
+      options.includeGalilean = false;
       continue;
     }
     intervalArguments.push_back(argument);
@@ -136,33 +152,29 @@ inline std::string alphaConfigLabel(const AlphaPair& alpha) {
 }
 
 inline std::shared_ptr<PreintegrationParams> makePreintegrationParams(
-    double sigmaGyro, double sigmaAcc) {
+    double sigmaGyro, double sigmaAcc, double integrationCovariance = 1e-8) {
+  if (!std::isfinite(integrationCovariance) || integrationCovariance < 0) {
+    throw std::runtime_error("Integration covariance must be finite and nonnegative");
+  }
   auto params = PreintegrationParams::MakeSharedU(9.81);
   params->accelerometerCovariance = I_3x3 * sigmaAcc * sigmaAcc;
   params->gyroscopeCovariance = I_3x3 * sigmaGyro * sigmaGyro;
-  params->integrationCovariance = I_3x3 * 1e-8;
+  params->integrationCovariance = I_3x3 * integrationCovariance;
   return params;
 }
 
 inline std::shared_ptr<PreintegrationParams> makePreintegrationParams(
-    const AlphaPair& alpha) {
+    const AlphaPair& alpha, double integrationCovariance = 1e-8) {
   return makePreintegrationParams(alpha.gyro * 1.6968e-4,
-                                  alpha.acc * 2.0000e-3);
+                                  alpha.acc * 2.0000e-3, integrationCovariance);
 }
 
-inline std::shared_ptr<PreintegrationCombinedParams>
-makeCombinedPreintegrationParams(
-    const std::shared_ptr<PreintegrationParams>& params) {
-  const double gravity = std::max(0.0, params->n_gravity.norm());
-  auto combinedParams = PreintegrationCombinedParams::MakeSharedD(gravity);
-  combinedParams->n_gravity = params->n_gravity;
-  combinedParams->setAccelerometerCovariance(params->accelerometerCovariance);
-  combinedParams->setGyroscopeCovariance(params->gyroscopeCovariance);
-  combinedParams->setIntegrationCovariance(params->integrationCovariance);
-  combinedParams->omegaCoriolis = params->omegaCoriolis;
-  combinedParams->use2ndOrderCoriolis = params->use2ndOrderCoriolis;
-  combinedParams->body_P_sensor = params->body_P_sensor;
-  return combinedParams;
+/** Identify the endpoint convention and the shared independent position noise. */
+inline std::string endpointConfigLabel(const AlphaPair& alpha, double covariance) {
+  std::ostringstream stream;
+  stream << alphaConfigLabel(alpha) << "_endpoint_v2_intcov"
+         << std::setprecision(17) << covariance;
+  return stream.str();
 }
 
 class QuadratureRunner {
@@ -181,7 +193,7 @@ class QuadratureRunner {
         writer_(writer),
         datasetGroup_(datasetGroup),
         initialCovariance_(initialCovariance),
-        includeDelamaGal3_(options.includeDelamaGal3),
+        includeGalilean_(options.includeGalilean),
         paramsFactory_([params](const std::string&) { return params; }),
         configLabelFactory_(
             [configLabel](const std::string&) { return configLabel; }) {}
@@ -196,7 +208,7 @@ class QuadratureRunner {
         writer_(writer),
         datasetGroup_(datasetGroup),
         initialCovariance_(initialCovariance),
-        includeDelamaGal3_(options.includeDelamaGal3),
+        includeGalilean_(options.includeGalilean),
         paramsFactory_(std::move(paramsFactory)),
         configLabelFactory_(std::move(configLabelFactory)) {}
 
@@ -207,8 +219,7 @@ class QuadratureRunner {
       size_t candidateWindows = 0;
       size_t quadratureEvaluated = 0;
       size_t manifoldEvaluated = 0;
-      size_t tangentEvaluated = 0;
-      size_t delamaGal3Evaluated = 0;
+      size_t galileanEvaluated = 0;
     };
 
     std::vector<IntervalEvaluationSummary> intervalSummaries;
@@ -219,12 +230,6 @@ class QuadratureRunner {
         makeDatasetRow(*writer_, datasetName, dataset, datasetGroup_));
     const auto params = paramsFactory_(datasetName);
     const std::string configLabel = configLabelFactory_(datasetName);
-    std::shared_ptr<PreintegrationCombinedParams> combinedParams;
-    std::unique_ptr<EKFNEESEvaluator> delamaEvaluator;
-    if (includeDelamaGal3_) {
-      combinedParams = makeCombinedPreintegrationParams(params);
-      delamaEvaluator = std::make_unique<EKFNEESEvaluator>(dataset);
-    }
     for (const double intervalSeconds : intervals_) {
       const size_t samplesPerWindow = dataset.stepsForInterval(intervalSeconds);
       const size_t quadratureNodes = std::max<size_t>(
@@ -236,19 +241,14 @@ class QuadratureRunner {
               windows, params, initialCovariance_, quadratureNodes);
       const auto manifoldEvaluations = collectWindowEvaluations<PIMManifold>(
           windows, params, initialCovariance_);
-      const auto tangentEvaluations = collectWindowEvaluations<PIMTangent>(
-          windows, params, initialCovariance_);
-      size_t delamaGal3Evaluated = 0;
-      if (includeDelamaGal3_) {
-        const auto delamaGal3Evaluations =
-            delamaEvaluator
-                ->computeGal3ImuEKFArtifacts(intervalSeconds, combinedParams,
-                                             initialCovariance_)
-                .windowEvaluations;
-        writeWindowRows(writer_, datasetName, "delama_gal3", configLabel,
+      size_t galileanEvaluated = 0;
+      if (includeGalilean_) {
+        const auto galileanEvaluations = collectWindowEvaluations<PIMGalilean>(
+            windows, params, initialCovariance_);
+        writeWindowRows(writer_, datasetName, "galilean", configLabel,
                         intervalSeconds, samplesPerWindow, 0,
-                        delamaGal3Evaluations);
-        delamaGal3Evaluated = delamaGal3Evaluations.size();
+                        galileanEvaluations);
+        galileanEvaluated = galileanEvaluations.size();
       }
 
       writeWindowRows(writer_, datasetName, "quadrature", configLabel,
@@ -257,14 +257,11 @@ class QuadratureRunner {
       writeWindowRows(writer_, datasetName, "manifold", configLabel,
                       intervalSeconds, samplesPerWindow, 0,
                       manifoldEvaluations);
-      writeWindowRows(writer_, datasetName, "tangent", configLabel,
-                      intervalSeconds, samplesPerWindow, 0, tangentEvaluations);
 
       intervalSummaries.push_back({intervalSeconds, samplesPerWindow,
                                    windows.size(), quadratureEvaluations.size(),
                                    manifoldEvaluations.size(),
-                                   tangentEvaluations.size(),
-                                   delamaGal3Evaluated});
+                                   galileanEvaluated});
     }
 
     std::cout << "Finished dataset " << datasetName << ":\n";
@@ -274,10 +271,9 @@ class QuadratureRunner {
                 << " samples/window): " << summary.candidateWindows
                 << " candidate windows, evaluated "
                 << summary.quadratureEvaluated << " quadrature, "
-                << summary.manifoldEvaluated << " manifold, "
-                << summary.tangentEvaluated << " tangent";
-      if (includeDelamaGal3_) {
-        std::cout << ", " << summary.delamaGal3Evaluated << " delama_gal3";
+                << summary.manifoldEvaluated << " manifold";
+      if (includeGalilean_) {
+        std::cout << ", " << summary.galileanEvaluated << " galilean";
       }
       std::cout << "\n";
     }
@@ -288,7 +284,7 @@ class QuadratureRunner {
   ResultsWriter* writer_;
   std::string datasetGroup_;
   std::optional<InitialCovarianceOptions> initialCovariance_;
-  bool includeDelamaGal3_ = true;
+  bool includeGalilean_ = true;
   ParamsFactory paramsFactory_;
   ConfigLabelFactory configLabelFactory_;
 };

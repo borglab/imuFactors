@@ -11,7 +11,7 @@ import torch
 
 from .utils import DEVICE, baxat, bdot, bmv, pdump
 from .lie_group_utils import SO3, SE3_2, G3
-from .preintegration_utils import inv_Gamma_G3
+from .preintegration_utils import inv_Gamma_G3, Gamma_G3
 
 
 torch.set_default_dtype(torch.float64)
@@ -23,10 +23,27 @@ def load_ground_truth_euroc(filename: str):
         DEVICE
     )
 
-    t = (data[:, 0] - data[0, 0]).to(float).to(DEVICE)
-    dt = (t[1:] - t[:-1]).mean().item()
+    if data.ndim != 2 or data.shape[0] < 2 or data.shape[1] != 23:
+        raise ValueError(f"Expected at least two finite 23-column EuRoC rows in {filename}")
 
-    R_gt = SO3.from_quaternion(data[:, 1:5]).to(float).to(DEVICE)
+    t = (data[:, 0] - data[0, 0]).to(float).to(DEVICE)
+    dt = (t[1] - t[0]).item()
+    if not np.isfinite(dt) or dt <= 0:
+        raise ValueError(f"Invalid first-sample timestep in {filename}")
+
+    quaternions = data[:, 1:5]
+    norms = torch.hypot(torch.hypot(quaternions[:, 0], quaternions[:, 1]),
+                        torch.hypot(quaternions[:, 2], quaternions[:, 3]))
+    invalid = (~torch.isfinite(quaternions).all(dim=1) |
+               ~torch.isfinite(norms) | (norms <= 1e-12))
+    if invalid.any():
+        row = invalid.nonzero()[0, 0].item() + 2
+        raise ValueError(f"Invalid ground-truth quaternion in {filename}, row {row}")
+    invalid_rows = ~torch.isfinite(data).all(dim=1)
+    if invalid_rows.any():
+        row = invalid_rows.nonzero()[0, 0].item() + 2
+        raise ValueError(f"Non-finite EuRoC value in {filename}, row {row}")
+    R_gt = SO3.from_quaternion(quaternions / norms[:, None]).to(float).to(DEVICE)
     V_gt = data[:, 5:8].to(float).to(DEVICE)
     P_gt = data[:, 8:11].to(float).to(DEVICE)
 
@@ -133,7 +150,131 @@ def build_parser() -> argparse.ArgumentParser:
         default=[0.2, 0.5, 1.0],
         help="Preintegration window sizes in seconds.",
     )
+    parser.add_argument("--integration-covariance", type=integration_covariance_value, default=1e-8,
+                        help="Continuous position-drive covariance in m²/s, independent of alpha.")
     return parser
+
+
+def window_bounds(sample_count: int, interval: float, dt: float):
+    """C++ llround for positive intervals, with shared endpoint and next start."""
+    if not np.isfinite(interval) or not np.isfinite(dt) or interval <= 0 or dt <= 0:
+        raise ValueError("Interval and timestep must be finite and positive")
+    steps = max(1, int(np.floor(interval / dt + 0.5)))
+    starts = torch.arange(0, max(0, sample_count - steps), steps, device=DEVICE)
+    return steps, starts, starts + steps
+
+
+def integration_covariance_value(value):
+    """Validate the independent continuous position-drive covariance (m²/s)."""
+    value = float(value)
+    if not np.isfinite(value) or value < 0:
+        raise ValueError("Integration covariance must be finite and nonnegative")
+    return value
+
+
+def configuration_label(alpha, integration_covariance):
+    return f"alpha_g{alpha:g}_a{alpha:g}_endpoint_v2_intcov{integration_covariance:.17g}"
+
+
+def physical_reporting(predicted, truth, increment, native_covariance):
+    """Physical R/P/V errors and covariance transported from native right errors."""
+    rotation = predicted[:, :3, :3]
+    error = torch.cat((SO3.log(rotation.transpose(1, 2).bmm(truth[:, :3, :3])),
+                       truth[:, :3, 4] - predicted[:, :3, 4],
+                       truth[:, :3, 3] - predicted[:, :3, 3]), dim=1)
+    adjoint = G3.Ad(G3.inv(increment))[:, :9, :9]
+    order = [0, 1, 2, 6, 7, 8, 3, 4, 5]
+    transport = adjoint[:, order, :]
+    world = torch.eye(9, device=rotation.device).repeat(len(rotation), 1, 1)
+    world[:, 3:6, 3:6] = rotation
+    world[:, 6:9, 6:9] = rotation
+    transport = world.bmm(transport)
+    return error, baxat(transport, native_covariance)
+
+
+@torch.no_grad()
+def evaluate_interval(streams, interval: float, alpha: float = 8.4,
+                      integration_covariance: float = 1e-8):
+    """Evaluate all complete windows with initial GT bias and zero covariance."""
+    if not np.isfinite(alpha) or alpha <= 0:
+        raise ValueError("Noise scale alpha must be finite and positive")
+    integration_covariance = integration_covariance_value(integration_covariance)
+    T, b_omega, b_acc, omegas, accs, time_vec, dt = streams
+    steps_per_window, starts, ends = window_bounds(len(T), interval, dt)
+    M = len(starts)
+    if M == 0:
+        raise ValueError(f"No complete windows for interval {interval}")
+    indices = starts[:, None] + torch.arange(steps_per_window, device=DEVICE)
+    w = torch.cat((omegas[indices] - b_omega[starts, None],
+                   accs[indices] - b_acc[starts, None],
+                   torch.zeros(M, steps_per_window, 3, device=DEVICE),
+                   torch.ones(M, steps_per_window, 1, device=DEVICE)), dim=2)
+    g = torch.tensor([0, 0, -9.81], device=DEVICE)
+    Q_g3 = torch.zeros(20, 20, device=DEVICE)
+    Q_g3[:3, :3] = (alpha * 1.6968e-4)**2 / dt * torch.eye(3, device=DEVICE)
+    Q_g3[3:6, 3:6] = (alpha * 2.0000e-3)**2 / dt * torch.eye(3, device=DEVICE)
+    # Initialize with zero covariance while using each window's
+    # ground-truth initial bias for measurement debiasing above.
+    Y_delama_gal3 = torch.eye(5, device=DEVICE).repeat(M, 1, 1)
+    gamma_delama_gal3 = torch.zeros(M, 10, device=DEVICE)
+    covariance_delama_gal3 = torch.zeros(M, 20, 20, device=DEVICE)
+
+    for k in range(steps_per_window):
+        Y_delama_gal3, gamma_delama_gal3, covariance_delama_gal3 = compound_delama_gal3(
+            Y_delama_gal3, gamma_delama_gal3, covariance_delama_gal3, w[:, k], dt, Q_g3
+        )
+        # Independent position drive, not held gyro/accelerometer input noise.
+        covariance_delama_gal3[:, 6:9, 6:9] += (
+            integration_covariance * dt * torch.eye(3, device=DEVICE))
+
+    t_end = steps_per_window * dt
+    Y_true_end = (
+        SE3_2.inv(T[starts])
+        .bmm(inv_Gamma_G3(g, t_end).repeat(M, 1, 1))
+        .bmm(T[ends])
+    )
+
+    xi_Y_delama_gal3 = G3.log(Y_true_end.bmm(G3.inv(Y_delama_gal3)))
+
+    # The native error and covariance share the (rotation, velocity, position) order.
+    nees_endpoint = compute_ext_pose_nees(
+        covariance_delama_gal3[:, :9, :9], xi_Y_delama_gal3[:, :9]
+    )
+
+    rot_rmse_deg = torch.rad2deg(rmse_from_error_block(xi_Y_delama_gal3[:, :3]))
+    pos_rmse = rmse_from_error_block(xi_Y_delama_gal3[:, 6:9])
+    vel_rmse = rmse_from_error_block(xi_Y_delama_gal3[:, 3:6])
+
+    predicted = Gamma_G3(g, t_end).repeat(M, 1, 1).bmm(T[starts]).bmm(Y_delama_gal3)
+    physical_error, reporting_covariance = physical_reporting(
+        predicted, T[ends], Y_delama_gal3, covariance_delama_gal3[:, :9, :9])
+    result = {
+        "convention": "endpoint_v2",
+        "integration_covariance": integration_covariance,
+        "config_label": configuration_label(alpha, integration_covariance),
+        "predicted_endpoints": predicted,
+        "predicted_increment": Y_delama_gal3,
+        "physical_error": physical_error,
+        "reporting_covariance": reporting_covariance,
+        "alpha": alpha,
+        "preint_time": interval,
+        "M": M,
+        "starts": starts,
+        "ends": ends,
+        "times": time_vec,
+        "native_error": xi_Y_delama_gal3[:, :9],
+        "native_covariance": covariance_delama_gal3[:, :9, :9],
+        "steps_per_window": steps_per_window,
+        "window_duration_actual": t_end,
+        "endpoint_nees": nees_endpoint,
+        "anees_mean": nees_endpoint.mean().item(),
+        "anees_median": float(np.median(nees_endpoint.cpu().numpy())),
+        "anees_var": nees_endpoint.var(correction=0).item(),
+        "rmse_rotation_deg": rot_rmse_deg.item(),
+        "rmse_position_m": pos_rmse.item(),
+        "rmse_velocity_mps": vel_rmse.item(),
+    }
+    return result
 
 
 def main() -> None:
@@ -174,6 +315,9 @@ def main() -> None:
 
         params = {
             "filename": filename,
+            "integration_covariance": args.integration_covariance,
+            "convention": "endpoint_v2",
+            "config_label": configuration_label(alpha, args.integration_covariance),
             "duration": duration,
             "imu_freq": imu_freq,
             "dt": dt,
@@ -188,86 +332,15 @@ def main() -> None:
         }
         pdump(params, output_dir, sequence_name + "_params_delama_gal3.p")
 
-        Q = torch.zeros((12, 12), device=DEVICE)
-        Q[:3, :3] = sigma_gyro**2 * torch.eye(3, device=DEVICE)
-        Q[3:6, 3:6] = sigma_acc**2 * torch.eye(3, device=DEVICE)
-
-        Q_g3 = torch.zeros(20, 20, device=DEVICE)
-        Q_g3[:6, :6] = Q[:6, :6]
-
         per_sequence_results = {}
 
         for preint_time in preint_times:
-            steps_per_window = int(round(preint_time.item() / dt))
-            poses_per_window = steps_per_window + 1
-            M = int(len(T) / poses_per_window)
-            if M == 0:
+            if len(window_bounds(len(T), preint_time.item(), dt)[1]) == 0:
                 print("Skipping", preint_time.item(), "s (window too large for sequence)")
                 continue
-
-            new_len = M * poses_per_window
-            T_true = torch.reshape(T[:new_len], (M, poses_per_window, 5, 5))
-            b_omega_k = torch.reshape(b_omega[:new_len], (M, poses_per_window, 3))[:, :-1]
-            b_acc_k = torch.reshape(b_acc[:new_len], (M, poses_per_window, 3))[:, :-1]
-
-            omegas_k = torch.reshape(omegas[:new_len], (M, poses_per_window, 3))[:, :-1]
-            accs_k = torch.reshape(accs[:new_len], (M, poses_per_window, 3))[:, :-1]
-            initial_bias_omega = b_omega_k[:, :1, :]
-            initial_bias_acc = b_acc_k[:, :1, :]
-            omegas_unbiased = omegas_k - initial_bias_omega
-            accs_unbiased = accs_k - initial_bias_acc
-            w = torch.cat(
-                (
-                    omegas_unbiased,
-                    accs_unbiased,
-                    torch.zeros(M, steps_per_window, 3, device=DEVICE),
-                    torch.ones(M, steps_per_window, 1, device=DEVICE),
-                ),
-                dim=2,
-            )
-
-            # Initialize with zero covariance while using each window's
-            # ground-truth initial bias for measurement debiasing above.
-            Y_delama_gal3 = torch.eye(5, device=DEVICE).repeat(M, 1, 1)
-            gamma_delama_gal3 = torch.zeros(M, 10, device=DEVICE)
-            covariance_delama_gal3 = torch.zeros(M, 20, 20, device=DEVICE)
-
-            for k in range(steps_per_window):
-                Y_delama_gal3, gamma_delama_gal3, covariance_delama_gal3 = compound_delama_gal3(
-                    Y_delama_gal3, gamma_delama_gal3, covariance_delama_gal3, w[:, k], dt, Q_g3
-                )
-
-            t_end = steps_per_window * dt
-            Y_true_end = (
-                SE3_2.inv(T_true[:, 0])
-                .bmm(inv_Gamma_G3(g, t_end).repeat(M, 1, 1))
-                .bmm(T_true[:, -1])
-            )
-
-            xi_Y_delama_gal3 = G3.log(Y_true_end.bmm(G3.inv(Y_delama_gal3)))
-
-            # Requirement 3/4: extended-pose NEES, then average across windows.
-            nees_endpoint = compute_ext_pose_nees(
-                covariance_delama_gal3[:, :9, :9], xi_Y_delama_gal3[:, :9]
-            )
-
-            rot_rmse_deg = torch.rad2deg(rmse_from_error_block(xi_Y_delama_gal3[:, :3]))
-            pos_rmse = rmse_from_error_block(xi_Y_delama_gal3[:, 6:9])
-            vel_rmse = rmse_from_error_block(xi_Y_delama_gal3[:, 3:6])
-
-            result = {
-                "preint_time": preint_time.item(),
-                "M": M,
-                "steps_per_window": steps_per_window,
-                "window_duration_actual": t_end,
-                "endpoint_nees": nees_endpoint,
-                "anees_mean": nees_endpoint.mean().item(),
-                "anees_median": nees_endpoint.median().item(),
-                "anees_var": nees_endpoint.var().item(),
-                "rmse_rotation_deg": rot_rmse_deg.item(),
-                "rmse_position_m": pos_rmse.item(),
-                "rmse_velocity_mps": vel_rmse.item(),
-            }
+            result = evaluate_interval(
+                (T, b_omega, b_acc, omegas, accs, time_vec, dt),
+                preint_time.item(), alpha, args.integration_covariance)
             per_sequence_results[preint_time.item()] = result
 
             window_label = f"{preint_time.item():.1f}s"

@@ -1,0 +1,125 @@
+{
+  "protocol": "group_mean_median",
+  "settings": {
+    "MH": {
+      "alpha": 6.686408847645678,
+      "integration_covariance": 1.843203928073361e-05
+    },
+    "V": {
+      "alpha": 14.265918553947698,
+      "integration_covariance": 0.0
+    }
+  },
+  "fits": {
+    "MH": {
+      "covariance_scale": 0.4608009820183402,
+      "target": 1.0,
+      "mean_median_before": 0.4608010740482202,
+      "mean_median_after": 0.9999999999999999,
+      "blocks": 30,
+      "regularization": 1e-12
+    },
+    "V": {
+      "covariance_scale": 0.794986063233864,
+      "target": 1.0,
+      "mean_median_before": 0.7949860925414202,
+      "mean_median_after": 1.000000000000015,
+      "blocks": 36,
+      "regularization": 1e-12
+    }
+  },
+  "seed_package": "/Users/dellaert/git/imuFactors/build/results/evalFixedGroupImuComparison/20260911T223516099829Z",
+  "seed_settings": {
+    "MH": {
+      "alpha": 9.85,
+      "integration_covariance": 4e-05
+    },
+    "V": {
+      "alpha": 16.0,
+      "integration_covariance": 0.0
+    }
+  },
+  "parameter_selection": "Full-group descriptive calibration: equal sequence/interval/manifold-Galilean mean of native normalized NEES medians = 1; preserve q/alpha^2 from the prior fit; not held-out",
+  "regularization": 1e-12,
+  "source_sha256": {
+    "MH01": "cf02607e5be797e5ae31ac933376c123ef25cf52cdd16bbcb61044783d7764dc",
+    "MH02": "64032bf934de15876cc319d7b3abc05d813e3054673c3b2c779250a3305f93e8",
+    "MH03": "09ae700eb5758226295be174689385f40638113b202b2dc8d2d15f7058d0b100",
+    "MH04": "fb98cea4ac1d726089e3477648fc7f57ddfed5249bc77affad9697748b5bf2c9",
+    "MH05": "c739a972fc1aff7d3de4a0a1132e83b2c737e7b47091b9f657a5be043e8632aa",
+    "V101": "4e49c39a6bd4eefd6b26a6724843b55b61bb83f1ccd16e3a9d7db1764d0d50c7",
+    "V102": "2b8101bd38212898ff3969a23ee7d0bc300ad95f3c8a3dd5df52dcce347c074d",
+    "V103": "c93f0c8c9fa86f1859f22da74c7e7e879d38a5f20ebb0653ca4dd26b4d53856b",
+    "V201": "de9ea7f67ad56074679d0557ef760ac60c1eec240fcf20607e5b0b06c4f8d932",
+    "V202": "f0fd12dbad1d62197cb77d1f17992e54f843a378d5c34072ea6b5a9c03e25ad5",
+    "V203": "ed248760149e2bb04455717b88d62405f0afe2b9cb571cac84c63413a087fadb"
+  },
+  "cache_sha256": {
+    "MH01_manifold_0.2.npz": "7850fda81d0b13279877ef1932e2ecc9aebaf4512953901f40157af71b2f7336",
+    "MH01_galilean_0.2.npz": "bc90eac5479085b2b0b7a32c4f70204ed552ea8c6ec0548e448b8738c366d9f1",
+    "MH01_manifold_0.5.npz": "43b22b6b271b05abafbbd5e2034603495119c42c57c7c10f941017d65017d3d2",
+    "MH01_galilean_0.5.npz": "83bddb2aaecd373b21146813238bf39e64cb7909fb81230855f4832d2b1324ad",
+    "MH01_manifold_1.0.npz": "8814b0dff479117a45a2cbc1b7128037ffdc303ec928f2ff5807d0915c3ae591",
+    "MH01_galilean_1.0.npz": "584ed1b52e51fcb4ddc751d88804e5f7ffeda890d4b3f4d245c3ff20fe618e18",
+    "MH02_manifold_0.2.npz": "915c55fcd66319bb0ff075913f00e4ac6e3716786f6ddc5aa049a38c70f3038e",
+    "MH02_galilean_0.2.npz": "a640bfbb0aa45e0b08921d60a70c3aea602398aa61f1d1fd9991678451132983",
+    "MH02_manifold_0.5.npz": "be67c7c92789ef2e7150c89dd9d500dc5b618ae7290ba3f027ea81eaa8acaee1",
+    "MH02_galilean_0.5.npz": "f34e3e54e44ffd4c9a86898857b4c1005cfee76f6f9732890da5f946ac2b467b",
+    "MH02_manifold_1.0.npz": "0ffbf77faa4ca553bae648ea06fa337705a5e3e8494e4dc7792ce0e5674251e8",
+    "MH02_galilean_1.0.npz": "ba7c162f8cf30a55e8fa6f01765aa34f4dc21d071378f2b656c0a7c41328b894",
+    "MH03_manifold_0.2.npz": "5f09f834a4689e450d051b439de7c51871af0b14ce5cd9e89279adfb9570c4d7",
+    "MH03_galilean_0.2.npz": "3e7de608ca9568ed8fdab7e3f40f10e273f81120a765bc980a5c018f4828da39",
+    "MH03_manifold_0.5.npz": "7ec8937c248a193380c78a3153447a85308cbebf2f1796ca2810e67705108649",
+    "MH03_galilean_0.5.npz": "dcfe501f9ac6bced44c6199cd91b4af6613f7f8b97d5e79457e562634488c122",
+    "MH03_manifold_1.0.npz": "07167c757ca63c46803c273916a5da9160f3b47dacd4b3c527256ef72b8d5237",
+    "MH03_galilean_1.0.npz": "76c323dbce17f1028606668c66f15e7dacaad3f20703183b638ef02afadbaef2",
+    "MH04_manifold_0.2.npz": "a43216878cc04399f41d1fd8261865061237bf84fd0c1b63f786db8878abcc19",
+    "MH04_galilean_0.2.npz": "82dc02a66908b80e424fc5167225d8ec564bf26c4c02e9ec5568ba335b2e4663",
+    "MH04_manifold_0.5.npz": "bf53835e8e3c3c5b7a855d158c1f2de048260e95ab0fa12bad6bc6f255c214cb",
+    "MH04_galilean_0.5.npz": "cc2ac4d3d641dcae9ffd3a686dec4eea6e12597a45fa3e5cb2dd3c1f40e67af4",
+    "MH04_manifold_1.0.npz": "563a180fe95efca46f62b4cccdd11002cb656217f181a44b571d7da999adf787",
+    "MH04_galilean_1.0.npz": "8cff97325733feb1a480f041a3de2b7b14addef227ff6f70b7c409be83da61bc",
+    "MH05_manifold_0.2.npz": "e9c93aa05f613c50118c2464b5118597de77b4332f9c016372c260f7e3991b8b",
+    "MH05_galilean_0.2.npz": "5a83cdf97c8652c15dd8fa377cea224885fd54c9a92deb3c81a5e98b1cb02ecb",
+    "MH05_manifold_0.5.npz": "75ae80ce9fa1e949cef6ad2ae137106479eafb7ce3f35482033e9ead42e7f182",
+    "MH05_galilean_0.5.npz": "fe98265ec12bd46657e660b5f8d0390d6f5d56b9ebb9a8b4ca3c731b2e9723b3",
+    "MH05_manifold_1.0.npz": "4bbea8d802aa3e4f8eb7b6c9263ef10f1192adad17420ae1d96aebd17bd60a18",
+    "MH05_galilean_1.0.npz": "d0c19a3f9df9dd6dbde94c19e8fa74c385f1b4ecf85dccc79f2741eb6d1cc32b",
+    "V101_manifold_0.2.npz": "fd47a2a319f8f8c6d0f3574b69dc760d3f6f8741450e2f4d06f2b58bf6e697f1",
+    "V101_galilean_0.2.npz": "a2908dd5c7bd3d18bd5c406e5d6333eb978e56106e38439964633f6a426126a6",
+    "V101_manifold_0.5.npz": "8944103bcbbf89cad1a9ce66c72d66aa9844d2babf53e48f8e857ff0419465f2",
+    "V101_galilean_0.5.npz": "9bf15c0ec5085a2b32c230689c704ec11f1081363d7832bcd627dbd4704187e0",
+    "V101_manifold_1.0.npz": "3428abc8d1d6321c4cd26636b7eff64f8aa118336c2d469665ed886c90aa2e6d",
+    "V101_galilean_1.0.npz": "a94aff1196bad3e29805d006255d98289711b7cb008ccc4caa1e22ec02330d15",
+    "V102_manifold_0.2.npz": "7121c9c27482c33ed44522e1f148b24b38e6f88963a181b088e4775b892b68f8",
+    "V102_galilean_0.2.npz": "d07949a922a16f4e724662e4c8418b8f0db16dca90c869046d1aefeba1c9d4cf",
+    "V102_manifold_0.5.npz": "0fbfc7c29bde183dea9995b7c9722fbea18bff46360df32a45d6958cb5a64999",
+    "V102_galilean_0.5.npz": "fc7fa1b6f154daa1529fae571fcc9aefa2ed413706f02cb2adeda81895d72caa",
+    "V102_manifold_1.0.npz": "a7f973dd5879785bbafa8065d1e9f713c382a76f2bad4326a595aaec8f9f83f6",
+    "V102_galilean_1.0.npz": "3e0e743b608a1cba033fa0727ed830a8f284bec0ad3774e5cbeeff0de2af9d33",
+    "V103_manifold_0.2.npz": "6f1aa6adb87c3f7e44681643c622c7b8ff79907ad3d799d5d3900e8d5a6d2e8b",
+    "V103_galilean_0.2.npz": "da2294767313f01042fad6da7f66927ba15438d52d7a07032a565c9df38600f2",
+    "V103_manifold_0.5.npz": "877c156c748ac6ffc0725f5fca1226662938ff90282fe8beeddc872ace1bd7f3",
+    "V103_galilean_0.5.npz": "1ce92c6178143c3481205847f78aa5cb9cef819aaf4295e18bfda69435c3008b",
+    "V103_manifold_1.0.npz": "f6f501424c2a682825adf36ea20b5889525076ba29e463086e2806f1019c14a7",
+    "V103_galilean_1.0.npz": "82a06e6a950f510c26680e669973510fd1e9058f88473b23f52a2dedf4a49168",
+    "V201_manifold_0.2.npz": "a4bcee6d7558a09dc9475dbb1472d08709c07e52b9978620f9ed05efa1b2dcca",
+    "V201_galilean_0.2.npz": "ef13efd7d5ee473bf2d92cf2bd9fe4cc4bd55ce894acae7fb6d4078b70649ddf",
+    "V201_manifold_0.5.npz": "887a83b7f5a5a176e7d97605d848f194b188e5518b67d1db2402597b1c01f5c1",
+    "V201_galilean_0.5.npz": "b9bb21b0972604900df9e6d5a4c0345fbd252feb68763bc80628ff9340d1785a",
+    "V201_manifold_1.0.npz": "7e83dd81b3de2e7f193871080dca54c42f0046937661cae0713f5c0b8a4f1ace",
+    "V201_galilean_1.0.npz": "fd954cb2784b03a3a525a89c73e7d447c021730e0ce2f8b575329af2e24df829",
+    "V202_manifold_0.2.npz": "5fcc2cf1dba9f0757214fc004566e9c096b459d67af4d624a11955b92b5b6879",
+    "V202_galilean_0.2.npz": "2765a5bca4f628fb2b8d637f909d693f7d2a2eb38ee093443c4c8575695fba22",
+    "V202_manifold_0.5.npz": "6c7b6655c67ef626493aaf607ae41f7cab7a87d51374e137f1697be7a198d741",
+    "V202_galilean_0.5.npz": "8fe5c64a9e52bb606fc5ae94de0633c1c1c20c9ae31e62daf1b1b3cf8e8f830b",
+    "V202_manifold_1.0.npz": "f60d3fbcc6c4ed367fcb7c1514c3769710894522fa334c2d4599c99e1e92f168",
+    "V202_galilean_1.0.npz": "21aac08117a0cad0a587e0a89de3d3a24392dd9cd37739389bf4f578eff168ba",
+    "V203_manifold_0.2.npz": "5c8d18643f834feb5337802676c5d048c543456fb6bc860fb39984284be83713",
+    "V203_galilean_0.2.npz": "46c1a9e4ab751d5231b8a6d4bc34268df7a55343021c58ca57a7e36db4800d42",
+    "V203_manifold_0.5.npz": "044d2a003771c98fa4e8517e0d108a318f9dd28f43c955124eb3f28bcb512d4a",
+    "V203_galilean_0.5.npz": "c61b8d4185421c02d5677434dc5cce26a9e4a1b1a7116befa91faacef1adb0ba",
+    "V203_manifold_1.0.npz": "dc1f5aed238f10b6e5cf6f31e57cdf150f112c7500ba7da852def6b5f857fb42",
+    "V203_galilean_1.0.npz": "30673da9af0dfcdef8ee34df918bb2597feacc81c384586e872a2d1b32c51a22"
+  }
+}

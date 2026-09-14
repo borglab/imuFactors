@@ -124,7 +124,9 @@ Dataset::Dataset(const std::string& filename) : sourcePath_(filename) {
   double timeStart = 0;
   bool isFirst = true;
 
+  size_t sourceRow = 1;
   while (std::getline(file, line)) {
+    ++sourceRow;
     std::vector<double> row;
     std::stringstream ss(line);
     std::string value;
@@ -132,6 +134,16 @@ Dataset::Dataset(const std::string& filename) : sourcePath_(filename) {
       row.push_back(std::stod(value));
     }
 
+    const std::string source = filename + ", row " + std::to_string(sourceRow);
+    if (row.size() != 23) {
+      throw std::runtime_error("Expected 23 EuRoC columns in " + source);
+    }
+    Vector4 quaternion(row[1], row[2], row[3], row[4]);
+    const double norm = quaternion.stableNorm();
+    if (!quaternion.allFinite() || !std::isfinite(norm) || norm <= 1e-12) {
+      throw std::runtime_error("Invalid ground-truth quaternion in " + source);
+    }
+    quaternion /= norm;
     if (isFirst) {
       timeStart = row[0];
       isFirst = false;
@@ -140,7 +152,8 @@ Dataset::Dataset(const std::string& filename) : sourcePath_(filename) {
     double timestamp = row[0] - timeStart;
 
     // Parse state measurement
-    Rot3 rotation = Rot3::Quaternion(row[1], row[2], row[3], row[4]);
+    Rot3 rotation = Rot3::Quaternion(quaternion[0], quaternion[1],
+                                     quaternion[2], quaternion[3]);
     Point3 velocity(row[5], row[6], row[7]);
     Point3 position(row[8], row[9], row[10]);
     NavState navState(rotation, position, velocity);

@@ -10,12 +10,12 @@
 /**
  * @file   evalQuadratureImuFactorDiagnostics.cpp
  * @brief  Minimal NEES and error analysis for Quadrature, Manifold, and
- * Tangent IMU preintegration
+ * Galilean IMU preintegration
  */
 
 #include <gtsam/navigation/ImuFactor.h>
 #include <gtsam/navigation/ManifoldPreintegration.h>
-#include <gtsam/navigation/TangentPreintegration.h>
+#include <gtsam/navigation/GalileanImuFactor.h>
 
 #include "AppUtils.h"
 #include "QuadratureRunner.h"
@@ -42,10 +42,12 @@ int main(int argc, char* argv[]) {
             appOptions, writer, datasetGroup, std::nullopt,
             [&appOptions](const std::string& datasetName) {
               return makePreintegrationParams(
-                  alphaForDataset(appOptions, datasetName));
+                  alphaForDataset(appOptions, datasetName),
+                  appOptions.integrationCovariance);
             },
             [&appOptions](const std::string& datasetName) {
-              return alphaConfigLabel(alphaForDataset(appOptions, datasetName));
+              return endpointConfigLabel(alphaForDataset(appOptions, datasetName),
+                  appOptions.integrationCovariance);
             });
       });
 }

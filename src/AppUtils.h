@@ -334,6 +334,8 @@ inline void printQuadratureAppUsage(const char* programName,
   std::cout << "  Defaults without overrides: MH=(5.0, 7.0), Vicon=(13.0, "
                "10.0)\n";
   (void)defaultAlpha;
+  std::cout << "  --integration-covariance <q>  Position-drive covariance in m²/s (default 1e-8)\n";
+  std::cout << "  --no-galilean           Omit Galilean preintegration\n";
 }
 
 /**

@@ -191,7 +191,7 @@ NavStateImuEKF EKFNEESEvaluator::initializeNavStateEKF(
     navStateParams->accelerometerCovariance = params->accelerometerCovariance;
     navStateParams->gyroscopeCovariance = params->gyroscopeCovariance;
     navStateParams->integrationCovariance = params->integrationCovariance;
-    navStateParams->use2ndOrderCoriolis = params->use2ndOrderCoriolis;
+    navStateParams->setUse2ndOrderCoriolis(params->getUse2ndOrderCoriolis());
     
     return NavStateImuEKF(initialState, initialCovariance, navStateParams);
 }

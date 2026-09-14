@@ -30,3 +30,7 @@ imufactors_add_local_test(testDatasetSanity testDatasetSanity.cpp)
 imufactors_add_local_test(testAppUtils testAppUtils.cpp)
 imufactors_add_local_test(testResultsWriter testResultsWriter.cpp)
 imufactors_add_local_test(testTiltObserver testTiltObserver.cpp)
+
+# Full-precision numerical oracle used by python/tests/test_galilean_parity.py.
+add_executable(exportGalileanParity exportGalileanParity.cpp)
+target_link_libraries(exportGalileanParity PRIVATE imuFactorsEval ${IMUFACTORS_GTSAM_TARGET})

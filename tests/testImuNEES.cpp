@@ -22,6 +22,7 @@
 #include "NEESEvaluator.h"
 #include "PIMs.h"
 
+#include <gtsam/navigation/GalileanImuFactor.h>
 #include <gtsam/navigation/ManifoldPreintegration.h>
 #include <gtsam/navigation/TangentPreintegration.h>
 
@@ -135,6 +136,29 @@ TEST(ImuFactor, WindowEvaluation) {
     const auto quadratureWithPrior =
         evaluateWindow<PIMQuadrature>(window, params, initialCovariance, 3);
 
+    const auto galilean = evaluateWindow<PreintegratedImuMeasurementsG>(window, params);
+    const auto galileanZeroPrior = evaluateWindow<PreintegratedImuMeasurementsG>(
+        window, params, InitialCovarianceOptions{});
+    const auto galileanWithPrior = evaluateWindow<PreintegratedImuMeasurementsG>(
+        window, params, initialCovariance);
+    EXPECT(galilean.has_value());
+    EXPECT(galileanZeroPrior.has_value());
+    EXPECT(galileanWithPrior.has_value());
+    if (!galilean || !galileanZeroPrior || !galileanWithPrior) return;
+    EXPECT(isFinite(*galilean));
+    EXPECT(isFinite(*galileanWithPrior));
+    EXPECT(hasNonDecreasingPredictedSigma(*galilean, *galileanWithPrior));
+    DOUBLES_EQUAL(galilean->normalizedNees, galileanZeroPrior->normalizedNees, 1e-12);
+    DOUBLES_EQUAL(galilean->rotErrorNorm, galileanWithPrior->rotErrorNorm, 1e-12);
+    DOUBLES_EQUAL(galilean->posErrorNorm, galileanWithPrior->posErrorNorm, 1e-12);
+    DOUBLES_EQUAL(galilean->velErrorNorm, galileanWithPrior->velErrorNorm, 1e-12);
+    EXPECT(galileanWithPrior->normalizedNees <= galilean->normalizedNees);
+    const Vector3 galileanPredictError =
+        predictErrorNorms<PreintegratedImuMeasurementsG>(window, params);
+    DOUBLES_EQUAL(galileanPredictError.x(), galilean->rotErrorNorm, 1e-12);
+    DOUBLES_EQUAL(galileanPredictError.y(), galilean->posErrorNorm, 1e-12);
+    DOUBLES_EQUAL(galileanPredictError.z(), galilean->velErrorNorm, 1e-12);
+
     EXPECT(manifold.has_value());
     EXPECT(tangent.has_value());
     EXPECT(quadrature.has_value());
@@ -172,6 +196,19 @@ TEST(ImuFactor, WindowEvaluation) {
 }
 
 /* ************************************************************************* */
+TEST(PIM, PhysicalReportingCoordinates) {
+  const NavState predicted(Rot3::RzRyRx(0.3, -0.2, 0.7), Point3(1, 2, 3), Vector3(4, 5, 6));
+  const NavState truth(predicted.attitude(), Point3(2, 4, 5), Vector3(4, 5, 8));
+  const Vector9 error = physicalEndpointError(predicted, truth);
+  DOUBLES_EQUAL(3.0, error.segment<3>(3).norm(), 1e-12);
+  DOUBLES_EQUAL(2.0, error.tail<3>().norm(), 1e-12);
+  Matrix9 covariance = Matrix9::Identity();
+  covariance.diagonal() << 1, 2, 3, 4, 5, 6, 7, 8, 9;
+  const Matrix9 report = physicalReportingCovariance(predicted, covariance);
+  EXPECT((report.block<3, 3>(3, 3) - predicted.R() * covariance.block<3, 3>(3, 3) * predicted.R().transpose()).norm() < 1e-12);
+  DOUBLES_EQUAL(std::sqrt(5.0), covarianceBlockSigma(report, 3), 1e-12);
+}
+
 int main() {
   TestResult tr;
   return TestRegistry::runAllTests(tr);

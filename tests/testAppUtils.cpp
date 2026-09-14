@@ -117,7 +117,7 @@ TEST(AppUtils, ParseQuadratureAlphaArguments) {
   EXPECT_DOUBLES_EQUAL(8.4, defaultOptions.alphaAcc, 1e-9);
   EXPECT(!defaultOptions.hasAlphaGyroOverride);
   EXPECT(!defaultOptions.hasAlphaAccOverride);
-  EXPECT(defaultOptions.includeDelamaGal3);
+  EXPECT(defaultOptions.includeGalilean);
   const AlphaPair machineHallDefault =
       alphaForDataset(defaultOptions, "MH01");
   EXPECT_DOUBLES_EQUAL(5.0, machineHallDefault.gyro, 1e-9);
@@ -148,14 +148,20 @@ TEST(AppUtils, ParseQuadratureAlphaArguments) {
   EXPECT_DOUBLES_EQUAL(2.0, gyroOnlyMachineHall.gyro, 1e-9);
   EXPECT_DOUBLES_EQUAL(7.0, gyroOnlyMachineHall.acc, 1e-9);
 
-  const QuadratureAppOptions noDelamaOptions =
-      parseQuadratureAppArguments({"--no-delama-gal3"}, "test", 8.4);
-  EXPECT(!noDelamaOptions.includeDelamaGal3);
+  const QuadratureAppOptions noGalileanOptions =
+      parseQuadratureAppArguments({"--no-galilean"}, "test", 8.4);
+  EXPECT(!noGalileanOptions.includeGalilean);
+  EXPECT(defaultOptions.includeGalilean);
+  for (const auto& removedFlag : {"--delama-gal3", "--no-delama-gal3"}) {
+    bool rejected = false;
+    try {
+      parseQuadratureAppArguments({removedFlag}, "test", 8.4);
+    } catch (const std::exception&) {
+      rejected = true;
+    }
+    EXPECT(rejected);
+  }
 
-  const QuadratureAppOptions explicitDelamaOptions =
-      parseQuadratureAppArguments({"--no-delama-gal3", "--delama-gal3"},
-                                  "test", 8.4);
-  EXPECT(explicitDelamaOptions.includeDelamaGal3);
 }
 
 /* ************************************************************************* */
@@ -188,6 +194,23 @@ TEST(AppUtils, RunForDatasetsHandlesEmptyAndExceptions) {
 }
 
 /* ************************************************************************* */
+TEST(AppUtils, IntegrationCovariance) {
+  for (const auto& value : {"0", "1e-8", "2e-6"}) {
+    const auto options = parseQuadratureAppArguments({"--integration-covariance", value}, "test");
+    const double covariance = std::stod(value);
+    DOUBLES_EQUAL(covariance, options.integrationCovariance, 1e-20);
+    const auto params = makePreintegrationParams(AlphaPair{8.4, 8.4}, covariance);
+    EXPECT((params->integrationCovariance - covariance * I_3x3).norm() < 1e-20);
+    EXPECT(endpointConfigLabel({8.4, 8.4}, covariance).find("endpoint_v2_intcov") != std::string::npos);
+  }
+  for (const auto& value : {"-1", "nan", "inf", "1e-8junk"}) {
+    bool rejected = false;
+    try { parseQuadratureAppArguments({"--integration-covariance", value}, "test"); }
+    catch (const std::exception&) { rejected = true; }
+    EXPECT(rejected);
+  }
+}
+
 int main() {
   TestResult tr;
   return TestRegistry::runAllTests(tr);
