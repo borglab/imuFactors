@@ -1,0 +1,266 @@
+[
+  {
+    "dataset": "MH01",
+    "interval": 0.2,
+    "max_position_component_difference_m": 4.1589953703180527e-10,
+    "max_velocity_component_difference_mps": 5.932494079319284e-13,
+    "max_rotation_entry_difference": 1.9984014443252818e-15,
+    "max_covariance_entry_difference": 1.4281612846914558e-13
+  },
+  {
+    "dataset": "MH01",
+    "interval": 0.5,
+    "max_position_component_difference_m": 4.4838643908917675e-10,
+    "max_velocity_component_difference_mps": 8.219674940690425e-13,
+    "max_rotation_entry_difference": 1.887379141862766e-15,
+    "max_covariance_entry_difference": 4.1426187626421416e-13
+  },
+  {
+    "dataset": "MH01",
+    "interval": 1.0,
+    "max_position_component_difference_m": 4.4719783431901305e-10,
+    "max_velocity_component_difference_mps": 8.718689832598603e-13,
+    "max_rotation_entry_difference": 2.9976021664879227e-15,
+    "max_covariance_entry_difference": 4.923567946235739e-13
+  },
+  {
+    "dataset": "MH02",
+    "interval": 0.2,
+    "max_position_component_difference_m": 5.5681903532445176e-11,
+    "max_velocity_component_difference_mps": 1.0733688243780293e-13,
+    "max_rotation_entry_difference": 1.5543122344752192e-15,
+    "max_covariance_entry_difference": 7.63987296006647e-16
+  },
+  {
+    "dataset": "MH02",
+    "interval": 0.5,
+    "max_position_component_difference_m": 7.507516830429495e-11,
+    "max_velocity_component_difference_mps": 1.673990807082859e-13,
+    "max_rotation_entry_difference": 2.6645352591003757e-15,
+    "max_covariance_entry_difference": 2.5447359104553388e-15
+  },
+  {
+    "dataset": "MH02",
+    "interval": 1.0,
+    "max_position_component_difference_m": 7.962519532611623e-11,
+    "max_velocity_component_difference_mps": 2.350689087826652e-13,
+    "max_rotation_entry_difference": 3.1086244689504383e-15,
+    "max_covariance_entry_difference": 6.147718435171772e-15
+  },
+  {
+    "dataset": "MH03",
+    "interval": 0.2,
+    "max_position_component_difference_m": 2.6866731062114013e-11,
+    "max_velocity_component_difference_mps": 9.733750264140362e-14,
+    "max_rotation_entry_difference": 1.9984014443252818e-15,
+    "max_covariance_entry_difference": 6.03081998314938e-15
+  },
+  {
+    "dataset": "MH03",
+    "interval": 0.5,
+    "max_position_component_difference_m": 2.7543300973320584e-11,
+    "max_velocity_component_difference_mps": 1.2689155282075149e-13,
+    "max_rotation_entry_difference": 2.1094237467877974e-15,
+    "max_covariance_entry_difference": 1.9099646828175123e-14
+  },
+  {
+    "dataset": "MH03",
+    "interval": 1.0,
+    "max_position_component_difference_m": 1.6264434243851156e-11,
+    "max_velocity_component_difference_mps": 1.8466478346468307e-13,
+    "max_rotation_entry_difference": 2.9976021664879227e-15,
+    "max_covariance_entry_difference": 3.851105249263022e-14
+  },
+  {
+    "dataset": "MH04",
+    "interval": 0.2,
+    "max_position_component_difference_m": 2.0845436488059477e-11,
+    "max_velocity_component_difference_mps": 1.074140776324839e-13,
+    "max_rotation_entry_difference": 1.4432899320127035e-15,
+    "max_covariance_entry_difference": 3.0933983094905012e-15
+  },
+  {
+    "dataset": "MH04",
+    "interval": 0.5,
+    "max_position_component_difference_m": 2.378475194575458e-11,
+    "max_velocity_component_difference_mps": 1.1229905894083458e-13,
+    "max_rotation_entry_difference": 1.9984014443252818e-15,
+    "max_covariance_entry_difference": 3.1688364588583087e-15
+  },
+  {
+    "dataset": "MH04",
+    "interval": 1.0,
+    "max_position_component_difference_m": 2.369926477285844e-11,
+    "max_velocity_component_difference_mps": 1.5152462617962215e-13,
+    "max_rotation_entry_difference": 2.6645352591003757e-15,
+    "max_covariance_entry_difference": 3.2397630395953576e-15
+  },
+  {
+    "dataset": "MH05",
+    "interval": 0.2,
+    "max_position_component_difference_m": 6.631528659539754e-11,
+    "max_velocity_component_difference_mps": 1.4810375148499588e-13,
+    "max_rotation_entry_difference": 2.1094237467877974e-15,
+    "max_covariance_entry_difference": 3.43031786608968e-14
+  },
+  {
+    "dataset": "MH05",
+    "interval": 0.5,
+    "max_position_component_difference_m": 7.114231426186279e-11,
+    "max_velocity_component_difference_mps": 1.6008028236313976e-13,
+    "max_rotation_entry_difference": 2.4424906541753444e-15,
+    "max_covariance_entry_difference": 5.798522328181047e-14
+  },
+  {
+    "dataset": "MH05",
+    "interval": 1.0,
+    "max_position_component_difference_m": 6.941514030245344e-11,
+    "max_velocity_component_difference_mps": 2.1742677103198105e-13,
+    "max_rotation_entry_difference": 2.55351295663786e-15,
+    "max_covariance_entry_difference": 1.7943912969709804e-13
+  },
+  {
+    "dataset": "V101",
+    "interval": 0.2,
+    "max_position_component_difference_m": 4.0060887940285284e-10,
+    "max_velocity_component_difference_mps": 4.498554306842095e-13,
+    "max_rotation_entry_difference": 1.7763568394002505e-15,
+    "max_covariance_entry_difference": 1.0128116225018323e-11
+  },
+  {
+    "dataset": "V101",
+    "interval": 0.5,
+    "max_position_component_difference_m": 4.918437879197768e-10,
+    "max_velocity_component_difference_mps": 2.2665896937112961e-13,
+    "max_rotation_entry_difference": 2.3314683517128287e-15,
+    "max_covariance_entry_difference": 1.600333980912015e-11
+  },
+  {
+    "dataset": "V101",
+    "interval": 1.0,
+    "max_position_component_difference_m": 4.735914993503343e-10,
+    "max_velocity_component_difference_mps": 1.6178725026350094e-13,
+    "max_rotation_entry_difference": 2.7755575615628914e-15,
+    "max_covariance_entry_difference": 4.534331811857405e-11
+  },
+  {
+    "dataset": "V102",
+    "interval": 0.2,
+    "max_position_component_difference_m": 3.711390084149002e-10,
+    "max_velocity_component_difference_mps": 3.4424242970065855e-13,
+    "max_rotation_entry_difference": 1.9984014443252818e-15,
+    "max_covariance_entry_difference": 7.971321218752963e-12
+  },
+  {
+    "dataset": "V102",
+    "interval": 0.5,
+    "max_position_component_difference_m": 3.810384230362729e-10,
+    "max_velocity_component_difference_mps": 4.1977185616381973e-13,
+    "max_rotation_entry_difference": 2.55351295663786e-15,
+    "max_covariance_entry_difference": 2.0747711556427243e-11
+  },
+  {
+    "dataset": "V102",
+    "interval": 1.0,
+    "max_position_component_difference_m": 3.657295577497166e-10,
+    "max_velocity_component_difference_mps": 4.2210332451553256e-13,
+    "max_rotation_entry_difference": 2.886579864025407e-15,
+    "max_covariance_entry_difference": 4.198180006607689e-11
+  },
+  {
+    "dataset": "V103",
+    "interval": 0.2,
+    "max_position_component_difference_m": 4.097148176285259e-10,
+    "max_velocity_component_difference_mps": 3.3942596996960894e-13,
+    "max_rotation_entry_difference": 2.220446049250313e-15,
+    "max_covariance_entry_difference": 2.0726199337017446e-13
+  },
+  {
+    "dataset": "V103",
+    "interval": 0.5,
+    "max_position_component_difference_m": 3.922681068857514e-10,
+    "max_velocity_component_difference_mps": 3.050996955078489e-13,
+    "max_rotation_entry_difference": 2.6645352591003757e-15,
+    "max_covariance_entry_difference": 2.936643898663657e-13
+  },
+  {
+    "dataset": "V103",
+    "interval": 1.0,
+    "max_position_component_difference_m": 3.2880276279456666e-10,
+    "max_velocity_component_difference_mps": 4.231996697523499e-13,
+    "max_rotation_entry_difference": 3.9968028886505635e-15,
+    "max_covariance_entry_difference": 2.5827960210939756e-13
+  },
+  {
+    "dataset": "V201",
+    "interval": 0.2,
+    "max_position_component_difference_m": 5.67252911309879e-11,
+    "max_velocity_component_difference_mps": 1.258437798412615e-13,
+    "max_rotation_entry_difference": 2.3314683517128287e-15,
+    "max_covariance_entry_difference": 2.7604085878445635e-14
+  },
+  {
+    "dataset": "V201",
+    "interval": 0.5,
+    "max_position_component_difference_m": 3.771316592349194e-11,
+    "max_velocity_component_difference_mps": 8.068545831463325e-14,
+    "max_rotation_entry_difference": 2.220446049250313e-15,
+    "max_covariance_entry_difference": 8.167565539751266e-14
+  },
+  {
+    "dataset": "V201",
+    "interval": 1.0,
+    "max_position_component_difference_m": 3.894884414989974e-11,
+    "max_velocity_component_difference_mps": 1.0506873149296325e-13,
+    "max_rotation_entry_difference": 2.55351295663786e-15,
+    "max_covariance_entry_difference": 1.6106821918823025e-13
+  },
+  {
+    "dataset": "V202",
+    "interval": 0.2,
+    "max_position_component_difference_m": 2.536526544361095e-11,
+    "max_velocity_component_difference_mps": 1.1393837262563267e-13,
+    "max_rotation_entry_difference": 1.9984014443252818e-15,
+    "max_covariance_entry_difference": 1.4205603418194313e-13
+  },
+  {
+    "dataset": "V202",
+    "interval": 0.5,
+    "max_position_component_difference_m": 2.2225055129609927e-11,
+    "max_velocity_component_difference_mps": 1.7897315574000316e-13,
+    "max_rotation_entry_difference": 2.220446049250313e-15,
+    "max_covariance_entry_difference": 3.1619617920548077e-13
+  },
+  {
+    "dataset": "V202",
+    "interval": 1.0,
+    "max_position_component_difference_m": 1.2577938690583323e-11,
+    "max_velocity_component_difference_mps": 2.4942548026984923e-13,
+    "max_rotation_entry_difference": 2.55351295663786e-15,
+    "max_covariance_entry_difference": 4.554815964440476e-13
+  },
+  {
+    "dataset": "V203",
+    "interval": 0.2,
+    "max_position_component_difference_m": 3.356248612362833e-11,
+    "max_velocity_component_difference_mps": 2.4001460541267505e-13,
+    "max_rotation_entry_difference": 1.6653345369377348e-15,
+    "max_covariance_entry_difference": 2.985863707766135e-14
+  },
+  {
+    "dataset": "V203",
+    "interval": 0.5,
+    "max_position_component_difference_m": 2.0968504710339175e-11,
+    "max_velocity_component_difference_mps": 2.5138224835075107e-13,
+    "max_rotation_entry_difference": 2.3314683517128287e-15,
+    "max_covariance_entry_difference": 4.005602021754852e-14
+  },
+  {
+    "dataset": "V203",
+    "interval": 1.0,
+    "max_position_component_difference_m": 2.2842894242813827e-11,
+    "max_velocity_component_difference_mps": 2.7823576775887204e-13,
+    "max_rotation_entry_difference": 2.55351295663786e-15,
+    "max_covariance_entry_difference": 2.5181747784826294e-13
+  }
+]

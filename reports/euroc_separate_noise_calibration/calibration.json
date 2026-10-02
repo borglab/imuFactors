@@ -1,0 +1,78 @@
+{
+  "protocol": "group_separate_mean_median",
+  "settings": {
+    "MH": {
+      "alpha_gyro": 3.1091037257100345,
+      "alpha_acc": 9.759841135375106,
+      "integration_covariance": 1.6974524071630477e-05
+    },
+    "V": {
+      "alpha_gyro": 13.537475897321961,
+      "alpha_acc": 14.52085159640816,
+      "integration_covariance": 0.0
+    }
+  },
+  "likelihood_settings": {
+    "MH": {
+      "alpha_gyro": 4.2494506902186036,
+      "alpha_acc": 13.339523961900674,
+      "integration_covariance": 3.1709746663387624e-05
+    },
+    "V": {
+      "alpha_gyro": 15.275522728908749,
+      "alpha_acc": 16.385151876645175,
+      "integration_covariance": 0.0
+    }
+  },
+  "parameter_selection": "Independent gyro/accelerometer/q Gaussian-likelihood sweep, followed by common covariance scaling to equal-weight mean block median native NEES=1; full-group descriptive fit, not held-out",
+  "source_sha256": {
+    "MH01": "cf02607e5be797e5ae31ac933376c123ef25cf52cdd16bbcb61044783d7764dc",
+    "MH02": "64032bf934de15876cc319d7b3abc05d813e3054673c3b2c779250a3305f93e8",
+    "MH03": "09ae700eb5758226295be174689385f40638113b202b2dc8d2d15f7058d0b100",
+    "MH04": "fb98cea4ac1d726089e3477648fc7f57ddfed5249bc77affad9697748b5bf2c9",
+    "MH05": "c739a972fc1aff7d3de4a0a1132e83b2c737e7b47091b9f657a5be043e8632aa",
+    "V101": "4e49c39a6bd4eefd6b26a6724843b55b61bb83f1ccd16e3a9d7db1764d0d50c7",
+    "V102": "2b8101bd38212898ff3969a23ee7d0bc300ad95f3c8a3dd5df52dcce347c074d",
+    "V103": "c93f0c8c9fa86f1859f22da74c7e7e879d38a5f20ebb0653ca4dd26b4d53856b",
+    "V201": "de9ea7f67ad56074679d0557ef760ac60c1eec240fcf20607e5b0b06c4f8d932",
+    "V202": "f0fd12dbad1d62197cb77d1f17992e54f843a378d5c34072ea6b5a9c03e25ad5",
+    "V203": "ed248760149e2bb04455717b88d62405f0afe2b9cb571cac84c63413a087fadb"
+  },
+  "diagnostics": {
+    "MH": {
+      "likelihood_nll": -38.03992214577625,
+      "tied_sensor_likelihood_nll": -36.40963234401234,
+      "median_normalization": {
+        "covariance_scale": 0.5353093561996011,
+        "target": 1.0,
+        "mean_median_before": 0.5353105723567406,
+        "mean_median_after": 0.9999999999999998,
+        "blocks": 30,
+        "regularization": 1e-12
+      },
+      "evaluations": 581,
+      "q_zero_boundary": false
+    },
+    "V": {
+      "likelihood_nll": -35.06335425830084,
+      "tied_sensor_likelihood_nll": -35.05466832017782,
+      "median_normalization": {
+        "covariance_scale": 0.7853861372302969,
+        "target": 1.0,
+        "mean_median_before": 0.7853861687999973,
+        "mean_median_after": 1.0000000000000002,
+        "blocks": 36,
+        "regularization": 1e-12
+      },
+      "evaluations": 514,
+      "q_zero_boundary": true
+    }
+  },
+  "fit_methods": [
+    "manifold",
+    "galilean"
+  ],
+  "no_window_exclusions": true,
+  "covariance_basis_validation": "Direct mixed-noise propagation passed on all 11 sequences and intervals",
+  "base_commit": "6c156c8aab68552539dce63f4c2118dec7a2742a"
+}
