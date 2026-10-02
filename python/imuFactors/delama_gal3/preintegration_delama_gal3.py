@@ -152,6 +152,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--integration-covariance", type=integration_covariance_value, default=1e-8,
                         help="Continuous position-drive covariance in m²/s, independent of alpha.")
+    parser.add_argument('--alpha-gyro', type=float, help='Override the gyro noise scale')
+    parser.add_argument('--alpha-acc', type=float, help='Override the accelerometer noise scale')
     return parser
 
 
@@ -172,8 +174,19 @@ def integration_covariance_value(value):
     return value
 
 
-def configuration_label(alpha, integration_covariance):
-    return f"alpha_g{alpha:g}_a{alpha:g}_endpoint_v2_intcov{integration_covariance:.17g}"
+def noise_scales(alpha=8.4, alpha_gyro=None, alpha_acc=None):
+    """Resolve separate sensor scales while retaining the uniform-alpha shorthand."""
+    gyro = alpha if alpha_gyro is None else alpha_gyro
+    acc = alpha if alpha_acc is None else alpha_acc
+    if any(not np.isfinite(value) or value <= 0 for value in (gyro, acc)):
+        raise ValueError('Noise scales must be finite and positive')
+    return gyro, acc
+
+
+def configuration_label(alpha=8.4, integration_covariance=1e-8,
+                        alpha_gyro=None, alpha_acc=None):
+    gyro, acc = noise_scales(alpha, alpha_gyro, alpha_acc)
+    return f"alpha_g{gyro:g}_a{acc:g}_endpoint_v2_intcov{integration_covariance:.17g}"
 
 
 def physical_reporting(predicted, truth, increment, native_covariance):
@@ -194,10 +207,10 @@ def physical_reporting(predicted, truth, increment, native_covariance):
 
 @torch.no_grad()
 def evaluate_interval(streams, interval: float, alpha: float = 8.4,
-                      integration_covariance: float = 1e-8):
+                      integration_covariance: float = 1e-8, *,
+                      alpha_gyro=None, alpha_acc=None):
     """Evaluate all complete windows with initial GT bias and zero covariance."""
-    if not np.isfinite(alpha) or alpha <= 0:
-        raise ValueError("Noise scale alpha must be finite and positive")
+    alpha_gyro, alpha_acc = noise_scales(alpha, alpha_gyro, alpha_acc)
     integration_covariance = integration_covariance_value(integration_covariance)
     T, b_omega, b_acc, omegas, accs, time_vec, dt = streams
     steps_per_window, starts, ends = window_bounds(len(T), interval, dt)
@@ -211,8 +224,8 @@ def evaluate_interval(streams, interval: float, alpha: float = 8.4,
                    torch.ones(M, steps_per_window, 1, device=DEVICE)), dim=2)
     g = torch.tensor([0, 0, -9.81], device=DEVICE)
     Q_g3 = torch.zeros(20, 20, device=DEVICE)
-    Q_g3[:3, :3] = (alpha * 1.6968e-4)**2 / dt * torch.eye(3, device=DEVICE)
-    Q_g3[3:6, 3:6] = (alpha * 2.0000e-3)**2 / dt * torch.eye(3, device=DEVICE)
+    Q_g3[:3, :3] = (alpha_gyro * 1.6968e-4)**2 / dt * torch.eye(3, device=DEVICE)
+    Q_g3[3:6, 3:6] = (alpha_acc * 2.0000e-3)**2 / dt * torch.eye(3, device=DEVICE)
     # Initialize with zero covariance while using each window's
     # ground-truth initial bias for measurement debiasing above.
     Y_delama_gal3 = torch.eye(5, device=DEVICE).repeat(M, 1, 1)
@@ -251,12 +264,14 @@ def evaluate_interval(streams, interval: float, alpha: float = 8.4,
     result = {
         "convention": "endpoint_v2",
         "integration_covariance": integration_covariance,
-        "config_label": configuration_label(alpha, integration_covariance),
+        "config_label": configuration_label(alpha, integration_covariance, alpha_gyro, alpha_acc),
         "predicted_endpoints": predicted,
         "predicted_increment": Y_delama_gal3,
         "physical_error": physical_error,
         "reporting_covariance": reporting_covariance,
         "alpha": alpha,
+        "alpha_gyro": alpha_gyro,
+        "alpha_acc": alpha_acc,
         "preint_time": interval,
         "M": M,
         "starts": starts,
@@ -281,8 +296,9 @@ def main() -> None:
     args = build_parser().parse_args()
 
     alpha = float(args.alpha)
-    sigma_gyro_base = alpha * 1.6968e-4
-    sigma_acc_base = alpha * 2.0000e-3
+    alpha_gyro, alpha_acc = noise_scales(alpha, args.alpha_gyro, args.alpha_acc)
+    sigma_gyro_base = alpha_gyro * 1.6968e-4
+    sigma_acc_base = alpha_acc * 2.0000e-3
     g = torch.tensor([0, 0, -9.81], device=DEVICE)
     preint_times = torch.tensor(args.preint_times, device=DEVICE)
     output_dir = Path(args.output_dir)
@@ -317,7 +333,9 @@ def main() -> None:
             "filename": filename,
             "integration_covariance": args.integration_covariance,
             "convention": "endpoint_v2",
-            "config_label": configuration_label(alpha, args.integration_covariance),
+            "config_label": configuration_label(alpha, args.integration_covariance, alpha_gyro, alpha_acc),
+            "alpha_gyro": alpha_gyro,
+            "alpha_acc": alpha_acc,
             "duration": duration,
             "imu_freq": imu_freq,
             "dt": dt,
@@ -340,7 +358,8 @@ def main() -> None:
                 continue
             result = evaluate_interval(
                 (T, b_omega, b_acc, omegas, accs, time_vec, dt),
-                preint_time.item(), alpha, args.integration_covariance)
+                preint_time.item(), alpha, args.integration_covariance,
+                alpha_gyro=alpha_gyro, alpha_acc=alpha_acc)
             per_sequence_results[preint_time.item()] = result
 
             window_label = f"{preint_time.item():.1f}s"

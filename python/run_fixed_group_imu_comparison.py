@@ -34,10 +34,12 @@ def validate_settings(settings):
     if set(settings) != {'MH', 'V'}:
         raise ValueError('Require exactly MH and V settings')
     for values in settings.values():
-        if set(values) != {'alpha', 'integration_covariance'} or not all(
+        if set(values) not in ({'alpha', 'integration_covariance'},
+                              {'alpha_gyro', 'alpha_acc', 'integration_covariance'}) or not all(
                 isinstance(v, (int, float)) and math.isfinite(v) for v in values.values()):
             raise ValueError('Require finite alpha and integration_covariance')
-        if values['alpha'] <= 0 or values['integration_covariance'] < 0:
+        if (any(value <= 0 for name, value in values.items() if name != 'integration_covariance')
+                or values['integration_covariance'] < 0):
             raise ValueError('Require alpha > 0 and integration_covariance >= 0')
 
 
@@ -55,7 +57,7 @@ def run_comparison(binary, data_dir, results_root, threads=1, calibration=None,
     group_settings = GROUP_SETTINGS if calibration is None else calibration['settings']
     validate_settings(group_settings)
     protocol = 'fixed_group_refit' if calibration is None else calibration['protocol']
-    if protocol not in ('fixed_group_refit', 'group_mean_median'):
+    if protocol not in ('fixed_group_refit', 'group_mean_median', 'group_separate_mean_median'):
         raise ValueError(f'Unknown calibration protocol: {protocol}')
     if not binary.is_file() or not os.access(binary, os.X_OK):
         raise FileNotFoundError(f'Missing executable C++ binary: {binary}')
@@ -79,6 +81,8 @@ def run_comparison(binary, data_dir, results_root, threads=1, calibration=None,
     run_id = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
     identity = dict(run_id=run_id, app_name=('evalMedianGroupImuComparison'
                     if protocol == 'group_mean_median' else 'evalFixedGroupImuComparison'))
+    if protocol == 'group_separate_mean_median':
+        identity['app_name'] = 'evalSeparateNoiseGroupImuComparison'
     if include_quadrature:
         identity['app_name'] += 'WithQuadrature'
     source_hashes = {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in sources.items()}
@@ -93,8 +97,13 @@ def run_comparison(binary, data_dir, results_root, threads=1, calibration=None,
             settings = settings_for_dataset(name, group_settings)
             cpp_root = staging/name
             command = [str(binary.resolve()), '--dataset', name, '--data-dir', str(data_dir.resolve()),
-                       '--alpha', str(settings['alpha']), '--integration-covariance',
+                       '--integration-covariance',
                        repr(settings['integration_covariance']), '--output-root', str(cpp_root)]
+            if 'alpha' in settings:
+                command += ['--alpha', repr(settings['alpha'])]
+            else:
+                command += ['--alpha-gyro', repr(settings['alpha_gyro']),
+                            '--alpha-acc', repr(settings['alpha_acc'])]
             subprocess.run(command, check=True)
             metadata_files = list(cpp_root.rglob('run_metadata.csv'))
             if len(metadata_files) != 1:
@@ -144,7 +153,7 @@ def run_comparison(binary, data_dir, results_root, threads=1, calibration=None,
                             method_interval_window_coverage='passed',
                             source_csvs_unchanged=True, all_methods_directly_rerun=True, no_window_exclusions=True),
         )
-        if protocol == 'group_mean_median':
+        if protocol in ('group_mean_median', 'group_separate_mean_median'):
             verification['fit_methods'] = ['manifold', 'galilean']
             verification['quadrature_in_calibration'] = False
             from statistics import mean, median

@@ -42,17 +42,28 @@ void exportWindows(const Dataset &dataset,
   }
 }
 
+// Zero is useful here for exporting individual sensor covariance contributions.
+double parseNoiseScale(const std::string& value) {
+  size_t consumed = 0;
+  const double scale = std::stod(value, &consumed);
+  if (consumed != value.size() || !std::isfinite(scale) || scale < 0) {
+    throw std::runtime_error("Noise scale must be finite and nonnegative");
+  }
+  return scale;
+}
+
 int main(int argc, char **argv) {
   try {
-    if (argc < 3 || argc > 5) {
+    if (argc < 3 || argc > 6) {
       throw std::runtime_error(
-          "Usage: exportGalileanParity <csv> <q> [galilean|manifold] [alpha]");
+          "Usage: exportGalileanParity <csv> <q> [galilean|manifold] "
+          "[alpha_gyro] [alpha_acc (defaults to alpha_gyro)]");
     }
     const Dataset dataset(argv[1]);
-    const double alpha =
-        argc == 5 ? parsePositiveDoubleOption("alpha", argv[4]) : 8.4;
+    const double alphaGyro = argc >= 5 ? parseNoiseScale(argv[4]) : 8.4;
+    const double alphaAcc = argc == 6 ? parseNoiseScale(argv[5]) : alphaGyro;
     const auto params = makePreintegrationParams(
-        AlphaPair{alpha, alpha}, parseIntegrationCovariance(argv[2]));
+        AlphaPair{alphaGyro, alphaAcc}, parseIntegrationCovariance(argv[2]));
     const std::string method = argc >= 4 ? argv[3] : "galilean";
     if (method == "galilean") {
       exportWindows<PIMGalilean>(dataset, params);

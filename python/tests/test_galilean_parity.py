@@ -22,16 +22,24 @@ def test_configurable_noise_parity(q):
     check_parity(ROOT / 'data/euroc/euroc_MH01.csv', q)
 
 
-def check_parity(source, q):
+@pytest.mark.parametrize('name', ['MH01', 'V101'])
+@pytest.mark.parametrize('q', [0., 2e-6])
+def test_separate_sensor_scales_parity(name, q):
+    check_parity(ROOT / f'data/euroc/euroc_{name}.csv', q, 3.7, 12.1)
+
+
+def check_parity(source, q, alpha_gyro=8.4, alpha_acc=8.4):
     helper = ROOT / 'build/tests/exportGalileanParity'
     assert helper.is_file(), 'Build exportGalileanParity before running parity tests'
-    output = subprocess.run([str(helper), str(source), repr(q)], check=True, capture_output=True, text=True).stdout
+    output = subprocess.run([str(helper), str(source), repr(q), 'galilean', repr(alpha_gyro), repr(alpha_acc)],
+                            check=True, capture_output=True, text=True).stdout
     data = np.genfromtxt(io.StringIO(output), delimiter=',', names=True)
     streams = load_ground_truth_euroc(str(source))
     torch.set_num_threads(1)
     for interval in (.2, .5, 1.):
         rows = data[np.isclose(data['interval'], interval)]
-        result = evaluate_interval(streams, interval, integration_covariance=q)
+        result = evaluate_interval(streams, interval, integration_covariance=q,
+                                   alpha_gyro=alpha_gyro, alpha_acc=alpha_acc)
         predicted = result['predicted_endpoints'].cpu().numpy()
         cpp_predicted = np.column_stack([rows[f'pred_{i}'] for i in range(15)])
         np.testing.assert_array_equal(rows['start'], result['starts'].cpu())

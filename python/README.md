@@ -526,3 +526,40 @@ This directly reruns all four methods and publishes 38,072 window rows and 132
 summaries under `build/results/evalMedianGroupImuComparisonWithQuadrature`.
 Quadrature uses the existing parameters and does not enter the calibration
 objective. The three-method manuscript packages remain available.
+
+## Independent gyro and accelerometer calibration
+
+The group calibration can fit three independent parameters: `alpha_gyro`,
+`alpha_acc`, and position-drive covariance `q`. The C++ diagnostics already
+accept `--alpha-gyro` and `--alpha-acc`; the standalone Python runner now accepts
+the same overrides. `--alpha` remains the shorthand for equal sensor scales.
+The result fields and canonical configuration labels record both scales.
+
+```bash
+make -C build -j6 exportGalileanParity
+conda run -n py312 python python/run_separate_noise_calibration.py
+conda run -n py312 python python/run_fixed_group_imu_comparison.py \
+  --calibration-json build/separate-noise-calibration/<run_id>/calibration.json \
+  --include-quadrature
+```
+
+The calibration exports independent gyro and accelerometer covariance bases
+and verifies their sum, with an independent `q` contribution, against direct
+propagation at unequal sensor scales on every sequence and interval. Covariance
+is linear in the two squared sensor scales and in `q`, so the sweep profiles the
+overall scale analytically, scans the two remaining log ratios, and refines
+multiple promising candidates. The `q=0` boundary is evaluated explicitly.
+Search-boundary winners fail instead of silently returning a clipped fit.
+
+One triplet is fitted per MH/V group, with equal weight per sequence, interval,
+and manifold/GTSAM Galilean method. Quadrature and the equivalent Python
+Galilean implementation do not enter the fit. `calibration.json` records both
+the Gaussian-likelihood optimum and the recommended triplet rescaled to retain
+the previous mean-of-block-medians NEES target of one. The latter keeps the
+fitted noise ratios and uses the fixed `1e-12` NEES regularization. These are
+descriptive full-group fits, not held-out generalization scores. `sweep.csv`
+records the likelihood evaluations; no source windows are excluded.
+
+The four-method result is published under
+`build/results/evalSeparateNoiseGroupImuComparisonWithQuadrature`, with the same
+38,072 window rows, 132 summaries, and viewer method order as the earlier run.
