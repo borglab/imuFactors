@@ -35,7 +35,7 @@ class TaesEurocEndpointTableTests(unittest.TestCase):
                 for error_deg in errors_by_method[method]:
                     rows.append(
                         {
-                            "m": 40,
+                            "m": 41,
                             "N_paper": 13,
                             "benchmark_version": 5,
                             "noise_fraction": noise_fraction,
@@ -45,8 +45,10 @@ class TaesEurocEndpointTableTests(unittest.TestCase):
                         }
                     )
 
+        # Old M=40 trials must not enter the new 200 Hz table.
+        old_rows = [dict(row, m=40, error_deg=1000.0) for row in rows]
         summary = endpoint_rms_by_exact_noise(
-            pd.DataFrame(rows),
+            pd.DataFrame(rows + old_rows).sample(frac=1, random_state=7),
             noise_fractions=(0.0, 0.1),
             trials_per_cell=2,
         )
@@ -71,10 +73,21 @@ class TaesEurocEndpointTableTests(unittest.TestCase):
         self.assertAlmostEqual(float(values[2]), expected_d2)
         self.assertIsNone(values[4])
 
+        for column, value, message in (
+            ("N_paper", 7, "N_paper=13"),
+            ("benchmark_version", 4, "benchmark_version=5"),
+            ("converged", False, "non-converged"),
+        ):
+            with self.subTest(column=column), self.assertRaisesRegex(ValueError, message):
+                endpoint_rms_by_exact_noise(
+                    pd.DataFrame(rows).assign(**{column: value}),
+                    noise_fractions=(0.0, 0.1), trials_per_cell=2,
+                )
+
     def test_rejects_incomplete_cache_cells(self) -> None:
         rows = [
             {
-                "m": 40,
+                "m": 41,
                 "N_paper": 13,
                 "benchmark_version": 5,
                 "noise_fraction": 0.0,

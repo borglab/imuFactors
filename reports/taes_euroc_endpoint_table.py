@@ -8,7 +8,8 @@ import numpy as np
 import pandas as pd
 
 
-EUROC_RMS_SAMPLE_COUNT = 40
+EUROC_RMS_SAMPLE_COUNT = 41
+EUROC_RMS_CACHE_NAME = "endpoint_200hz_trial_metrics.csv.gz"
 EUROC_RMS_NODE_COUNT = 13
 EUROC_RMS_BENCHMARK_VERSION = 5
 EUROC_RMS_TRIALS_PER_CELL = 1100
