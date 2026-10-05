@@ -230,3 +230,6 @@ reports/taes_euroc_snippet_experiment_report.pdf
 
 # Reproducible native Fast RodFIter benchmark inputs, timings, and provenance.
 reports/fast_rodfiter_benchmark_assets/
+
+# Separate, timestamped pseudo-inverse vs exact-nodal Monte Carlo runs.
+reports/taes_nodal_monte_carlo_assets/
