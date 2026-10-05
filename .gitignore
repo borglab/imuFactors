@@ -227,3 +227,6 @@ reports/taes_euroc_snippet_experiment_assets/
 reports/psychmagpi_gyro_report*.pdf
 reports/psychmagpi_gyro_exact_vs_approximate.pdf
 reports/taes_euroc_snippet_experiment_report.pdf
+
+# Reproducible native Fast RodFIter benchmark inputs, timings, and provenance.
+reports/fast_rodfiter_benchmark_assets/

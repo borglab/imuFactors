@@ -134,7 +134,6 @@ def write_compact_tables(metadata: pd.DataFrame) -> None:
     signal = pd.read_csv(ASSET_DIR / "interpolation_signal_metrics.csv.gz")
     significance = median_table_significance(endpoint, signal)
     significance.to_csv(ASSET_DIR / "median_table_significance.csv", index=False)
-    runtime = pd.read_csv(ASSET_DIR / "runtime_overall_summary.csv")
     snippet_names = ", ".join(metadata["dataset"].astype(str).tolist())
 
     lines = [
@@ -179,16 +178,6 @@ def write_compact_tables(metadata: pd.DataFrame) -> None:
         [
             r"    \hline",
             r"  \end{tabular}",
-            r"  \vspace{0.2em}",
-            r"  \setlength{\tabcolsep}{4pt}",
-            r"  \begin{tabular}{l | c c c}",
-            r"    \hline",
-            r"      Runtime & Seq. Rot. & One-Speed & PS-CPI \\",
-            r"    \hline",
-            "    " + runtime_row(runtime, "median_runtime_us", r"$\mu$s"),
-            "    " + runtime_relative_row(runtime),
-            r"    \hline",
-            r"  \end{tabular}",
             r"\end{table}",
             "",
             r"\SecondRevision{For snippet $i$, the value in the first column is the ratio $\sigma_i/\operatorname{range}_t\|\bomega_i^\star(t)\|$, where $\sigma_i$ is the injected component-noise standard deviation. Because the angular-rate range varies by snippet, Table~\ref{tab:EurocProxyRms} reports this dimensionless fraction rather than a single noise standard deviation in rad/s. For PS-CPI, the rule $n=\lfloor2\sqrt{M-1}\rfloor$ gives $N=n+1=13$ CGL nodes. Em dashes mark methods that were not evaluated in this experiment.}",
@@ -197,13 +186,12 @@ def write_compact_tables(metadata: pd.DataFrame) -> None:
             "",
             r"\SecondRevision{Table~\ref{tab:EurocProxySummary} summarizes medians across all five sample counts and groups positive noise into bands, whereas Table~\ref{tab:EurocProxyRms} fixes $M=41$ samples ($m=40$ intervals, 200~Hz) and reports the same RMS final attitude-propagation metric used in Tables~\ref{tab:ConingAngVel} and~\ref{tab:ConingDelTheta} at every sampled noise fraction. In the no-noise row, converged PS-CPI has the lowest RMS error. At positive noise, Sequential Rotation and One-Speed are nearly identical and slightly lower than converged PS-CPI.}",
             "",
-            r"The drone proxy results show that PS-CPI is most effective for noise-free endpoint integration and for angular-rate interpolation with positive noise. \SecondRevision{Table~\ref{tab:EurocProxySummary} reports median endpoint error in degrees, PS-CPI win rate against the one-speed update, normalized angular-rate interpolation error, and median runtime. The table explicitly separates trials with no added noise from trials with positive low noise. With no added noise, PS-CPI reduces the median endpoint error from 0.0013~deg to 0.0003~deg and wins 80\% of matched trials. With positive noise, the endpoint errors remain close and One-Speed has the lower median. Against the strongest non-PS-CPI angular-rate interpolator, PS-CPI reduces the median interpolation error by 26\% in the positive-low-noise band, 25\% in the middle-noise band, and 27\% in the high-noise band.}",
+            r"The drone proxy results show that PS-CPI is most effective for noise-free endpoint integration and for angular-rate interpolation with positive noise. \SecondRevision{Table~\ref{tab:EurocProxySummary} reports median endpoint error in degrees, PS-CPI win rate against the one-speed update, and normalized angular-rate interpolation error. The table explicitly separates trials with no added noise from trials with positive low noise. With no added noise, PS-CPI reduces the median endpoint error from 0.0013~deg to 0.0003~deg and wins 80\% of matched trials. With positive noise, the endpoint errors remain close and One-Speed has the lower median. Against the strongest non-PS-CPI angular-rate interpolator, PS-CPI reduces the median interpolation error by 26\% in the positive-low-noise band, 25\% in the middle-noise band, and 27\% in the high-noise band.}",
             "",
             r"\begin{itemize}",
             r"  \item \textbf{Noise} separates trials with no added noise from positive low, middle, and high injected gyro-noise bands.",
             r"  \item \textbf{Endpoint} reports median final SO(3) attitude error in degrees after the 200~ms interval, where smaller is better. \textbf{One-Speed} is the classical single-speed coning update, \textbf{PS-CPI} is the pseudo-spectral Chebyshev-Picard update, and \textbf{Win} is the fraction of matched trials in which PS-CPI has lower final error than One-Speed.",
             r"  \item \textbf{$\bomega$ interp.} reports unitless normalized angular-rate interpolation error on a dense grid over the interval, where smaller is better. \textbf{Baseline} is the better of componentwise linear and natural cubic-spline interpolation in that noise band, while \textbf{PS-CPI} is the corresponding polynomial-fit result.",
-            r"  \item \textbf{Runtime} gives median Python-level wall-clock time in microseconds per wrapped GTSAM integration call, where smaller is faster. \textbf{Seq. Rot.} is the sequential-rotation/RK2 baseline, \textbf{One-Speed} is the single-speed coning baseline, \textbf{PS-CPI} includes the sample-to-CGL fit used by the report, and \textbf{Rel.} normalizes those timings by the One-Speed runtime.",
             r"\end{itemize}",
             "",
         ]
@@ -366,46 +354,6 @@ def highlight_lower(first: float, second: float, significant: bool) -> list[str]
 def fmt_error(value: float) -> str:
     """Format compact-table errors consistently to four decimal places."""
     return f"{float(value):.4f}"
-
-
-def runtime_row(runtime: pd.DataFrame, column: str, units: str) -> str:
-    values = runtime_values(runtime, column)
-    return (
-        rf"{units} & {fmt(values['D2/RK2'])} & {fmt(values['D3 single-speed'])} "
-        rf"& {fmt(values['PsyChMagPI'])} \\"
-    )
-
-
-def runtime_relative_row(runtime: pd.DataFrame) -> str:
-    values = runtime_values(runtime, "median_runtime_us")
-    d3 = values["D3 single-speed"]
-    return (
-        r"Rel. & "
-        + f"{values['D2/RK2'] / d3:.1f}"
-        + " & 1.0 & "
-        + f"{values['PsyChMagPI'] / d3:.1f}"
-        + r" \\"
-    )
-
-
-def runtime_values(runtime: pd.DataFrame, column: str) -> dict[str, float]:
-    return {
-        str(row["method"]): float(row[column])
-        for _, row in runtime.iterrows()
-    }
-
-
-def fmt(value: float) -> str:
-    value = float(value)
-    if abs(value) >= 100.0:
-        return f"{value:.0f}"
-    if abs(value) >= 10.0:
-        return f"{value:.1f}"
-    if abs(value) >= 1.0:
-        return f"{value:.2f}"
-    if abs(value) >= 0.1:
-        return f"{value:.3f}"
-    return f"{value:.4f}"
 
 
 if __name__ == "__main__":

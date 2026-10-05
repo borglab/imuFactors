@@ -31,6 +31,14 @@ imufactors_add_local_test(testAppUtils testAppUtils.cpp)
 imufactors_add_local_test(testResultsWriter testResultsWriter.cpp)
 imufactors_add_local_test(testTiltObserver testTiltObserver.cpp)
 
+# Independent coefficient-space gyro integrator and private PS-CPI checks.
+add_executable(testFastRodFIter testFastRodFIter.cpp)
+target_link_libraries(testFastRodFIter PRIVATE fastRodFIter ${IMUFACTORS_CPPUNIT_TARGET})
+add_test(NAME testFastRodFIter COMMAND testFastRodFIter)
+add_custom_target(testFastRodFIter.run
+    COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure -R "^testFastRodFIter$"
+    DEPENDS testFastRodFIter WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+
 # Full-precision numerical oracle used by python/tests/test_galilean_parity.py.
 add_executable(exportGalileanParity exportGalileanParity.cpp)
 target_link_libraries(exportGalileanParity PRIVATE imuFactorsEval ${IMUFACTORS_GTSAM_TARGET})
