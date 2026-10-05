@@ -1,3 +1,5 @@
+* Use the `lidar` conda environment for Python commands and tests. Its GTSAM wrapper is built from `gtsam-private` and links to `/Users/dellaert/gtsam-private/lib`. Do not substitute a public GTSAM wheel or the temporary `py312` wrapper.
+
 For reviewing PRs:
 * All functions in header files should have doxygen-style API docs, /** */ style, except small functions like getters which can have single line /// comments, no need for @brief, @params etc
 * Use /// for single-line comments rather than /** */
