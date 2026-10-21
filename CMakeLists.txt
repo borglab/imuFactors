@@ -47,6 +47,13 @@ target_link_libraries(imuFactorsEval PUBLIC
 )
 
 # CLI entry points
+add_library(fastRodFIter src/FastRodFIter.cpp)
+target_include_directories(fastRodFIter PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(fastRodFIter PUBLIC ${IMUFACTORS_GTSAM_TARGET})
+
+add_executable(benchmarkFastRodFIter apps/benchmarkFastRodFIter.cpp)
+target_link_libraries(benchmarkFastRodFIter PRIVATE fastRodFIter)
+
 add_executable(evalGal3NavStateImuEKFNEES apps/evalGal3NavStateImuEKFNEES.cpp)
 add_executable(evalNoiseCalibration apps/evalNoiseCalibration.cpp)
 add_executable(evalPimNoiseCalibration apps/evalPimNoiseCalibration.cpp)

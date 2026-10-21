@@ -1,0 +1,144 @@
+---
+title: "Exact Versus Approximate PsyChMagPI Integration Matrix"
+subtitle: "Same gyro proxy report inputs with only the PsyChMagPI integration matrix changed"
+author: "Frank Dellaert"
+date: "2026-06-10"
+format:
+  pdf:
+    number-sections: true
+    colorlinks: true
+    fig-pos: H
+    geometry:
+      - top=0.65in
+      - bottom=0.65in
+      - left=0.65in
+      - right=0.65in
+fontsize: 10pt
+---
+
+# Executive Summary
+
+Main conclusions:
+
+- For `PsyChMagPI N_sqrt`, the approximate matrix changed the EuRoC endpoint win rate by -1.4 pp and changed the median final error by +0.000313 degrees.
+- For `PsyChMagPI best fixed`, the approximate matrix changed the EuRoC endpoint win rate by +1.4 pp and changed the median final error by +0.000106 degrees.
+- For the deterministic `N_sqrt, lambda1=0.01` rule against RK2, the aggregate win rate moved from 48% to 46%.
+- On the TAES Table-II zero-noise row, unregularized PsyChMagPI changed from 1.41e-06 mrad to 9.33e-06 mrad.
+- At the largest TAES Table-II noise level, unregularized PsyChMagPI changed by -0.0149 mrad.
+
+I compared two PsyChMagPI integration-matrix settings while keeping every other report input fixed. The exact report used the default `N -> N+1` integration matrix; the approximate report used `useApproximateIntegrationMatrix = true`, which calls the historical Chebyshev2 approximate integration matrix and returns an `N`-column tangent trajectory. In both reports I took the final state from the last returned trajectory column.
+
+The comparison isolates PsyChMagPI only. RK2, Magnus-2, D1, D2/RK2, D3, sample selection, noise draws, Chebyshev proxy fits, `N` grids, and `lambda1` grids were identical across the two reports.
+
+Overall EuRoC endpoint comparison:
+
+| PsyCh view            | Exact win | Approx win | Delta win | Exact median deg | Approx median deg | Delta median deg | Approx/exact |
+| --------------------- | --------- | ---------- | --------- | ---------------- | ----------------- | ---------------- | ------------ |
+| PsyChMagPI N_sqrt     | 48%       | 47%        | -1.4 pp   | 0.1615           | 0.1618            | +0.000313        | 1.0x         |
+| PsyChMagPI best fixed | 50%       | 52%        | +1.4 pp   | 0.1617           | 0.1618            | +0.000106        | 1.0x         |
+
+Fixed `N_sqrt, lambda1=0.01` comparison against RK2:
+
+| Noise | Exact win | Approx win | Delta win | Median delta change deg |
+| ----- | --------- | ---------- | --------- | ----------------------- |
+| high  | 54%       | 53%        | -1.5 pp   | -8.6e-06                |
+| low   | 37%       | 35%        | -1.7 pp   | +5.11e-05               |
+| mid   | 53%       | 51%        | -1.8 pp   | +2.53e-05               |
+
+TAES Table-II key rows:
+
+| Noise sigma rad/s | Method                    | Exact RMS mrad | Approx RMS mrad | Delta mrad | Approx/exact |
+| ----------------- | ------------------------- | -------------- | --------------- | ---------- | ------------ |
+| 0                 | PsyChMagPI best lambda1>0 | 0.8985         | 0.902           | +0.00351   | 1.0x         |
+| 0                 | PsyChMagPI lambda1=0      | 1.41e-06       | 9.33e-06        | +7.92e-06  | 6.6x         |
+| 0.125             | PsyChMagPI best lambda1>0 | 4.849          | 4.847           | -0.00277   | 1.0x         |
+| 0.125             | PsyChMagPI lambda1=0      | 4.851          | 4.836           | -0.0149    | 1.0x         |
+
+![Approximate minus exact median endpoint-error change.](psychmagpi_gyro_exact_vs_approximate_assets/endpoint_median_error_delta.png){width=100%}
+
+![Approximate minus exact fixed-N_sqrt win-rate change against RK2.](psychmagpi_gyro_exact_vs_approximate_assets/sqrt_lambda001_win_delta.png){width=100%}
+
+The full exact report is `psychmagpi_gyro_report.qmd`. The full approximate-mode report is `psychmagpi_gyro_report_approximate.qmd`.
+
+# EuRoC Proxy Endpoint Differences
+
+I used the EuRoC proxy endpoint task to measure how much the integration-matrix change affected the final SO(3) result. Positive median-error deltas mean the approximate matrix had larger error; positive win-rate deltas mean it won more often against the better RK2/Magnus-2 baseline.
+
+![Approximate minus exact median endpoint-error change.](psychmagpi_gyro_exact_vs_approximate_assets/endpoint_median_error_delta.png){width=100%}
+
+Endpoint differences by PsyChMagPI view, noise band, and sample count:
+
+| Noise | m  | PsyCh view            | Exact win | Approx win | Delta win | Exact median | Approx median | Delta median |
+| ----- | -- | --------------------- | --------- | ---------- | --------- | ------------ | ------------- | ------------ |
+| high  | 10 | PsyChMagPI N_sqrt     | 55%       | 56%        | +0.2 pp   | 0.5862       | 0.5845        | -0.00166     |
+| high  | 10 | PsyChMagPI best fixed | 60%       | 60%        | +0.2 pp   | 0.5873       | 0.5856        | -0.00172     |
+| high  | 20 | PsyChMagPI N_sqrt     | 55%       | 53%        | -2.4 pp   | 0.4111       | 0.4051        | -0.006       |
+| high  | 20 | PsyChMagPI best fixed | 56%       | 56%        | -0.2 pp   | 0.4092       | 0.4087        | -0.000478    |
+| high  | 30 | PsyChMagPI N_sqrt     | 54%       | 54%        | -0.1 pp   | 0.3367       | 0.3367        | +1.53e-05    |
+| high  | 30 | PsyChMagPI best fixed | 56%       | 55%        | -0.6 pp   | 0.3367       | 0.3368        | +0.000166    |
+| high  | 40 | PsyChMagPI N_sqrt     | 57%       | 54%        | -3.4 pp   | 0.2942       | 0.2944        | +0.000219    |
+| high  | 40 | PsyChMagPI best fixed | 57%       | 57%        | -0.4 pp   | 0.2942       | 0.2936        | -0.000544    |
+| high  | 50 | PsyChMagPI N_sqrt     | 53%       | 53%        | -0.0 pp   | 0.2653       | 0.2651        | -0.000141    |
+| high  | 50 | PsyChMagPI best fixed | 53%       | 53%        | -0.0 pp   | 0.2666       | 0.2666        | +6.06e-05    |
+| low   | 10 | PsyChMagPI N_sqrt     | 39%       | 39%        | +0.0 pp   | 0.09088      | 0.09096       | +8.16e-05    |
+| low   | 10 | PsyChMagPI best fixed | 42%       | 46%        | +4.1 pp   | 0.08858      | 0.08951       | +0.000931    |
+| low   | 20 | PsyChMagPI N_sqrt     | 37%       | 33%        | -4.5 pp   | 0.06153      | 0.06418       | +0.00265     |
+| low   | 20 | PsyChMagPI best fixed | 41%       | 51%        | +10.3 pp  | 0.06075      | 0.06185       | +0.0011      |
+| low   | 30 | PsyChMagPI N_sqrt     | 36%       | 36%        | +0.1 pp   | 0.04973      | 0.04983       | +9.49e-05    |
+| low   | 30 | PsyChMagPI best fixed | 42%       | 46%        | +3.7 pp   | 0.04955      | 0.04993       | +0.000382    |
+| low   | 40 | PsyChMagPI N_sqrt     | 39%       | 35%        | -4.1 pp   | 0.04279      | 0.0436        | +0.000811    |
+| low   | 40 | PsyChMagPI best fixed | 40%       | 43%        | +2.7 pp   | 0.04257      | 0.0426        | +3.11e-05    |
+| low   | 50 | PsyChMagPI N_sqrt     | 38%       | 38%        | +0.0 pp   | 0.03944      | 0.03941       | -3.07e-05    |
+| low   | 50 | PsyChMagPI best fixed | 39%       | 38%        | -1.1 pp   | 0.03952      | 0.0396        | +7.94e-05    |
+| mid   | 10 | PsyChMagPI N_sqrt     | 53%       | 54%        | +0.4 pp   | 0.323        | 0.3222        | -0.000805    |
+| mid   | 10 | PsyChMagPI best fixed | 57%       | 57%        | +0.1 pp   | 0.3234       | 0.3242        | +0.000749    |
+| mid   | 20 | PsyChMagPI N_sqrt     | 54%       | 51%        | -3.6 pp   | 0.2245       | 0.2263        | +0.00181     |
+| mid   | 20 | PsyChMagPI best fixed | 54%       | 55%        | +0.4 pp   | 0.225        | 0.2249        | -6.14e-05    |
+| mid   | 30 | PsyChMagPI N_sqrt     | 52%       | 52%        | +0.0 pp   | 0.1839       | 0.1839        | +3.69e-05    |
+| mid   | 30 | PsyChMagPI best fixed | 55%       | 55%        | -0.8 pp   | 0.1828       | 0.1826        | -0.000283    |
+| mid   | 40 | PsyChMagPI N_sqrt     | 56%       | 52%        | -4.0 pp   | 0.1626       | 0.1623        | -0.000241    |
+| mid   | 40 | PsyChMagPI best fixed | 56%       | 56%        | +0.2 pp   | 0.1626       | 0.1625        | -8.32e-05    |
+| mid   | 50 | PsyChMagPI N_sqrt     | 52%       | 52%        | +0.0 pp   | 0.1454       | 0.1448        | -0.000603    |
+| mid   | 50 | PsyChMagPI best fixed | 53%       | 53%        | -0.1 pp   | 0.1455       | 0.1455        | -1.49e-05    |
+
+# TAES Table-II Differences
+
+I used the TAES Table-II reproduction as the clean low-noise check because PsyChMagPI should benefit most when the signal is smooth and the samples are not dominated by noise. The table reports RMS final attitude error in mrad; positive deltas mean the approximate integration matrix was worse.
+
+| Noise sigma rad/s | Method                    | Exact RMS mrad | Approx RMS mrad | Delta mrad | Approx/exact |
+| ----------------- | ------------------------- | -------------- | --------------- | ---------- | ------------ |
+| 0                 | D1 no coning              | 16.69          | 16.69           | 0          | 1.0x         |
+| 0                 | D2 sequential rotations   | 0.719          | 0.719           | 0          | 1.0x         |
+| 0                 | D3 single-speed           | 0.6958         | 0.6958          | 0          | 1.0x         |
+| 0                 | PsyChMagPI best lambda1>0 | 0.8985         | 0.902           | +0.00351   | 1.0x         |
+| 0                 | PsyChMagPI lambda1=0      | 1.41e-06       | 9.33e-06        | +7.92e-06  | 6.6x         |
+| 1e-04             | D1 no coning              | 16.69          | 16.69           | 0          | 1.0x         |
+| 1e-04             | D2 sequential rotations   | 0.7191         | 0.7191          | 0          | 1.0x         |
+| 1e-04             | D3 single-speed           | 0.6958         | 0.6958          | 0          | 1.0x         |
+| 1e-04             | PsyChMagPI best lambda1>0 | 0.8985         | 0.902           | +0.00351   | 1.0x         |
+| 1e-04             | PsyChMagPI lambda1=0      | 0.003943       | 0.003931        | -1.22e-05  | 1.0x         |
+| 0.025             | D1 no coning              | 16.71          | 16.71           | 0          | 1.0x         |
+| 0.025             | D2 sequential rotations   | 1.191          | 1.191           | 0          | 1.0x         |
+| 0.025             | D3 single-speed           | 1.178          | 1.178           | 0          | 1.0x         |
+| 0.025             | PsyChMagPI best lambda1>0 | 1.307          | 1.309           | +0.00201   | 1.0x         |
+| 0.025             | PsyChMagPI lambda1=0      | 0.9755         | 0.9725          | -0.00299   | 1.0x         |
+| 0.075             | D1 no coning              | 16.96          | 16.96           | 0          | 1.0x         |
+| 0.075             | D2 sequential rotations   | 2.939          | 2.939           | 0          | 1.0x         |
+| 0.075             | D3 single-speed           | 2.932          | 2.932           | 0          | 1.0x         |
+| 0.075             | PsyChMagPI best lambda1>0 | 2.995          | 2.993           | -0.00164   | 1.0x         |
+| 0.075             | PsyChMagPI lambda1=0      | 2.911          | 2.901           | -0.0102    | 1.0x         |
+| 0.125             | D1 no coning              | 17.31          | 17.31           | 0          | 1.0x         |
+| 0.125             | D2 sequential rotations   | 4.808          | 4.808           | 0          | 1.0x         |
+| 0.125             | D3 single-speed           | 4.806          | 4.806           | 0          | 1.0x         |
+| 0.125             | PsyChMagPI best lambda1>0 | 4.849          | 4.847           | -0.00277   | 1.0x         |
+| 0.125             | PsyChMagPI lambda1=0      | 4.851          | 4.836           | -0.0149    | 1.0x         |
+
+# Interpolation and Trajectory Fidelity
+
+I treated the interpolation section as a shared diagnostic rather than an integration-matrix comparison. Those metrics fit or interpolate noisy angular-velocity samples and then integrate the dense reconstructed signal with common trajectory code, so the PsyChMagPI integration matrix used by `PsyChMagPIRot3.integrateWithHistory` is not the active variable there.
+
+I therefore interpreted the endpoint and TAES tables above as the relevant exact-versus-approximate comparison, while the interpolation section still supports the continuous-representation claim in each full report.
+
+# Assets
+
+I wrote the comparison CSVs and figures under `psychmagpi_gyro_exact_vs_approximate_assets`.

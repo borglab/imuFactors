@@ -1,0 +1,445 @@
+---
+title: "PsyChMagPI Gyro Integration Report"
+subtitle: "TAES coning reproduction and EuRoC proxy Monte Carlo study"
+author: "Frank Dellaert"
+date: "2026-06-10"
+format:
+  pdf:
+    number-sections: true
+    colorlinks: true
+    fig-pos: H
+    geometry:
+      - top=0.65in
+      - bottom=0.65in
+      - left=0.65in
+      - right=0.65in
+fontsize: 10pt
+---
+
+# Executive Summary
+
+PsyChMagPI is best characterized as a high-order continuous SO(3) representation whose advantage is strongest on smooth low-noise coning problems and on noisy continuous-query tasks, not as a uniformly dominant endpoint integrator on every short EuRoC proxy window.
+
+Main conclusions:
+
+- PsyChMagPI reproduced the expected low-noise advantage on the TAES Table-II coning benchmark.
+- PsyChMagPI's coning advantage shrank at the largest TAES noise level, where the classical methods became nearly indistinguishable in RMS endpoint error.
+- PsyChMagPI was competitive but not dominant on aggressive EuRoC proxy endpoint error: the best fixed setting won 50% against the better RK2/Magnus-2 baseline, and the practical `N_sqrt = ceil(sqrt(m))` rule won 48% overall; by band: low noise 38%, mid noise 53%, high noise 55%.
+- PsyChMagPI has its clearest EuRoC value as a continuous representation for gyro interpolation, dense attitude trajectories, and random subinterval rotations.
+- The practical unresolved issue is lambda policy: deterministic `N = ceil(sqrt(m))` is defensible, and regularization should be tied to a stated noise or signal-roughness model.
+
+Decision snapshot:
+
+| Question                 | Finding                                                                                                          | Implication                                                        |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| TAES low-noise coning    | PsyChMagPI lambda1=0: 1.41e-06 mrad vs best classical 0.6958 mrad                                                | Implementation validates the high-order method in the clean regime |
+| TAES high-noise coning   | Best PsyChMagPI 4.849 mrad vs best classical 4.806 mrad                                                          | Large rate noise erases most high-order endpoint advantage         |
+| EuRoC endpoint           | Best fixed won 50%; N_sqrt won 48%                                                                               | PsyChMagPI is competitive, not dominant, for final attitude only   |
+| Continuous EuRoC queries | Best signal: PsyChMagPI lambda0; best trajectory: PsyChMagPI lambda0; best subinterval: PsyChMagPI scaled lambda | The strongest EuRoC claim is representation fidelity               |
+
+![PsyChMagPI endpoint win rate against the better dense-sample baseline.](psychmagpi_gyro_report_assets/executive_win_rate_by_noise_band.png){width=100%}
+
+# Study Design
+
+To separate implementation validation from EuRoC proxy performance, I posed two distinct questions. The TAES Table-II reproduction tested whether the PsyChMagPI implementation behaved like the method in our TAES draft on a controlled coning benchmark, while the EuRoC proxy Monte Carlo tested whether that behavior transferred to short aggressive inertial snippets.
+
+To keep continuity with the earlier Chebyshev quadrature report, I used EuRoC to select aggressive windows and then replaced raw propeller-contaminated samples with smooth proxy signals. I fitted each selected 1 s window componentwise as a 3-axis Chebyshev2 proxy with $N=50$, and every method comparison used only the center $[0.4,0.6]$ s interval.
+
+To make the Monte Carlo comparison fair, I controlled the sample count, noise level, and random draw so that all methods saw identical data. I used sample counts $m\in[10, 20, 30, 40, 50]$ with closed-interval endpoints, the same noise-fraction grid as the Chebyshev quadrature report, and 100 deterministic seeds for each snippet/sample-count/noise cell.
+
+I used clean signals and trajectories as references, not the noisy IMU samples themselves. I measured endpoint attitude error against a tight-tolerance noiseless integration of the proxy, gyro interpolation against the clean proxy on a dense grid, and trajectory/subinterval errors against the clean dense reference attitude path.
+
+![Raw EuRoC sample dots and smooth vector proxies.](psychmagpi_gyro_report_assets/proxy_gyro_previews.png){width=100%}
+
+# Algorithms and Parameter Policy
+
+The method sequence runs from classical local coning approximations to global pseudospectral SO(3) integration. This ordering makes the comparison cumulative: D1 ignores within-block non-commutativity, D2/RK2 composes local rotations with the Lie-group trapezoidal update, D3 adds a classical coning correction, Magnus-2 adds a second-order commutator term, and PsyChMagPI fits a global angular-velocity model before solving the tangent-space attitude equation.
+
+The Bortz equation supplies the common Lie-algebra view of the integration problem. With body-rate convention $\dot R=R\widehat{\boldsymbol{\omega}}$ and $R(t)=R(a)\operatorname{Exp}(\boldsymbol{\phi}(t))$,
+
+\begin{equation}
+\dot{\boldsymbol{\phi}}
+= J_r(\boldsymbol{\phi})^{-1}\boldsymbol{\omega}
+= \boldsymbol{\omega}
++\frac{1}{2}\boldsymbol{\phi}\times\boldsymbol{\omega}
++c(\lVert\boldsymbol{\phi}\rVert)\,
+\boldsymbol{\phi}\times\left(\boldsymbol{\phi}\times\boldsymbol{\omega}\right),
+\end{equation}
+
+where
+
+\begin{equation}
+c(\theta)=\frac{1}{\theta^2}-\frac{1+\cos\theta}{2\theta\sin\theta}.
+\end{equation}
+
+The inverse right Jacobian is the modern Lie-group expression of the classical coning correction. Non-commutative terms appear because tangent increments must be corrected by $J_r^{-1}$ before they are integrated.
+
+**D1 no coning.** D1 collapses all rate increments in an update block into one vector and exponentiates once:
+
+\begin{equation}
+\Delta\boldsymbol{\theta}_k
+\approx
+\frac{\Delta t_k}{2}\left(\boldsymbol{\omega}_k+\boldsymbol{\omega}_{k+1}\right),
+\qquad
+\boldsymbol{\theta}_B=\sum_{k\in B}\Delta\boldsymbol{\theta}_k,
+\qquad
+R_B^+=R_B^-\operatorname{Exp}(\boldsymbol{\theta}_B).
+\end{equation}
+
+**D2/RK2 sequential rotations.** I treated D2/RK2 as one method here, not two separate baselines: it uses the Lie-group trapezoidal update and composes the rotations sequentially:
+
+\begin{equation}
+R_{k+1}
+=R_k\operatorname{Exp}(\Delta\boldsymbol{\theta}_k),
+\qquad
+\Delta\boldsymbol{\theta}_k
+\approx
+\frac{\Delta t_k}{2}\left(\boldsymbol{\omega}_k+\boldsymbol{\omega}_{k+1}\right).
+\end{equation}
+
+**D3 single-speed coning correction.** D3 adds the adjacent-increment cross product before the sequential update:
+
+\begin{equation}
+\Delta\boldsymbol{\phi}_k
+\approx
+\Delta\boldsymbol{\theta}_k
++\frac{1}{12}\left(\Delta\boldsymbol{\theta}_{k-1}\times\Delta\boldsymbol{\theta}_k\right),
+\qquad
+R_{k+1}=R_k\operatorname{Exp}(\Delta\boldsymbol{\phi}_k).
+\end{equation}
+
+**Magnus-2 endpoint update.** Magnus-2 applies a second-order SO(3) commutator correction directly on each sample interval:
+
+\begin{equation}
+\boldsymbol{\Omega}_k^{(2)}
+=
+\frac{\Delta t_k}{2}\left(\boldsymbol{\omega}_k+\boldsymbol{\omega}_{k+1}\right)
++ \frac{\Delta t_k^2}{12}\left(\boldsymbol{\omega}_{k+1}\times\boldsymbol{\omega}_k\right),
+\qquad
+R_{k+1}
+=R_k\,\operatorname{Exp}\!\left(\boldsymbol{\Omega}_k^{(2)}\right).
+\end{equation}
+
+D3 and Magnus-2 differ in where the commutator information comes from. D3 uses the previous and current angle increments, $\frac{1}{12}\Delta\boldsymbol{\theta}_{k-1}\times\Delta\boldsymbol{\theta}_k$, while Magnus-2 uses the current interval's endpoint rates, $\frac{\Delta t_k^2}{12}\boldsymbol{\omega}_{k+1}\times\boldsymbol{\omega}_k$; the methods agree for constant angular velocity but generally differ for time-varying gyro signals.
+
+**PsyChMagPI.** PsyChMagPI first fits a Chebyshev-Gauss-Lobatto angular-velocity field on $[a,b]$:
+
+\begin{equation}
+\widehat{\boldsymbol{\omega}}_X(t)
+=
+\sum_{j=0}^{N-1}\ell_j(t)\,\mathbf{x}_j,
+\qquad
+s_j=\frac{a+b}{2}+\frac{b-a}{2}\cos\!\left(\frac{j\pi}{N-1}\right).
+\end{equation}
+
+The fitted input uses first-derivative Tikhonov regularization, equivalently a Sobolev $H^1$ seminorm penalty, rather than ridge shrinkage of the CGL nodal gyro values:
+
+\begin{equation}
+X^\star
+=
+\arg\min_X
+\sum_{k=0}^{m-1}
+\left\|
+\sum_{j=0}^{N-1} W_{kj}\mathbf{x}_j
+-\boldsymbol{\omega}_k
+\right\|_2^2
++ \lambda_1\,\operatorname{tr}\!\left(X^\top Q_N X\right).
+\end{equation}
+
+The penalty matrix is the same derivative matrix used in the code:
+
+\begin{equation}
+Q_N
+=
+\frac{1}{b-a}
+D_N^\top \operatorname{diag}(q_N)D_N,
+\end{equation}
+
+where $D_N$ is the Chebyshev2 CGL differentiation matrix on the normalized interval and $q_N$ are the corresponding CGL integration weights. Thus $\lambda_1$ penalizes fitted gyro roughness, approximating $\int_a^b\lVert\dot{\widehat{\boldsymbol{\omega}}}_X(t)\rVert^2\,dt$, not the magnitude of $\widehat{\boldsymbol{\omega}}_X(t)$ itself.
+
+PsyChMagPI then performs Picard iteration on the tangent/exponent trajectory rather than directly on rotation matrices:
+
+\begin{equation}
+R(t)=R(a)\operatorname{Exp}\!\left(\boldsymbol{\zeta}(t)\right),
+\qquad
+\dot{\boldsymbol{\zeta}}(t)
+=
+J_r\!\left(\boldsymbol{\zeta}(t)\right)^{-1}
+\widehat{\boldsymbol{\omega}}_{X^\star}(t).
+\end{equation}
+
+At iteration $i$, the nodal derivative is evaluated as
+
+\begin{equation}
+\mathbf{g}_j^{(i)}
+=
+J_r\!\left(\boldsymbol{\zeta}_j^{(i)}\right)^{-1}
+\widehat{\boldsymbol{\omega}}_{X^\star}(s_j),
+\qquad
+Z^{(i+1)} = G^{(i)}P,
+\end{equation}
+
+and I used the stopping rule $\left\|Z^{(i+1)}-Z^{(i)}\right\|_F < 10^{-12}$ with at most 50 iterations.
+
+I fixed the parameter policy within each comparison. For the TAES reproduction, I used the TAES draft setting $N=11$ and showed $\lambda_1=0$ plus a positive-lambda sweep; for the EuRoC endpoint sweep, I showed fixed aggregate $(N,\lambda_1)$ choices by noise band and sample count; for the EuRoC continuous-fidelity comparisons, I used deterministic $N=\lceil\sqrt{m}\rceil$, a noise-scaled $\lambda_1$, and a $\lambda_1=0$ ablation.
+
+# Validation: TAES Table-II Reproduction
+
+To validate the implementation on controlled long-integration coning, I reproduced the TAES Table-II setting from our TAES draft. Using our TAES draft's Table-II noise grid and RMS final attitude error in mrad, PsyChMagPI with `lambda1=0` reached 1.41e-06 mrad at zero noise versus 0.6958 mrad for the best classical method. At $\sigma=0.125$ rad/s, the best positive-`lambda1` PsyChMagPI sweep entry was 4.849 mrad and the `lambda1=0` entry was 4.851 mrad versus 4.806 mrad for the best classical method, showing the expected shrinkage of high-order advantage as rate noise grew.
+
+To match the TAES Table-II metric, I reported RMS final attitude error in mrad over the draft's noise grid. The zero-noise row is deterministic, while the noisy rows used 5000 Monte Carlo draws.
+
+| Noise sigma rad/s | D1 no coning | D2/RK2 | D3 single-speed | PsyChMagPI lambda1=0 | PsyChMagPI best lambda1>0 |
+| ----------------- | ------------ | ------ | --------------- | -------------------- | ------------------------- |
+| 0                 | 16.69        | 0.719  | 0.6958          | 1.41e-06             | 0.8985                    |
+| 1e-04             | 16.69        | 0.7191 | 0.6958          | 0.003943             | 0.8985                    |
+| 0.025             | 16.71        | 1.191  | 1.178           | 0.9755               | 1.307                     |
+| 0.075             | 16.96        | 2.939  | 2.932           | 2.911                | 2.995                     |
+| 0.125             | 17.31        | 4.808  | 4.806           | 4.851                | 4.849                     |
+
+I treated the regularized PsyChMagPI sweep as a sensitivity check rather than the main claim. I moved its selected positive $\lambda_1$ values and deltas against $\lambda_1=0$ to the appendix.
+
+# Endpoint Accuracy: EuRoC Proxy Integration
+
+To test final attitude accuracy on short aggressive 200 ms proxy windows, I ran the EuRoC endpoint comparison against RK2 and Magnus-2. PsyChMagPI was competitive but not uniformly dominant: across the four algorithm views, `PsyChMagPI N_sqrt` had the highest aggregate win rate, while RK2 and Magnus-2 remained extremely strong dense-sample endpoint baselines.
+
+Overall endpoint summary:
+
+| Algorithm             | Four-way win | Win vs baselines | Median err. deg | Mean err. deg | Max err. deg |
+| --------------------- | ------------ | ---------------- | --------------- | ------------- | ------------ |
+| Magnus-2              | 19%          |                  | 0.1619          | 0.2657        | 3.602        |
+| PsyChMagPI N_sqrt     | 35%          | 48%              | 0.1615          | 0.2649        | 3.739        |
+| PsyChMagPI best fixed | 26%          | 50%              | 0.1617          | 0.2647        | 3.601        |
+| RK2                   | 22%          |                  | 0.1619          | 0.2657        | 3.601        |
+
+To show where PsyChMagPI was most useful, I split the results by noise band against the better RK2/Magnus-2 baseline. Low noise favored dense local integration because samples already lay close to the clean proxy; mid and high noise made input smoothing more valuable.
+
+| Noise | PsyChMagPI view       | Win vs baselines | Median err. deg | Mean err. deg |
+| ----- | --------------------- | ---------------- | --------------- | ------------- |
+| low   | PsyChMagPI N_sqrt     | 38%              | 0.04973         | 0.08732       |
+| low   | PsyChMagPI best fixed | 41%              | 0.04955         | 0.08586       |
+| mid   | PsyChMagPI N_sqrt     | 53%              | 0.1839          | 0.2747        |
+| mid   | PsyChMagPI best fixed | 55%              | 0.1828          | 0.2748        |
+| high  | PsyChMagPI N_sqrt     | 55%              | 0.3367          | 0.4886        |
+| high  | PsyChMagPI best fixed | 56%              | 0.3367          | 0.4896        |
+
+![PsyChMagPI endpoint win rate against the better RK2/Magnus-2 baseline.](psychmagpi_gyro_report_assets/executive_win_rate_by_noise_band.png){width=100%}
+
+![Median final SO(3) error against the noiseless proxy truth.](psychmagpi_gyro_report_assets/executive_median_error_by_noise_band.png){width=100%}
+
+I moved the exhaustive best-algorithm and PsyChMagPI-vs-baseline tables by sample count to the appendix.
+
+# Hyperparameter Sensitivity
+
+To quantify how much PsyChMagPI depended on $N$ and $\lambda_1$, I ran both an N/lambda sweep and a fixed `N_sqrt` comparison. I interpreted the sweep as sensitivity analysis, while the fixed `N_sqrt` comparison tested a deterministic rule.
+
+![PsyChMagPI N/lambda sweep against the better RK2/Magnus-2 baseline.](psychmagpi_gyro_report_assets/psychmagpi_n_lambda_sweep.png){width=100%}
+
+The fixed practical rule `N = ceil(sqrt(m))` with `lambda1 = 0.01` was almost tied with RK2 overall. Across all matched trials, PsyChMagPI won 48% against RK2, with median final error 0.1617 degrees versus RK2's 0.1619 degrees.
+
+| Noise | Trials | Win vs RK2 | PsyCh median | RK2 median | PsyCh-RK2 |
+| ----- | ------ | ---------- | ------------ | ---------- | --------- |
+| high  | 16500  | 54%        | 0.3656       | 0.365      | -0.001519 |
+| low   | 22000  | 37%        | 0.05561      | 0.05269    | 0.001705  |
+| mid   | 22000  | 53%        | 0.2          | 0.1996     | -6.98e-04 |
+
+![Fixed N_sqrt and lambda1=0.01 against RK2 only.](psychmagpi_gyro_report_assets/sqrt_lambda001_vs_rk2.png){width=100%}
+
+I moved the exhaustive selected-setting tables and sample-count matched RK2 table to the appendix.
+
+# Continuous Fidelity: Interpolation and Trajectory Queries
+
+To test whether PsyChMagPI is more useful as a continuous representation than as an endpoint integrator, I ran gyro interpolation, dense trajectory, and random-subinterval comparisons. The best median gyro interpolator was `PsyChMagPI lambda0` with NRMSE 0.1039; deterministic scaled-lambda PsyChMagPI had NRMSE 0.1065. The best median trajectory method was `PsyChMagPI lambda0` with RMS 0.1369 degrees; scaled-lambda PsyChMagPI had RMS 0.1467 degrees. For random subintervals, scaled-lambda PsyChMagPI was best with aggregate win rate 31%.
+
+To measure gyro-signal fidelity, I compared continuous angular-velocity estimates against the clean proxy on a 1001-point grid. Linear and cubic spline were componentwise interpolants of the noisy samples, while I evaluated PsyChMagPI as a CGL least-squares signal fit.
+
+![Gyro interpolation NRMSE.](psychmagpi_gyro_report_assets/interpolation_signal_nrmse.png){width=100%}
+
+| Noise | Best method        | Best NRMSE | Scaled PsyCh NRMSE | Lambda0 PsyCh NRMSE | Scaled win | Scaled denoise dB |
+| ----- | ------------------ | ---------- | ------------------ | ------------------- | ---------- | ----------------- |
+| low   | Linear             | 0.04944    | 0.06283            | 0.06083             | 12%        | 0.00e+00          |
+| mid   | PsyChMagPI lambda0 | 0.1039     | 0.1065             | 0.1039              | 39%        | 5.235             |
+| high  | PsyChMagPI lambda0 | 0.1568     | 0.1594             | 0.1568              | 46%        | 6.402             |
+
+To measure attitude-trajectory fidelity, I integrated each continuous gyro representation and compared the full attitude path to the clean reference path. I included RK2 and Magnus-2 as piecewise-geodesic sample-update trajectories so the table answered a trajectory question rather than only a final-rotation question.
+
+![Trajectory RMS attitude error.](psychmagpi_gyro_report_assets/interpolation_trajectory_rms.png){width=100%}
+
+| Noise | Best method        | Best RMS deg | Scaled PsyCh RMS | Lambda0 PsyCh RMS | Scaled win |
+| ----- | ------------------ | ------------ | ---------------- | ----------------- | ---------- |
+| low   | Magnus-2           | 0.03806      | 0.04418          | 0.04378           | 12%        |
+| mid   | PsyChMagPI lambda0 | 0.1369       | 0.1467           | 0.1369            | 30%        |
+| high  | PsyChMagPI lambda0 | 0.2468       | 0.2892           | 0.2468            | 29%        |
+
+To measure arbitrary query fidelity, I compared relative rotations over deterministic random subintervals inside the 200 ms window. This was the closest test to the continuous-representation claim.
+
+![Random-subinterval win rate.](psychmagpi_gyro_report_assets/interpolation_subinterval_win_rate.png){width=100%}
+
+| Noise | Duration | Best method              | Best win | Scaled PsyCh win | Scaled RMS deg |
+| ----- | -------- | ------------------------ | -------- | ---------------- | -------------- |
+| low   | short    | Cubic spline             | 48%      | 10%              | 0.0602         |
+| low   | mid      | Cubic spline             | 48%      | 13%              | 0.08975        |
+| low   | long     | Cubic spline             | 47%      | 15%              | 0.09923        |
+| mid   | short    | PsyChMagPI lambda0       | 36%      | 34%              | 0.1045         |
+| mid   | mid      | PsyChMagPI scaled lambda | 38%      | 38%              | 0.2073         |
+| mid   | long     | PsyChMagPI scaled lambda | 40%      | 40%              | 0.2935         |
+| high  | short    | PsyChMagPI scaled lambda | 46%      | 46%              | 0.1552         |
+| high  | mid      | PsyChMagPI scaled lambda | 48%      | 48%              | 0.3556         |
+| high  | long     | PsyChMagPI scaled lambda | 50%      | 50%              | 0.51           |
+
+# Discussion and Recommendation
+
+I interpreted PsyChMagPI as a high-order global representation whose value depends on signal smoothness, noise, and query type. Using our TAES draft's Table-II noise grid and RMS final attitude error in mrad, PsyChMagPI with `lambda1=0` reached 1.41e-06 mrad at zero noise versus 0.6958 mrad for the best classical method. At $\sigma=0.125$ rad/s, the best positive-`lambda1` PsyChMagPI sweep entry was 4.849 mrad and the `lambda1=0` entry was 4.851 mrad versus 4.806 mrad for the best classical method, showing the expected shrinkage of high-order advantage as rate noise grew.
+
+I interpreted the EuRoC endpoint results as a stress test of smoothing, not as a contradiction of the coning benchmark. The practical `N_sqrt` rule beat the better dense-sample endpoint baseline in 48% of matched trials with median error 0.1615 degrees; by band: low noise 38%, mid noise 53%, high noise 55%.
+
+I used the interpolation results to support a broader claim than endpoint error alone. The best median gyro interpolator was `PsyChMagPI lambda0` with NRMSE 0.1039; deterministic scaled-lambda PsyChMagPI had NRMSE 0.1065. The best median trajectory method was `PsyChMagPI lambda0` with RMS 0.1369 degrees; scaled-lambda PsyChMagPI had RMS 0.1467 degrees. For random subintervals, scaled-lambda PsyChMagPI was best with aggregate win rate 31%.
+
+For future EuRoC-style proxy studies, I recommend deterministic $N=\lceil\sqrt{m}\rceil$ with an explicitly stated lambda rule and a $\lambda_1=0$ ablation. Lambda should be treated as a noise-model parameter with a reproducible rule, and future reports should make the endpoint and continuous-query claims separately.
+
+\appendix
+
+# Appendix: Exhaustive Tables and Reproducibility
+
+The appendix collects the exhaustive grids that would interrupt the main argument.
+
+## Proxy Metadata
+
+| Dataset | Window | Start s | Middle s | Proxy N | Raw samples | Fit rel. err | Noise scale | Score |
+| ------- | ------ | ------- | -------- | ------- | ----------- | ------------ | ----------- | ----- |
+| MH01    | 38     | 38      | 0.4-0.6  | 50      | 201         | 0.3007       | 0.3033      | 6.373 |
+| MH02    | 53     | 53      | 0.4-0.6  | 50      | 201         | 0.1704       | 0.3979      | 7.924 |
+| MH03    | 45     | 45      | 0.4-0.6  | 50      | 201         | 0.1673       | 0.5051      | 7.782 |
+| MH04    | 49     | 49      | 0.4-0.6  | 50      | 201         | 0.2291       | 0.4484      | 6.888 |
+| MH05    | 16     | 16      | 0.4-0.6  | 50      | 201         | 0.2817       | 0.1969      | 6.302 |
+| V101    | 23     | 23      | 0.4-0.6  | 50      | 201         | 0.1139       | 0.6964      | 13.87 |
+| V102    | 69     | 69      | 0.4-0.6  | 50      | 201         | 0.04755      | 0.9928      | 8.143 |
+| V103    | 68     | 68      | 0.4-0.6  | 50      | 201         | 0.07911      | 1.203       | 9.266 |
+| V201    | 85     | 85      | 0.4-0.6  | 50      | 201         | 0.1892       | 0.3403      | 6.465 |
+| V202    | 54     | 54      | 0.4-0.6  | 50      | 201         | 0.04676      | 1.339       | 6.555 |
+| V203    | 73     | 73      | 0.4-0.6  | 50      | 201         | 0.04369      | 0.8242      | 5.435 |
+
+## Endpoint Best Algorithm by Noise Band and Sample Count
+
+| Noise | m  | Best algorithm        | Win rate | Median err. deg |
+| ----- | -- | --------------------- | -------- | --------------- |
+| high  | 10 | PsyChMagPI N_sqrt     | 51%      | 0.5862          |
+| high  | 20 | PsyChMagPI N_sqrt     | 38%      | 0.4111          |
+| high  | 30 | PsyChMagPI N_sqrt     | 43%      | 0.3367          |
+| high  | 40 | PsyChMagPI N_sqrt     | 57%      | 0.2942          |
+| high  | 50 | PsyChMagPI N_sqrt     | 44%      | 0.2653          |
+| low   | 10 | PsyChMagPI N_sqrt     | 33%      | 0.09088         |
+| low   | 20 | PsyChMagPI N_sqrt     | 31%      | 0.06153         |
+| low   | 30 | PsyChMagPI N_sqrt     | 30%      | 0.04973         |
+| low   | 40 | RK2                   | 33%      | 0.0425          |
+| low   | 50 | RK2                   | 34%      | 0.03975         |
+| mid   | 10 | PsyChMagPI N_sqrt     | 42%      | 0.323           |
+| mid   | 20 | PsyChMagPI best fixed | 31%      | 0.225           |
+| mid   | 30 | PsyChMagPI N_sqrt     | 42%      | 0.1839          |
+| mid   | 40 | PsyChMagPI N_sqrt     | 36%      | 0.1626          |
+| mid   | 50 | PsyChMagPI N_sqrt     | 31%      | 0.1454          |
+
+## PsyChMagPI Views Against the Better RK2/Magnus-2 Baseline
+
+| Noise | m  | PsyChMagPI view       | Win vs baselines | Median err. deg |
+| ----- | -- | --------------------- | ---------------- | --------------- |
+| high  | 10 | PsyChMagPI N_sqrt     | 55%              | 0.5862          |
+| high  | 10 | PsyChMagPI best fixed | 60%              | 0.5873          |
+| high  | 20 | PsyChMagPI N_sqrt     | 55%              | 0.4111          |
+| high  | 20 | PsyChMagPI best fixed | 56%              | 0.4092          |
+| high  | 30 | PsyChMagPI N_sqrt     | 54%              | 0.3367          |
+| high  | 30 | PsyChMagPI best fixed | 56%              | 0.3367          |
+| high  | 40 | PsyChMagPI N_sqrt     | 57%              | 0.2942          |
+| high  | 40 | PsyChMagPI best fixed | 57%              | 0.2942          |
+| high  | 50 | PsyChMagPI N_sqrt     | 53%              | 0.2653          |
+| high  | 50 | PsyChMagPI best fixed | 53%              | 0.2666          |
+| low   | 10 | PsyChMagPI N_sqrt     | 39%              | 0.09088         |
+| low   | 10 | PsyChMagPI best fixed | 42%              | 0.08858         |
+| low   | 20 | PsyChMagPI N_sqrt     | 37%              | 0.06153         |
+| low   | 20 | PsyChMagPI best fixed | 41%              | 0.06075         |
+| low   | 30 | PsyChMagPI N_sqrt     | 36%              | 0.04973         |
+| low   | 30 | PsyChMagPI best fixed | 42%              | 0.04955         |
+| low   | 40 | PsyChMagPI N_sqrt     | 39%              | 0.04279         |
+| low   | 40 | PsyChMagPI best fixed | 40%              | 0.04257         |
+| low   | 50 | PsyChMagPI N_sqrt     | 38%              | 0.03944         |
+| low   | 50 | PsyChMagPI best fixed | 39%              | 0.03952         |
+| mid   | 10 | PsyChMagPI N_sqrt     | 53%              | 0.323           |
+| mid   | 10 | PsyChMagPI best fixed | 57%              | 0.3234          |
+| mid   | 20 | PsyChMagPI N_sqrt     | 54%              | 0.2245          |
+| mid   | 20 | PsyChMagPI best fixed | 54%              | 0.225           |
+| mid   | 30 | PsyChMagPI N_sqrt     | 52%              | 0.1839          |
+| mid   | 30 | PsyChMagPI best fixed | 55%              | 0.1828          |
+| mid   | 40 | PsyChMagPI N_sqrt     | 56%              | 0.1626          |
+| mid   | 40 | PsyChMagPI best fixed | 56%              | 0.1626          |
+| mid   | 50 | PsyChMagPI N_sqrt     | 52%              | 0.1454          |
+| mid   | 50 | PsyChMagPI best fixed | 53%              | 0.1455          |
+
+## PsyChMagPI Best Fixed Settings
+
+| Noise | m  | Best N | Best lambda1 | Win vs baselines | Median err. deg |
+| ----- | -- | ------ | ------------ | ---------------- | --------------- |
+| high  | 10 | 10     | 0.01         | 60%              | 0.5873          |
+| high  | 20 | 7      | 0.01         | 56%              | 0.4092          |
+| high  | 30 | 7      | 0.01         | 56%              | 0.3367          |
+| high  | 40 | 7      | 0.01         | 57%              | 0.2942          |
+| high  | 50 | 9      | 0.01         | 53%              | 0.2666          |
+| low   | 10 | 8      | 0.005        | 42%              | 0.08858         |
+| low   | 20 | 8      | 0.005        | 41%              | 0.06075         |
+| low   | 30 | 8      | 0.005        | 42%              | 0.04955         |
+| low   | 40 | 8      | 0.005        | 40%              | 0.04257         |
+| low   | 50 | 7      | 0.01         | 39%              | 0.03952         |
+| mid   | 10 | 9      | 0.01         | 57%              | 0.3234          |
+| mid   | 20 | 6      | 0.01         | 54%              | 0.225           |
+| mid   | 30 | 7      | 0.01         | 55%              | 0.1828          |
+| mid   | 40 | 8      | 0.005        | 56%              | 0.1626          |
+| mid   | 50 | 10     | 0.01         | 53%              | 0.1455          |
+
+## PsyChMagPI N_sqrt Settings
+
+| Noise | m  | N_sqrt | Best lambda1 | Win vs baselines | Median err. deg |
+| ----- | -- | ------ | ------------ | ---------------- | --------------- |
+| high  | 10 | 4      | 0.05         | 55%              | 0.5862          |
+| high  | 20 | 5      | 0.01         | 55%              | 0.4111          |
+| high  | 30 | 6      | 0.05         | 54%              | 0.3367          |
+| high  | 40 | 7      | 0.01         | 57%              | 0.2942          |
+| high  | 50 | 8      | 0.05         | 53%              | 0.2653          |
+| low   | 10 | 4      | 0.001        | 39%              | 0.09088         |
+| low   | 20 | 5      | 0.01         | 37%              | 0.06153         |
+| low   | 30 | 6      | 0.01         | 36%              | 0.04973         |
+| low   | 40 | 7      | 0.005        | 39%              | 0.04279         |
+| low   | 50 | 8      | 0.01         | 38%              | 0.03944         |
+| mid   | 10 | 4      | 0.01         | 53%              | 0.323           |
+| mid   | 20 | 5      | 0.01         | 54%              | 0.2245          |
+| mid   | 30 | 6      | 0.05         | 52%              | 0.1839          |
+| mid   | 40 | 7      | 0.01         | 56%              | 0.1626          |
+| mid   | 50 | 8      | 0.01         | 52%              | 0.1454          |
+
+## Fixed N_sqrt, Lambda 0.01 Against RK2 by Sample Count
+
+| Noise | m  | Trials | N_sqrt | lambda1 | Win vs RK2 | PsyCh median | RK2 median | PsyCh-RK2 |
+| ----- | -- | ------ | ------ | ------- | ---------- | ------------ | ---------- | --------- |
+| high  | 10 | 3300   | 4      | 0.01    | 56%        | 0.5833       | 0.5952     | -0.0057   |
+| high  | 20 | 3300   | 5      | 0.01    | 55%        | 0.4111       | 0.4141     | -0.002321 |
+| high  | 30 | 3300   | 6      | 0.01    | 53%        | 0.3382       | 0.3363     | -8.76e-04 |
+| high  | 40 | 3300   | 7      | 0.01    | 57%        | 0.2942       | 0.293      | -0.001661 |
+| high  | 50 | 3300   | 8      | 0.01    | 52%        | 0.2661       | 0.2694     | -4.00e-04 |
+| low   | 10 | 4400   | 4      | 0.01    | 34%        | 0.09151      | 0.08814    | 0.007485  |
+| low   | 20 | 4400   | 5      | 0.01    | 37%        | 0.06153      | 0.06116    | 0.003607  |
+| low   | 30 | 4400   | 6      | 0.01    | 36%        | 0.04973      | 0.04984    | 0.002972  |
+| low   | 40 | 4400   | 7      | 0.01    | 39%        | 0.04243      | 0.0425     | 9.40e-04  |
+| low   | 50 | 4400   | 8      | 0.01    | 38%        | 0.03944      | 0.03975    | 9.08e-04  |
+| mid   | 10 | 4400   | 4      | 0.01    | 53%        | 0.323        | 0.3268     | -0.002165 |
+| mid   | 20 | 4400   | 5      | 0.01    | 54%        | 0.2245       | 0.2259     | -0.001187 |
+| mid   | 30 | 4400   | 6      | 0.01    | 51%        | 0.183        | 0.182      | -1.99e-04 |
+| mid   | 40 | 4400   | 7      | 0.01    | 56%        | 0.1626       | 0.1632     | -9.96e-04 |
+| mid   | 50 | 4400   | 8      | 0.01    | 52%        | 0.1454       | 0.1455     | -2.45e-04 |
+
+## TAES Positive-Lambda Sweep
+
+| Noise sigma rad/s | Best positive lambda1 | Reg. RMS mrad | lambda1=0 RMS mrad | Reg - unreg mrad |
+| ----------------- | --------------------- | ------------- | ------------------ | ---------------- |
+| 0                 | 0.001                 | 0.8985        | 1.41e-06           | 0.8985           |
+| 1e-04             | 0.001                 | 0.8985        | 0.003943           | 0.8946           |
+| 0.025             | 0.001                 | 1.307         | 0.9755             | 0.332            |
+| 0.075             | 0.001                 | 2.995         | 2.911              | 0.08377          |
+| 0.125             | 0.001                 | 4.849         | 4.851              | -0.001596        |

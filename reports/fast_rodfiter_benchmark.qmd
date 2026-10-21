@@ -1,0 +1,159 @@
+---
+title: "Native Fast RodFIter versus private GTSAM PS-CPI"
+format: html
+---
+
+# Main result
+
+With reusable setup, our current approximate-matrix PS-CPI kernel is faster:
+median 5.92 microseconds versus 12.89 for Fast RodFIter
+over the 33 EuRoC inputs. Rebuilding everything per call reverses that ordering:
+30.16 microseconds for PS-CPI versus 16.68 for Fast RodFIter.
+The distinction is important: kernel throughput and one-shot end-to-end latency
+are different comparisons. The older paper table's Python-wrapper timings include
+different overhead and are not directly comparable to these native C++ measurements.
+
+# Scope and implementation
+
+This local C++ implementation follows Wu, Cai, and Truong, *Fast RodFIter for
+Attitude Reconstruction From Inertial Measurements*, TAES 55(1), 2019,
+doi:10.1109/TAES.2018.2866034, equations (1), (11), (12), and (17).
+It is an independent implementation, not the authors' MATLAB code.
+It represents `g = 2 tan(theta/2) axis` in first-kind Chebyshev coefficients,
+forms exact polynomial products, integrates from the interval start, then truncates
+to attitude degree `nT=n+1`. Both intermediate products in `g(g^T omega)` retain
+their full degree. Associating these products avoids the literal triple sum and
+reduces its arithmetic cost to quadratic in comparable polynomial degrees.
+Constants from all integrated high-degree terms are retained before truncation.
+
+The baseline is `gtsam::PsyChMagPI<gtsam::Rot3>` directly from gtsam-private,
+not a Python reimplementation. Approximate mode is the historical `N -> N`
+integration matrix used in the EuRoC manuscript tables; exact mode uses `N -> N+1`.
+Neither method collects iteration history inside timed regions. Both return a final
+rotation. Neither computes covariance or additional dense output.
+
+# Matched inputs and timing boundaries
+
+Both methods use the **same least-squares gyro polynomial**. The coefficient fit is
+transformed to CGL nodal values for PS-CPI. The 33 EuRoC windows are the eleven
+existing smooth proxies, each at noise fractions 0, 0.1 and 0.225, using seed index 0
+from the 41-sample experiment's deterministic noise stream. They use 200 ms,
+41 samples at 200 Hz, gyro degree 12 (13 coefficients/nodes), and Fast RodFIter
+attitude degree 13. This is a speed benchmark, not a new Monte Carlo accuracy study.
+Fast RodFIter retains 14 state coefficients; PS-CPI retains 13 state nodes in
+approximate mode and 14 in exact mode. Matching the gyro fit does not make their
+finite-dimensional state truncation or nonlinear aliasing identical.
+The clean-proxy reference rotations use the existing independent DOP853 integration.
+
+Additional analytic cases are Wu's 8 angular increments at 100 Hz over 80 ms
+(gyro degree 7, attitude degree 8), 41 instantaneous coning-rate samples at 200 Hz,
+and a faster coning case with angular frequency 10 pi rad/s. All coning angles are
+10 degrees; analytic relative rotations supply their reference.
+
+- **prepared**: integration only; fitted gyro inputs and integrator objects reused.
+- **cached_fit**: apply precomputed sample-to-coefficient/node maps, then integrate;
+  integrator objects reused.
+- **fresh_setup**: construct and factor the common fitting matrix, fit the data,
+  construct each integrator (and the PS-CPI nodal transform), then integrate.
+- **converged**: tolerance 1e-12, maximum 50 updates; RodFIter starts at zero,
+  while PS-CPI uses the production RK2 initializer. RodFIter checks the sum of
+  coefficient-vector change norms; PS-CPI checks the nodal Frobenius change norm.
+  These are different stopping norms and parameterizations, not equal error bounds.
+- **fixed7_zero**: exactly seven updates from zero for both methods, with no early
+  stopping; use the accompanying errors to judge adequacy.
+
+Native Release builds use `-O3 -DNDEBUG` on Apple M5.
+Each row records the median and empirical 10th/90th-percentile order statistics
+of 15 batches of 500 calls, after 30 warmups. A consumed checksum prevents
+dead-code removal. Method order is shuffled within each scenario/mode. These are
+single-machine microbenchmarks, not confidence intervals or hardware-independent
+speed guarantees. Tables below aggregate per-window medians; matched ratios are
+aggregated separately. Runtime columns are in microseconds per call.
+**Rod/PS greater than one means PS-CPI is faster.**
+
+## converged: prepared
+
+| group              |   FastRodFIter |   PS-CPI_approx |   PS-CPI_exact |   Rod/approx |   Rod/exact |
+|:-------------------|---------------:|----------------:|---------------:|-------------:|------------:|
+| EuRoC (33 windows) |         12.892 |           5.923 |          9.482 |        2.460 |       1.481 |
+| Wu_coning          |          4.532 |           2.732 |          4.615 |        1.659 |       0.982 |
+| coning_200Hz       |         12.710 |           5.117 |          8.520 |        2.484 |       1.492 |
+| coning_fast_200Hz  |         25.614 |           9.763 |         14.087 |        2.623 |       1.818 |
+
+## converged: cached_fit
+
+| group              |   FastRodFIter |   PS-CPI_approx |   PS-CPI_exact |   Rod/approx |   Rod/exact |
+|:-------------------|---------------:|----------------:|---------------:|-------------:|------------:|
+| EuRoC (33 windows) |         13.185 |           6.225 |          9.738 |        2.387 |       1.474 |
+| Wu_coning          |          4.572 |           2.742 |          4.726 |        1.668 |       0.967 |
+| coning_200Hz       |         13.081 |           5.365 |          8.862 |        2.438 |       1.476 |
+| coning_fast_200Hz  |         25.840 |          10.072 |         14.217 |        2.566 |       1.818 |
+
+## converged: fresh_setup
+
+| group              |   FastRodFIter |   PS-CPI_approx |   PS-CPI_exact |   Rod/approx |   Rod/exact |
+|:-------------------|---------------:|----------------:|---------------:|-------------:|------------:|
+| EuRoC (33 windows) |         16.676 |          30.165 |         30.633 |        0.563 |       0.557 |
+| Wu_coning          |          5.824 |           9.687 |         11.720 |        0.601 |       0.497 |
+| coning_200Hz       |         16.512 |          28.812 |         29.210 |        0.573 |       0.565 |
+| coning_fast_200Hz  |         29.476 |          35.152 |         36.516 |        0.839 |       0.807 |
+
+## fixed7_zero: prepared
+
+| group              |   FastRodFIter |   PS-CPI_approx |   PS-CPI_exact |   Rod/approx |   Rod/exact |
+|:-------------------|---------------:|----------------:|---------------:|-------------:|------------:|
+| EuRoC (33 windows) |         14.964 |           5.567 |          7.698 |        2.687 |       1.960 |
+| Wu_coning          |          6.411 |           3.523 |          5.111 |        1.819 |       1.254 |
+| coning_200Hz       |         14.884 |           5.884 |          7.618 |        2.530 |       1.954 |
+| coning_fast_200Hz  |         15.007 |           5.523 |          7.848 |        2.717 |       1.912 |
+
+## fixed7_zero: cached_fit
+
+| group              |   FastRodFIter |   PS-CPI_approx |   PS-CPI_exact |   Rod/approx |   Rod/exact |
+|:-------------------|---------------:|----------------:|---------------:|-------------:|------------:|
+| EuRoC (33 windows) |         15.257 |           5.851 |          7.954 |        2.607 |       1.922 |
+| Wu_coning          |          6.378 |           3.608 |          4.804 |        1.768 |       1.328 |
+| coning_200Hz       |         15.184 |           5.693 |          7.878 |        2.667 |       1.928 |
+| coning_fast_200Hz  |         15.551 |           5.897 |          8.288 |        2.637 |       1.876 |
+
+## fixed7_zero: fresh_setup
+
+| group              |   FastRodFIter |   PS-CPI_approx |   PS-CPI_exact |   Rod/approx |   Rod/exact |
+|:-------------------|---------------:|----------------:|---------------:|-------------:|------------:|
+| EuRoC (33 windows) |         18.761 |          29.687 |         28.688 |        0.633 |       0.655 |
+| Wu_coning          |          7.608 |          10.522 |         11.957 |        0.723 |       0.636 |
+| coning_200Hz       |         18.694 |          29.234 |         28.116 |        0.639 |       0.665 |
+| coning_fast_200Hz  |         18.763 |          30.452 |         29.204 |        0.616 |       0.643 |
+
+# Accuracy and convergence checks (untimed)
+
+All converged runs must satisfy their own stopping criterion; otherwise the benchmark
+aborts. Angle errors below are SO(3) geodesic errors in radians. Different truncation
+and aliasing conventions can lead to different converged solutions.
+
+| group              | method        |   min_iterations |   max_iterations |   max_error_rad |   median_error_rad |
+|:-------------------|:--------------|-----------------:|-----------------:|----------------:|-------------------:|
+| EuRoC (33 windows) | FastRodFIter  |                6 |                8 |     0.0252023   |        0.00222292  |
+| EuRoC (33 windows) | PS-CPI_approx |                5 |                7 |     0.025443    |        0.00221346  |
+| EuRoC (33 windows) | PS-CPI_exact  |                5 |                8 |     0.0251986   |        0.00222295  |
+| Wu_coning          | FastRodFIter  |                5 |                5 |     1.33928e-15 |        1.33928e-15 |
+| Wu_coning          | PS-CPI_approx |                4 |                4 |     3.10534e-16 |        3.10534e-16 |
+| Wu_coning          | PS-CPI_exact  |                4 |                4 |     3.10677e-16 |        3.10677e-16 |
+| coning_200Hz       | FastRodFIter  |                6 |                6 |     4.0993e-15  |        4.0993e-15  |
+| coning_200Hz       | PS-CPI_approx |                5 |                5 |     4.49834e-16 |        4.49834e-16 |
+| coning_200Hz       | PS-CPI_exact  |                5 |                5 |     4.30271e-16 |        4.30271e-16 |
+| coning_fast_200Hz  | FastRodFIter  |               12 |               12 |     1.03545e-07 |        1.03545e-07 |
+| coning_fast_200Hz  | PS-CPI_approx |               11 |               11 |     7.01078e-08 |        7.01078e-08 |
+| coning_fast_200Hz  | PS-CPI_exact  |               11 |               11 |     1.10394e-09 |        1.10394e-09 |
+
+# Reproduction and artifacts
+
+Build with `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release`, then
+`make -C build -j6 testFastRodFIter.run benchmarkFastRodFIter`.
+Run `reports/generate_fast_rodfiter_benchmark.py --repeats 500` with the
+py312 conda environment and a working private GTSAM wrapper on `PYTHONPATH`.
+Python prepares inputs and summarizes output only; all timing is in C++.
+Raw inputs, all timings, and binary/source/library hashes are in
+`fast_rodfiter_benchmark_assets/`; these generated assets are ignored by Git.
+The C++ executable also runs the three analytic cases standalone, with an optional
+second argument supplying the EuRoC input CSV.

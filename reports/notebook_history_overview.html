@@ -1,0 +1,320 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notebook History Overview</title><style>
+:root { --ink:#17202a; --muted:#5d6d7e; --line:#d9e2ec; --soft:#f7f9fb; --accent:#2364aa; --good:#207a52; --warn:#a15c00; --bad:#9b2226; }
+* { box-sizing: border-box; }
+body { margin:0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color:var(--ink); background:white; }
+header { padding: 34px 44px 24px; border-bottom:1px solid var(--line); background:linear-gradient(180deg,#fbfcfe,#fff); }
+h1 { margin: 0 0 8px; font-size: 34px; letter-spacing:0; }
+.subtitle { color:var(--muted); max-width: 980px; line-height:1.45; }
+main { padding: 26px 44px 48px; }
+section { margin: 0 0 34px; }
+h2 { font-size: 22px; margin: 0 0 14px; }
+h3 { font-size: 16px; margin: 0 0 8px; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+.summary-grid { display:grid; grid-template-columns: repeat(4, minmax(140px,1fr)); gap:12px; margin-top:20px; max-width: 900px; }
+.metric { border:1px solid var(--line); border-radius:8px; padding:13px 15px; background:white; }
+.metric .value { font-size:25px; font-weight:700; }
+.metric .label { font-size:13px; color:var(--muted); margin-top:2px; }
+.short-names { margin-top:18px; border:1px solid var(--line); border-radius:8px; background:white; padding:14px 18px; max-width:1120px; }
+.short-names h2 { font-size:17px; margin:0 0 8px; }
+.short-names ul { columns:2; column-gap:34px; margin-top:8px; }
+.short-names li { break-inside:avoid; margin:5px 0; line-height:1.35; }
+.short-names .alias { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; font-weight:700; color:#243b53; background:#eef3f8; border-radius:4px; padding:1px 5px; }
+.note { border-left:4px solid var(--accent); background:#f3f7fc; padding:12px 14px; border-radius:4px; max-width: 1100px; line-height:1.45; }
+.warning { border-left-color: var(--warn); background:#fff8eb; }
+.category { margin-top: 18px; }
+.cards { display:grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap:14px; }
+.card { border:1px solid var(--line); border-radius:8px; padding:16px; background:white; min-width:0; }
+.card.modified { border-color:#e0aa4f; box-shadow: inset 0 0 0 1px #ffe0a3; }
+.card-title { display:flex; justify-content:space-between; gap:10px; align-items:flex-start; }
+.card h3 { font-size:18px; margin:0; }
+.path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color:var(--muted); font-size:12px; margin-top:4px; overflow-wrap:anywhere; }
+.badge { display:inline-flex; align-items:center; height:22px; padding:0 8px; border-radius:999px; background:#eef3f8; color:#334e68; font-size:12px; white-space:nowrap; }
+.badge.modified { background:#fff1cf; color:#8a5300; }
+.badge.outputs { background:#fce8e6; color:#8d2828; }
+.stats { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
+.stat { font-size:12px; color:#34495e; background:var(--soft); border:1px solid #e5edf5; border-radius:6px; padding:5px 7px; }
+.summary { color:#334; line-height:1.42; margin:8px 0 12px; }
+ul { margin: 8px 0 0 18px; padding:0; }
+li { margin: 4px 0; }
+.history { margin-top:12px; border-top:1px solid var(--line); padding-top:10px; }
+.history-row { display:grid; grid-template-columns: 82px 82px 1fr; gap:8px; font-size:13px; padding:3px 0; }
+.hash { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color:var(--accent); }
+.date { color:var(--muted); }
+.timeline { border:1px solid var(--line); border-radius:8px; overflow:hidden; max-width:1120px; }
+.timeline-row { display:grid; grid-template-columns: 92px 82px minmax(180px,1fr) minmax(220px,1.2fr); gap:10px; padding:10px 12px; border-bottom:1px solid var(--line); align-items:start; }
+.timeline-row:last-child { border-bottom:0; }
+.timeline-row:nth-child(even) { background:#fbfcfd; }
+.files { display:flex; flex-wrap:wrap; gap:5px; }
+.filechip { font-size:12px; background:#eef3f8; border-radius:999px; padding:2px 7px; color:#334e68; }
+.imports code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; }
+.imports { color:var(--muted); font-size:12px; line-height:1.45; }
+footer { padding:20px 44px 32px; color:var(--muted); border-top:1px solid var(--line); font-size:13px; }
+@media (max-width: 800px) { header, main, footer { padding-left:18px; padding-right:18px; } .summary-grid { grid-template-columns:repeat(2,1fr); } .short-names ul { columns:1; } .timeline-row { grid-template-columns:1fr; } .cards { grid-template-columns:1fr; } }
+</style></head><body>
+<header><h1>imuFactors Notebook History Overview</h1>
+<div class="subtitle">Static overview of the notebooks in <span class="mono">/Users/dellaert/git/imuFactors/notebooks</span>, generated from the current working tree and <span class="mono">git log --follow</span> per notebook. Links open the notebook files relative to this report.</div>
+<div class="summary-grid">
+<div class="metric"><div class="value">7</div><div class="label">notebooks</div></div>
+<div class="metric"><div class="value">19</div><div class="label">notebook-touching commits</div></div>
+<div class="metric"><div class="value">1</div><div class="label">modified notebooks</div></div>
+<div class="metric"><div class="value">116</div><div class="label">saved output bundles</div></div>
+</div>
+<div class="short-names">
+<h2>Notebook Short Names, Chronological</h2>
+<div class="subtitle">Chronological order follows the first Git commit touching each notebook.</div>
+<ul>
+<li><span class="alias">tilt</span> — <a href="../notebooks/tilt_observer_results.ipynb">Tilt Observer Results</a> <span class="date">May 4</span></li>
+<li><span class="alias">quad-overview</span> — <a href="../notebooks/scalar_quadrature_comparison.ipynb">Scalar Quadrature Comparison</a> <span class="date">May 24</span></li>
+<li><span class="alias">quad-fixed-m</span> — <a href="../notebooks/scalar_quadrature_fixed_sample_counts.ipynb">Fixed Sample Counts</a> <span class="date">May 24</span></li>
+<li><span class="alias">quad-random-d4</span> — <a href="../notebooks/scalar_quadrature_random_degree4_polynomials.ipynb">Random Degree-4 Polynomials</a> <span class="date">May 24</span></li>
+<li><span class="alias">euroc-spectrogram</span> — <a href="../notebooks/euroc_spectrogram.ipynb">EuRoC Spectrogram</a> <span class="date">May 28</span></li>
+<li><span class="alias">euroc-all</span> — <a href="../notebooks/euroc_all_dataset_spectrograms.ipynb">EuRoC All-Dataset Spectrograms</a> <span class="date">May 28</span></li>
+<li><span class="alias">euroc-aggressive</span> — <a href="../notebooks/scalar_quadrature_euroc_aggressive_windows.ipynb">EuRoC Aggressive-Window Quadrature</a> <span class="date">May 28</span></li>
+</ul>
+</div></header><main>
+<section><h2>High-Level Story</h2>
+<div class="note"><strong>History summary.</strong> The notebook tree starts with the tilt-observer analysis on May 4, adds scalar quadrature comparison notebooks on May 24, then grows the EuRoC spectrogram and aggressive-window quadrature workflow on May 28. The latest commits standardize notation around <span class="mono">m</span>, <span class="mono">n</span>, and <span class="mono">N</span>, add derivative Tikhonov regularization, and split win-rate diagnostics by noise level.</div>
+<div class="note warning" style="margin-top:12px"><strong>Working tree note.</strong> These notebook files are currently modified: notebooks/scalar_quadrature_euroc_aggressive_windows.ipynb (1 file changed, 42086 insertions(+), 27 deletions(-)). The report reflects the working tree, while the history entries reflect committed Git history.</div>
+</section>
+<section><h2>Notebook Families</h2>
+<div class="category"><h3>EuRoC spectrograms</h3><div class="cards">
+<article class="card">
+<div class="card-title"><div>
+<h3><a href="../notebooks/euroc_all_dataset_spectrograms.ipynb">EuRoC All-Dataset Spectrograms</a></h3>
+<div class="path">notebooks/euroc_all_dataset_spectrograms.ipynb</div></div>
+<span class="badge">clean</span>
+</div>
+<div class="stats">
+<span class="stat">cells: 7</span>
+<span class="stat">code: 4</span>
+<span class="stat">markdown: 3</span>
+<span class="stat">outputs: 0</span>
+<span class="stat">size: 5.2 KB</span>
+<span class="stat">commits: 3</span>
+</div>
+<p class="summary">Run the same basis fit over every merged EuRoC CSV and display the average spectra plus coefficient spectrogram for each dataset. This notebook is deliberately noninteractive; edit the constants in the setup cell to change basis, `N`, interval length, or signal group. Supported basis values are `chebyshev`, `chebyshev2`, and `fourier`.</p>
+<div><strong>Sections</strong><ul>
+<li>Average Spectra and Coefficient Spectrograms</li>
+<li>All-Dataset Whole-File Average Comparison</li>
+</ul></div>
+<div class="imports"><strong>Notebook-facing APIs:</strong><br>
+<code>import imuFactors.euroc as euroc</code><br><code>import imuFactors.spectral as spectral</code><br><code>import imuFactors.spectrogram as spectrogram</code>
+</div>
+<div class="history"><strong>History</strong>
+<div class="summary">Created/introduced around 2026-05-28 by <span class="hash">3434d32</span> (All datasets notebook) and last committed 2026-05-28 by <span class="hash">c5865c7</span> (M-n standardization).</div>
+<div class="history-row"><span class="date">2026-05-28</span><span class="hash">c5865c7</span><span>M-n standardization</span></div>
+<div class="history-row"><span class="date">2026-05-28</span><span class="hash">99f99ba</span><span>Refactor</span></div>
+<div class="history-row"><span class="date">2026-05-28</span><span class="hash">3434d32</span><span>All datasets notebook</span></div>
+</div>
+</article>
+<article class="card">
+<div class="card-title"><div>
+<h3><a href="../notebooks/euroc_spectrogram.ipynb">EuRoC Spectrogram</a></h3>
+<div class="path">notebooks/euroc_spectrogram.ipynb</div></div>
+<span class="badge">clean</span>
+</div>
+<div class="stats">
+<span class="stat">cells: 6</span>
+<span class="stat">code: 3</span>
+<span class="stat">markdown: 3</span>
+<span class="stat">outputs: 0</span>
+<span class="stat">size: 10.6 KB</span>
+<span class="stat">commits: 8</span>
+</div>
+<p class="summary">Fit spectral or pseudo-spectral basis functions to fixed-duration intervals in a merged EuRoC CSV.</p>
+<div><strong>Sections</strong><ul>
+<li>Interactive Controls</li>
+<li>Working With Results</li>
+</ul></div>
+<div class="imports"><strong>Notebook-facing APIs:</strong><br>
+<code>import ipywidgets as widgets</code><br><code>import imuFactors.euroc as euroc</code><br><code>import imuFactors.spectral as spectral</code><br><code>import imuFactors.spectrogram as spectrogram</code>
+</div>
+<div class="history"><strong>History</strong>
+<div class="summary">Created/introduced around 2026-05-28 by <span class="hash">08cc29b</span> (Spectrograms) and last committed 2026-05-28 by <span class="hash">c5865c7</span> (M-n standardization).</div>
+<div class="history-row"><span class="date">2026-05-28</span><span class="hash">c5865c7</span><span>M-n standardization</span></div>
+<div class="history-row"><span class="date">2026-05-28</span><span class="hash">99f99ba</span><span>Refactor</span></div>
+<div class="history-row"><span class="date">2026-05-28</span><span class="hash">b304b6a</span><span>Tikhonov regularization with D</span></div>
+<div class="history-row"><span class="date">2026-05-28</span><span class="hash">3434d32</span><span>All datasets notebook</span></div>
+<div class="history-row"><span class="date">2026-05-28</span><span class="hash">d67020a</span><span>Add Fourier</span></div>
+</div>
+</article>
+<article class="card modified">
+<div class="card-title"><div>
+<h3><a href="../notebooks/scalar_quadrature_euroc_aggressive_windows.ipynb">Scalar Chebyshev2 vs Trapezoid: EuRoC Aggressive Windows</a></h3>
+<div class="path">notebooks/scalar_quadrature_euroc_aggressive_windows.ipynb</div></div>
+<span class="badge modified">M modified</span>
+</div>
+<div class="stats">
+<span class="stat">cells: 17</span>
+<span class="stat">code: 14</span>
+<span class="stat">markdown: 3</span>
+<span class="stat">outputs: 68</span>
+<span class="stat">size: 4.5 MB</span>
+<span class="stat">commits: 3</span>
+</div>
+<p class="summary">This notebook mirrors `scalar_quadrature_random_degree4_polynomials.ipynb`, but each scalar function is derived from the most aggressive 1-second `gyro_norm` window in one merged EuRoC dataset. The 1-second window is fit with Chebyshev2 (`N=50`, so `n=49`), cached as CGL node values, and the quadrature experiment samples only the middle 200 ms interval `[0.4, 0.6]`. Set `USE_LAMBDA1_TIKHONOV = True` to add the Chebyshev2 derivative-matrix Tikhonov penalty to the noisy Chebyshev fits.</p>
+<div><strong>Sections</strong><ul>
+<li>Decision-oriented Plotly views</li>
+<li>Lambda1 Sweep for m=40, N=floor(sqrt(m))</li>
+</ul></div>
+<div class="imports"><strong>Notebook-facing APIs:</strong><br>
+<code>import matplotlib.pyplot as plt</code><br><code>import numpy as np</code><br><code>import pandas as pd</code><br><code>import plotly.graph_objects as go</code><br><code>from plotly.subplots import make_subplots</code><br><code>import imuFactors.euroc as euroc</code>
+</div>
+<div class="history"><strong>History</strong>
+<div class="summary">Created/introduced around 2026-05-28 by <span class="hash">f5717cb</span> (Aggressive snippets) and last committed 2026-05-28 by <span class="hash">22d7a25</span> (segrate win rates).</div>
+<div class="history-row"><span class="date">2026-05-28</span><span class="hash">22d7a25</span><span>segrate win rates</span></div>
+<div class="history-row"><span class="date">2026-05-28</span><span class="hash">c5865c7</span><span>M-n standardization</span></div>
+<div class="history-row"><span class="date">2026-05-28</span><span class="hash">f5717cb</span><span>Aggressive snippets</span></div>
+</div>
+<div class="summary"><strong>Uncommitted diff:</strong> 1 file changed, 42086 insertions(+), 27 deletions(-)</div>
+</article>
+</div></div>
+<div class="category"><h3>Scalar quadrature</h3><div class="cards">
+<article class="card">
+<div class="card-title"><div>
+<h3><a href="../notebooks/scalar_quadrature_comparison.ipynb">Scalar Chebyshev2 vs Trapezoid Integration</a></h3>
+<div class="path">notebooks/scalar_quadrature_comparison.ipynb</div></div>
+<span class="badge">clean</span>
+</div>
+<div class="stats">
+<span class="stat">cells: 7</span>
+<span class="stat">code: 6</span>
+<span class="stat">markdown: 1</span>
+<span class="stat">outputs: 0</span>
+<span class="stat">size: 4.5 KB</span>
+<span class="stat">commits: 3</span>
+</div>
+<p class="summary">This notebook reproduces the scalar noisy integration comparison on `[0, 1]`. The Chebyshev path is implemented in the reusable library code and calls `gtsam.Chebyshev2` directly for the pseudo-spectral fit and quadrature weights. The trapezoid baseline is local NumPy code because this is not provided by GTSAM.</p>
+<div class="imports"><strong>Notebook-facing APIs:</strong><br>
+<code>import matplotlib.pyplot as plt</code><br><code>import numpy as np</code><br><code>import imuFactors.scalar_quadrature as scalar_quadrature</code>
+</div>
+<div class="history"><strong>History</strong>
+<div class="summary">Created/introduced around 2026-05-24 by <span class="hash">2b29ac8</span> (Three notebooks) and last committed 2026-05-28 by <span class="hash">c5865c7</span> (M-n standardization).</div>
+<div class="history-row"><span class="date">2026-05-28</span><span class="hash">c5865c7</span><span>M-n standardization</span></div>
+<div class="history-row"><span class="date">2026-05-28</span><span class="hash">99f99ba</span><span>Refactor</span></div>
+<div class="history-row"><span class="date">2026-05-24</span><span class="hash">2b29ac8</span><span>Three notebooks</span></div>
+</div>
+</article>
+<article class="card">
+<div class="card-title"><div>
+<h3><a href="../notebooks/scalar_quadrature_fixed_sample_counts.ipynb">Scalar Chebyshev2 vs Trapezoid: Fixed Sample Counts</a></h3>
+<div class="path">notebooks/scalar_quadrature_fixed_sample_counts.ipynb</div></div>
+<span class="badge">clean</span>
+</div>
+<div class="stats">
+<span class="stat">cells: 10</span>
+<span class="stat">code: 8</span>
+<span class="stat">markdown: 2</span>
+<span class="stat">outputs: 0</span>
+<span class="stat">size: 6.4 KB</span>
+<span class="stat">commits: 4</span>
+</div>
+<p class="summary">This is a smaller companion to `scalar_quadrature_comparison.ipynb`. Each subplot fixes `m`, the number of samples; the y-axis is `N`, the Chebyshev2 CGL-node count (`n=N-1`). The light grey dashed line marks `sqrt(m)`.</p>
+<div><strong>Sections</strong><ul>
+<li>Decision-oriented Plotly views</li>
+</ul></div>
+<div class="imports"><strong>Notebook-facing APIs:</strong><br>
+<code>import matplotlib.pyplot as plt</code><br><code>import numpy as np</code><br><code>import pandas as pd</code><br><code>import imuFactors.scalar_quadrature as scalar_quadrature</code>
+</div>
+<div class="history"><strong>History</strong>
+<div class="summary">Created/introduced around 2026-05-24 by <span class="hash">2b29ac8</span> (Three notebooks) and last committed 2026-05-28 by <span class="hash">c5865c7</span> (M-n standardization).</div>
+<div class="history-row"><span class="date">2026-05-28</span><span class="hash">c5865c7</span><span>M-n standardization</span></div>
+<div class="history-row"><span class="date">2026-05-28</span><span class="hash">99f99ba</span><span>Refactor</span></div>
+<div class="history-row"><span class="date">2026-05-28</span><span class="hash">8abc1dc</span><span>New graphs</span></div>
+<div class="history-row"><span class="date">2026-05-24</span><span class="hash">2b29ac8</span><span>Three notebooks</span></div>
+</div>
+</article>
+<article class="card">
+<div class="card-title"><div>
+<h3><a href="../notebooks/scalar_quadrature_random_degree4_polynomials.ipynb">Scalar Chebyshev2 vs Trapezoid: Random Degree-4 Polynomials</a></h3>
+<div class="path">notebooks/scalar_quadrature_random_degree4_polynomials.ipynb</div></div>
+<span class="badge">clean</span>
+</div>
+<div class="stats">
+<span class="stat">cells: 9</span>
+<span class="stat">code: 7</span>
+<span class="stat">markdown: 2</span>
+<span class="stat">outputs: 0</span>
+<span class="stat">size: 6.5 KB</span>
+<span class="stat">commits: 4</span>
+</div>
+<p class="summary">This notebook uses three fixed random degree-4 polynomials. Each polynomial is defined by random values in `[-0.5, 0.5]` at five CGL nodes on `[0, 1]`, then evaluated and integrated with GTSAM `Chebyshev2` machinery. Each subplot fixes `m`, the number of samples; the y-axis is `N`, the Chebyshev2 CGL-node count (`n=N-1`). The light grey dashed line marks `sqrt(m)`.</p>
+<div><strong>Sections</strong><ul>
+<li>Decision-oriented Plotly views</li>
+</ul></div>
+<div class="imports"><strong>Notebook-facing APIs:</strong><br>
+<code>import imuFactors.spectral as spectral</code><br><code>import matplotlib.pyplot as plt</code><br><code>import numpy as np</code><br><code>import pandas as pd</code><br><code>import imuFactors.scalar_quadrature as scalar_quadrature</code>
+</div>
+<div class="history"><strong>History</strong>
+<div class="summary">Created/introduced around 2026-05-24 by <span class="hash">2b29ac8</span> (Three notebooks) and last committed 2026-05-28 by <span class="hash">c5865c7</span> (M-n standardization).</div>
+<div class="history-row"><span class="date">2026-05-28</span><span class="hash">c5865c7</span><span>M-n standardization</span></div>
+<div class="history-row"><span class="date">2026-05-28</span><span class="hash">99f99ba</span><span>Refactor</span></div>
+<div class="history-row"><span class="date">2026-05-28</span><span class="hash">8abc1dc</span><span>New graphs</span></div>
+<div class="history-row"><span class="date">2026-05-24</span><span class="hash">2b29ac8</span><span>Three notebooks</span></div>
+</div>
+</article>
+</div></div>
+<div class="category"><h3>Tilt observer</h3><div class="cards">
+<article class="card">
+<div class="card-title"><div>
+<h3><a href="../notebooks/tilt_observer_results.ipynb">Tilt Observer Results</a></h3>
+<div class="path">notebooks/tilt_observer_results.ipynb</div></div>
+<span class="badge">clean</span>
+</div>
+<div class="stats">
+<span class="stat">cells: 8</span>
+<span class="stat">code: 6</span>
+<span class="stat">markdown: 2</span>
+<span class="stat">outputs: 48</span>
+<span class="stat">size: 7.6 MB</span>
+<span class="stat">commits: 7</span>
+</div>
+<p class="summary">This notebook discovers CSV files written by `evalTiltObserver`, loads the latest run by default, unwraps angle branches per dataset, and renders roll/pitch and gyroscope-bias estimates for every dataset.</p>
+<div><strong>Sections</strong><ul>
+<li>PIM Window-Rate Observer Results</li>
+</ul></div>
+<div class="imports"><strong>Notebook-facing APIs:</strong><br>
+<code>import matplotlib.pyplot as plt</code><br><code>import numpy as np</code><br><code>import pandas as pd</code>
+</div>
+<div class="history"><strong>History</strong>
+<div class="summary">Created/introduced around 2026-05-04 by <span class="hash">98803bc</span> (Tilt-observer v1) and last committed 2026-05-05 by <span class="hash">5dfcb80</span> (PIM-driven observer).</div>
+<div class="history-row"><span class="date">2026-05-05</span><span class="hash">5dfcb80</span><span>PIM-driven observer</span></div>
+<div class="history-row"><span class="date">2026-05-04</span><span class="hash">2b785ea</span><span>initializeFromGroundTruth</span></div>
+<div class="history-row"><span class="date">2026-05-04</span><span class="hash">141d939</span><span>Lazy init</span></div>
+<div class="history-row"><span class="date">2026-05-04</span><span class="hash">b78795f</span><span>Init</span></div>
+<div class="history-row"><span class="date">2026-05-04</span><span class="hash">cb36c49</span><span>Sweep</span></div>
+</div>
+</article>
+</div></div>
+</section>
+<section><h2>Recent Notebook Commit Timeline</h2>
+<div class="timeline">
+<div class="timeline-row"><div class="date">2026-05-28</div><div class="hash">22d7a25</div><div>segrate win rates</div><div class="files"><span class="filechip">scalar_quadrature_euroc_aggressive_windows.ipynb</span></div></div>
+<div class="timeline-row"><div class="date">2026-05-28</div><div class="hash">c5865c7</div><div>M-n standardization</div><div class="files"><span class="filechip">euroc_all_dataset_spectrograms.ipynb</span><span class="filechip">euroc_spectrogram.ipynb</span><span class="filechip">scalar_quadrature_comparison.ipynb</span><span class="filechip">scalar_quadrature_euroc_aggressive_windows.ipynb</span><span class="filechip">scalar_quadrature_fixed_sample_counts.ipynb</span><span class="filechip">+1</span></div></div>
+<div class="timeline-row"><div class="date">2026-05-28</div><div class="hash">f5717cb</div><div>Aggressive snippets</div><div class="files"><span class="filechip">scalar_quadrature_euroc_aggressive_windows.ipynb</span></div></div>
+<div class="timeline-row"><div class="date">2026-05-28</div><div class="hash">99f99ba</div><div>Refactor</div><div class="files"><span class="filechip">euroc_all_dataset_spectrograms.ipynb</span><span class="filechip">euroc_spectrogram.ipynb</span><span class="filechip">scalar_quadrature_comparison.ipynb</span><span class="filechip">scalar_quadrature_fixed_sample_counts.ipynb</span><span class="filechip">scalar_quadrature_random_degree4_polynomials.ipynb</span></div></div>
+<div class="timeline-row"><div class="date">2026-05-28</div><div class="hash">b304b6a</div><div>Tikhonov regularization with D</div><div class="files"><span class="filechip">euroc_spectrogram.ipynb</span></div></div>
+<div class="timeline-row"><div class="date">2026-05-28</div><div class="hash">3434d32</div><div>All datasets notebook</div><div class="files"><span class="filechip">euroc_all_dataset_spectrograms.ipynb</span><span class="filechip">euroc_spectrogram.ipynb</span></div></div>
+<div class="timeline-row"><div class="date">2026-05-28</div><div class="hash">d67020a</div><div>Add Fourier</div><div class="files"><span class="filechip">euroc_spectrogram.ipynb</span></div></div>
+<div class="timeline-row"><div class="date">2026-05-28</div><div class="hash">fbae978</div><div>norms</div><div class="files"><span class="filechip">euroc_chebyshev_spectrogram.ipynb</span></div></div>
+<div class="timeline-row"><div class="date">2026-05-28</div><div class="hash">3321d82</div><div>Move code to library</div><div class="files"><span class="filechip">euroc_chebyshev_spectrogram.ipynb</span></div></div>
+<div class="timeline-row"><div class="date">2026-05-28</div><div class="hash">08cc29b</div><div>Spectrograms</div><div class="files"><span class="filechip">euroc_chebyshev_spectrogram.ipynb</span></div></div>
+<div class="timeline-row"><div class="date">2026-05-28</div><div class="hash">8abc1dc</div><div>New graphs</div><div class="files"><span class="filechip">scalar_quadrature_fixed_sample_counts.ipynb</span><span class="filechip">scalar_quadrature_random_degree4_polynomials.ipynb</span></div></div>
+<div class="timeline-row"><div class="date">2026-05-24</div><div class="hash">2b29ac8</div><div>Three notebooks</div><div class="files"><span class="filechip">scalar_quadrature_comparison.ipynb</span><span class="filechip">scalar_quadrature_fixed_sample_counts.ipynb</span><span class="filechip">scalar_quadrature_random_degree4_polynomials.ipynb</span></div></div>
+<div class="timeline-row"><div class="date">2026-05-05</div><div class="hash">5dfcb80</div><div>PIM-driven observer</div><div class="files"><span class="filechip">tilt_observer_results.ipynb</span></div></div>
+<div class="timeline-row"><div class="date">2026-05-04</div><div class="hash">2b785ea</div><div>initializeFromGroundTruth</div><div class="files"><span class="filechip">tilt_observer_results.ipynb</span></div></div>
+</div></section>
+<section><h2>Current Notebook Index</h2>
+<div class="timeline">
+<div class="timeline-row"><strong>Notebook</strong><strong>Status</strong><strong>Purpose</strong><strong>Latest committed change</strong></div>
+<div class="timeline-row"><div><a href="../notebooks/euroc_all_dataset_spectrograms.ipynb">euroc_all_dataset_spectrograms.ipynb</a></div><div>clean</div><div>Run the same basis fit over every merged EuRoC CSV and display the average spectra plus coefficient spectrogram for each dataset. This notebook is deliberately noninteractive; edit the constants in the setup cell to change basis, `N`, interval length, or signal group. Supported basis values are `chebyshev`, `chebyshev2`, and `fourier`.</div><div>2026-05-28 c5865c7 M-n standardization</div></div>
+<div class="timeline-row"><div><a href="../notebooks/euroc_spectrogram.ipynb">euroc_spectrogram.ipynb</a></div><div>clean</div><div>Fit spectral or pseudo-spectral basis functions to fixed-duration intervals in a merged EuRoC CSV.</div><div>2026-05-28 c5865c7 M-n standardization</div></div>
+<div class="timeline-row"><div><a href="../notebooks/scalar_quadrature_comparison.ipynb">scalar_quadrature_comparison.ipynb</a></div><div>clean</div><div>This notebook reproduces the scalar noisy integration comparison on `[0, 1]`. The Chebyshev path is implemented in the reusable library code and calls `gtsam.Chebyshev2` directly for the pseudo-spectral fit and quadrature weights. The trapezoid baseline is local NumPy code because this is not provided by GTSAM.</div><div>2026-05-28 c5865c7 M-n standardization</div></div>
+<div class="timeline-row"><div><a href="../notebooks/scalar_quadrature_euroc_aggressive_windows.ipynb">scalar_quadrature_euroc_aggressive_windows.ipynb</a></div><div>M</div><div>This notebook mirrors `scalar_quadrature_random_degree4_polynomials.ipynb`, but each scalar function is derived from the most aggressive 1-second `gyro_norm` window in one merged EuRoC dataset. The 1-second window is fit with Chebyshev2 (`N=50`, so `n=49`), cached as CGL node values, and the quadrature experiment samples only the middle 200 ms interval `[0.4, 0.6]`. Set `USE_LAMBDA1_TIKHONOV = True` to add the Chebyshev2 derivative-matrix Tikhonov penalty to the noisy Chebyshev fits.</div><div>2026-05-28 22d7a25 segrate win rates</div></div>
+<div class="timeline-row"><div><a href="../notebooks/scalar_quadrature_fixed_sample_counts.ipynb">scalar_quadrature_fixed_sample_counts.ipynb</a></div><div>clean</div><div>This is a smaller companion to `scalar_quadrature_comparison.ipynb`. Each subplot fixes `m`, the number of samples; the y-axis is `N`, the Chebyshev2 CGL-node count (`n=N-1`). The light grey dashed line marks `sqrt(m)`.</div><div>2026-05-28 c5865c7 M-n standardization</div></div>
+<div class="timeline-row"><div><a href="../notebooks/scalar_quadrature_random_degree4_polynomials.ipynb">scalar_quadrature_random_degree4_polynomials.ipynb</a></div><div>clean</div><div>This notebook uses three fixed random degree-4 polynomials. Each polynomial is defined by random values in `[-0.5, 0.5]` at five CGL nodes on `[0, 1]`, then evaluated and integrated with GTSAM `Chebyshev2` machinery. Each subplot fixes `m`, the number of samples; the y-axis is `N`, the Chebyshev2 CGL-node count (`n=N-1`). The light grey dashed line marks `sqrt(m)`.</div><div>2026-05-28 c5865c7 M-n standardization</div></div>
+<div class="timeline-row"><div><a href="../notebooks/tilt_observer_results.ipynb">tilt_observer_results.ipynb</a></div><div>clean</div><div>This notebook discovers CSV files written by `evalTiltObserver`, loads the latest run by default, unwraps angle branches per dataset, and renders roll/pitch and gyroscope-bias estimates for every dataset.</div><div>2026-05-05 5dfcb80 PIM-driven observer</div></div>
+</div></section>
+</main><footer>Generated by Codex from local Git history and notebook JSON. Report path: <span class="mono">reports/notebook_history_overview.html</span>.</footer></body></html>
